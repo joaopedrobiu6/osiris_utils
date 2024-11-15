@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from PIL import Image
 import scipy 
+import pandas as pd
 
 def read_osiris_file(filename, pressure = False):
     f = h5py.File(filename, 'r+')
@@ -265,3 +266,42 @@ def animate_2D(datafiles, frames, interval, fps, savename, **kwargs):
 
     # Display the animation
     return ani
+
+def save_data(x, LHS, RHS, savename, option="numpy"):
+    """
+    Save the data to a .txt file.
+
+    Parameters
+    ----------
+    x : numpy.ndarray
+        Dim: 1D.
+        The x axis.
+    LHS : numpy.ndarray
+        Dim: 1D.
+        The left hand side of the equation.
+    RHS : numpy.ndarray
+        Dim: 1D.
+        The right hand side of the equation.
+    """
+    if option == "numpy":
+        np.savetxt(savename, np.array([x, LHS, RHS]).T, header="x LHS RHS")
+    elif option == "pandas":
+        df = pd.DataFrame({"x": x, "LHS": LHS, "RHS": RHS})
+        df.to_csv(savename, index=False)
+
+def read_data(filename, option="numpy"):
+    """
+    Read the data from a .txt file.
+
+    Parameters
+    ----------
+    filename : str
+        The path to the file.
+
+    Returns
+    -------
+    numpy.ndarray
+        Dim: 2D.
+        The data.
+    """
+    return np.loadtxt(filename) if option == "numpy" else pd.read_csv(filename).values
