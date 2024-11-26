@@ -150,7 +150,7 @@ def time_estimation(n_cells, ppc, push_time, t_steps, n_cpu, hours = False):
 def filesize_estimation(n_gridpoints):
     return n_gridpoints*4/(1024**2)
 
-def tranverse_average(data):
+def transverse_average(data):
     """
     Computes the transverse average of a 2D array.
     
@@ -305,3 +305,34 @@ def read_data(filename, option="numpy"):
         The data.
     """
     return np.loadtxt(filename) if option == "numpy" else pd.read_csv(filename).values
+
+def mft_decomposition(filename, pressure =  False, xy = False):
+    """
+    Mean Field Theory decomposition of the data.
+    Considering that A = ⟨A⟩ + δA with ⟨δA⟩ = 0
+    This function returns ⟨A⟩ and δA from A. 
+    
+    Parameters
+    ----------
+    filename : str
+        The path to the file.
+        The data is 2D.
+    pressure : bool, optional
+        If True, the file is a pressure file. The default is False.
+        
+    Returns
+    -------
+    mean : numpy.ndarray
+        Dim: 1D.
+        The mean field ⟨A⟩.
+    fluctuation : numpy.ndarray
+        Dim: 2D.
+        The fluctuation δA.
+    """ 
+    x, y, data, _ = open2D(filename, pressure)
+    mean = transverse_average(data)
+    fluctuation = data - mean
+    if xy:
+        return x, y, mean, fluctuation
+    else:
+        return mean, fluctuation
