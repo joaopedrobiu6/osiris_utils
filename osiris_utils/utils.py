@@ -6,6 +6,25 @@ from PIL import Image
 import scipy 
 import pandas as pd
 
+def courant2D(dx, dy):
+    """
+    Compute the Courant number for a 2D simulation.
+
+    Parameters
+    ----------
+    dx : float
+        The spacing in the x direction.
+    dy : float
+        The spacing in the y direction.
+
+    Returns
+    -------
+    float
+        The limit for dt.
+    """
+    dt = 1 / (np.sqrt(1/dx**2 + 1/dy**2))
+    return dt
+
 def read_osiris_file(filename, pressure = False):
     f = h5py.File(filename, 'r+')
     atr = f.attrs

@@ -1,2 +1,5 @@
 build/
 osiris_utils.egg-info/
+osiris_utils/__pycache__/
+*.pyc
+.DS_Store
