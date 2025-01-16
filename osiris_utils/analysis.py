@@ -26,6 +26,16 @@ class TwoFluid2D:
         self.vtime_before1 = f"{(self.vt-1):06}"
         self.vtime_after1 = f"{(self.vt+1):06}"
         
+        print(f"Time step: {self.dt}")
+        print(f"Time frame: {self.time}")
+        print(f"Quantities time: {self.qt}")
+        print(f"Velocity time: {self.vt}")
+        print(f"Velocity time before: {self.vtime_before1}")
+        print(f"Velocity time after: {self.vtime_after1}")
+        print(f"root_folder: {self.root_folder}")
+        print(f"quantities_folder: {self.quantities_folder}")
+        print(f"velocity_folder: {self.velocity_folder}")
+        
         self.load_quantities()
         self.MomentumEquationQuantities_load()
         self.MeanFieldTheory_load()
@@ -159,7 +169,7 @@ class TwoFluid2D:
         self.ne_bar = transverse_average(self.ne)
         self.ne_delta = self.ne - self.ne_bar
 
-        self.A_e = - self.dvdt_e - self.vdvdx_e -(self.dPdx_e)/self.ne - (self.vyBz_e - self.vzBy_e)
+        self.A_e = - self.dvdt_e - self.vdvdx_e -(self.dPdx_e)/self.ne - (self.dPdy_e)/self.ne - (self.vyBz_e - self.vzBy_e)
         self.A_e_bar = transverse_average(self.A_e)
         self.A_e_delta = self.A_e - self.A_e_bar
         
@@ -184,88 +194,69 @@ class TwoFluid2D:
         self.n_p_bar = transverse_average(self.n_p)
         self.n_p_delta = self.n_p - self.n_p_bar
 
-        self.A_p = self.dvdt_p + self.vdvdx_p  + (self.dPdx_p)/self.n_p - (self.vyBz_p - self.vzBy_p)
+        self.A_p = self.dvdt_p + self.vdvdx_p  + (self.dPdx_p)/self.n_p + (self.dPdy_p)/self.n_p - (self.vyBz_p - self.vzBy_p)
         self.A_p_bar = transverse_average(self.A_p)
         self.A_p_delta = self.A_p - self.A_p_bar
         
-    def MeanFieldTheory_terms(self, species, get_terms=False):
+    def MeanFieldTheory_terms(self, species, get_terms=False):  
         if species == 'electrons':
+            
+            self.term1_e = transverse_average(self.ve_x_delta * np.gradient(self.ve_x_delta, self.dx, axis=1))
+            self.term2_e = transverse_average(self.ve_y_delta*self.Bz_delta)
+            self.term3_e = transverse_average(self.ve_z_delta*self.By_delta)
+            self.term4_e = transverse_average((self.dPdx_e/self.ne)*(self.ne_delta/self.ne_bar))
+            self.term5_e = transverse_average((self.dPdy_e/self.ne)*(self.ne_delta/self.ne_bar))
+
+            
             self.dvdt_e_bar = (self.ve_x_after1_bar - self.ve_x_before1_bar) / (2*self.dt)
             self.vdvdx_e_bar = self.ve_x_bar * np.gradient(self.ve_x_bar, self.dx, axis=0)
             self.dPdx_e_bar = np.gradient(self.Pe_xx_bar, self.dx, axis=0)
-            # dPdy_e_bar = np.gradient(Pe_xy_bar, dy)
+            self.dPdy_e_bar = np.mean(np.gradient(np.tile(self.Pe_xy_bar, (len(self.Pe_xy_bar), 1)), self.dy, axis=1), axis=0)
             self.vyBz_e_bar = self.ve_y_bar*self.Bz_bar
             self.vzBy_e_bar = self.ve_z_bar*self.By_bar
             
-            self.term1_e = transverse_average(self.A_e_delta * (self.ne_delta/self.ne_bar))
-            self.term2_e = transverse_average((self.ne_delta/self.ne_bar) * (self.ve_x_after1_delta - self.ve_x_before1_delta) / (2*self.dt))
-            self.term3_e = transverse_average((self.ne_delta/self.ne_bar) * self.ve_x_bar * np.gradient(self.ve_x_delta, self.dx, axis=1))
-            self.term4_e = transverse_average((self.ne_delta/self.ne_bar) * self.ve_x_delta * np.gradient(self.ve_x_bar, self.dx, axis=0))
-
-            self.term5_e = transverse_average(self.ve_x_delta * np.gradient(self.ve_x_delta, self.dx, axis=1))
-            self.term6_e = transverse_average((self.ne_delta/self.ne_bar) * self.ve_x_delta * np.gradient(self.ve_x_delta, self.dx, axis=1))
-            self.term7_e = transverse_average((1/self.ne_bar) * np.gradient(self.Pe_xx_delta, self.dx, axis=1))
-            # self.term8_e = transverse_average(1/ne_bar * np.gradient(Pe_xy_delta, dy))
-
-            self.term9_e = transverse_average(self.ve_y_delta*self.Bz_delta - self.ve_z_delta*self.By_delta)
-            self.term10_e = transverse_average((self.ne_delta/self.ne_bar) * (self.ve_y_bar*self.Bz_delta - self.ve_z_bar*self.By_delta))
-            self.term11_e = transverse_average((self.ne_delta/self.ne_bar) * (self.ve_y_delta*self.Bz_bar - self.ve_z_delta*self.By_bar))
-            self.term12_e = transverse_average((self.ne_delta/self.ne_bar) * (self.ve_y_delta*self.Bz_delta - self.ve_z_delta*self.By_bar))
             
             if get_terms:
                 dataframe_MFT_e = pd.DataFrame({'dvdt_e_bar': self.dvdt_e_bar, 'vdvdx_e_bar': self.vdvdx_e_bar, 'dPdx_e_bar': self.dPdx_e_bar, 
                                                 'vyBz_e_bar': self.vyBz_e_bar, 'vzBy_e_bar': self.vzBy_e_bar, 'term1_e': self.term1_e, 'term2_e': self.term2_e,
-                                                'term3_e': self.term3_e, 'term4_e': self.term4_e, 'term5_e': self.term5_e, 'term6_e': self.term6_e,
-                                                'term7_e': self.term7_e, 'term9_e': self.term9_e, 'term10_e': self.term10_e, 'term11_e': self.term11_e,
-                                                'term12_e': self.term12_e})
+                                                'term3_e': self.term3_e, 'term4_e': self.term4_e, 'term5_e': self.term5_e})
                 return dataframe_MFT_e
             
         elif species == 'positrons':
             self.dvdt_p_bar = (self.vp_x_after1_bar - self.vp_x_before1_bar) / (2*self.dt)
             self.vdvdx_p_bar = self.vp_x_bar * np.gradient(self.vp_x_bar, self.dx, axis=0)
             self.dPdx_p_bar = np.gradient(self.Pp_xx_bar, self.dx, axis=0)
-            # dPdy_p_bar = np.gradient(Pp_xy_bar, dy)
+            self.dPdy_p_bar = np.mean(np.gradient(np.tile(self.Pp_xy_bar, (len(self.Pp_xy_bar), 1)), self.dy, axis=1), axis=0)
             self.vyBz_p_bar = self.vp_y_bar*self.Bz_bar
             self.vzBy_p_bar = self.vp_z_bar*self.By_bar
             
-            self.term1_p = transverse_average(self.A_p_delta * (self.n_p_delta/self.n_p_bar))
-            self.term2_p = transverse_average((self.n_p_delta/self.n_p_bar) * (self.vp_x_after1_delta - self.vp_x_before1_delta) / (2*self.dt))
-            self.term3_p = transverse_average((self.n_p_delta/self.n_p_bar) * self.vp_x_bar * np.gradient(self.vp_x_delta, self.dx, axis=1))
-            self.term4_p = transverse_average((self.n_p_delta/self.n_p_bar) * self.vp_x_delta * np.gradient(self.vp_x_bar, self.dx, axis=0))
-
-            self.term5_p = transverse_average(self.vp_x_delta * np.gradient(self.vp_x_delta, self.dx, axis=1))
-            self.term6_p = transverse_average((self.n_p_delta/self.n_p_bar) * self.vp_x_delta * np.gradient(self.vp_x_delta, self.dx, axis=1))
-            self.term7_p = transverse_average((1/self.n_p_bar) * np.gradient(self.Pp_xx_delta, self.dx, axis=1))
-            # term8_p = transverse_average(1/n_p_bar * np.gradient(Pp_xy_delta, dy))
-
-            self.term9_p = transverse_average(self.vp_y_delta*self.Bz_delta - self.vp_z_delta*self.By_delta)
-            self.term10_p = transverse_average((self.n_p_delta/self.n_p_bar) * (self.vp_y_bar*self.Bz_delta - self.vp_z_bar*self.By_delta))
-            self.term11_p = transverse_average((self.n_p_delta/self.n_p_bar) * (self.vp_y_delta*self.Bz_bar - self.vp_z_delta*self.By_bar))
-            self.term12_p = transverse_average((self.n_p_delta/self.n_p_bar) * (self.vp_y_delta*self.Bz_delta - self.vp_z_delta*self.By_bar))
-            
+            self.term1_p = transverse_average(self.vp_x_delta * np.gradient(self.vp_x_delta, self.dx, axis=1))
+            self.term2_p = transverse_average(self.vp_y_delta*self.Bz_delta)
+            self.term3_p = transverse_average(self.vp_z_delta*self.By_delta)
+            self.term4_p = transverse_average((self.dPdx_p/self.n_p)*(self.n_p_delta/self.n_p_bar))
+            self.term5_p = transverse_average((self.dPdy_p/self.n_p)*(self.n_p_delta/self.n_p_bar))
+                        
             if get_terms:
                 dataframe_MFT_p = pd.DataFrame({'dvdt_p_bar': self.dvdt_p_bar, 'vdvdx_p_bar': self.vdvdx_p_bar, 'dPdx_p_bar': self.dPdx_p_bar, 
                                                 'vyBz_p_bar': self.vyBz_p_bar, 'vzBy_p_bar': self.vzBy_p_bar, 'term1_p': self.term1_p, 'term2_p': self.term2_p,
-                                                'term3_p': self.term3_p, 'term4_p': self.term4_p, 'term5_p': self.term5_p, 'term6_p': self.term6_p,
-                                                'term7_p': self.term7_p, 'term9_p': self.term9_p, 'term10_p': self.term10_p, 'term11_p': self.term11_p,
-                                                'term12_p': self.term12_p})
+                                                'term3_p': self.term3_p, 'term4_p': self.term4_p, 'term5_p': self.term5_p})
                 return dataframe_MFT_p
     
     def MeanFieldTheory(self, species):
         if species == 'electrons':
             self.MeanFieldTheory_terms(species)
-            MFT_LHS_e_ = self.A_e_bar + self.dvdt_e_bar + self.vdvdx_e_bar + self.dPdx_e_bar/self.ne_bar + (self.vyBz_e_bar - self.vzBy_e_bar)
+            MFT_LHS_e_ = self.A_e_bar + self.dvdt_e_bar + self.vdvdx_e_bar + self.dPdx_e_bar/self.ne_bar + self.dPdy_e_bar/self.ne_bar + (self.vyBz_e_bar - self.vzBy_e_bar)
             MFT_LHS_e = integrate(MFT_LHS_e_, self.dx)
-            MFT_RHS_e_ = -(self.term1_e + self.term2_e + self.term3_e + self.term4_e + self.term5_e + self.term6_e + self.term7_e + self.term9_e + self.term10_e + self.term11_e + self.term12_e)
+            MFT_RHS_e_ = -self.term1_e - self.term2_e + self.term3_e + self.term4_e + self.term5_e
             MFT_RHS_e = integrate(MFT_RHS_e_, self.dx)
             
             return MFT_LHS_e, MFT_RHS_e
         
         elif species == 'positrons':
             self.MeanFieldTheory_terms(species)
-            MFT_LHS_p_ = self.A_p_bar - self.dvdt_p_bar - self.vdvdx_p_bar - self.dPdx_p_bar/self.n_p_bar + (self.vyBz_p_bar - self.vzBy_p_bar)
+            MFT_LHS_p_ = self.A_p_bar - self.dvdt_p_bar - self.vdvdx_p_bar - self.dPdx_p_bar/self.n_p_bar - self.dPdy_p_bar/self.n_p_bar + (self.vyBz_p_bar - self.vzBy_p_bar)
             MFT_LHS_p = integrate(MFT_LHS_p_, self.dx)
-            MFT_RHS_p_ = (-self.term1_p + self.term2_p + self.term3_p + self.term4_p + self.term5_p + self.term6_p + self.term7_p - self.term9_p - self.term10_p - self.term11_p - self.term12_p)
+            MFT_RHS_p_ = self.term1_p - self.term2_p + self.term3_p - self.term4_p - self.term5_p 
             MFT_RHS_p = integrate(MFT_RHS_p_, self.dx)
             
             return MFT_LHS_p, MFT_RHS_p
