@@ -241,8 +241,8 @@ def compare_LHS_RHS(LHS, RHS, x, dx, **kwargs):
         raise ValueError(f"LHS and RHS must be 2D")
     if len(LHS) != len(RHS):
         raise ValueError("LHS and RHS must have the same length.")
-    LHS_avg = tranverse_average(LHS)
-    RHS_avg = tranverse_average(RHS)
+    LHS_avg = transverse_average(LHS)
+    RHS_avg = transverse_average(RHS)
     LHS_int = integrate(LHS_avg, dx)
     RHS_int = integrate(RHS_avg, dx)
     plt.plot(x, LHS_int, label='LHS', **kwargs)

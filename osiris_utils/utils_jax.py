@@ -178,3 +178,48 @@ def integrate_jax(array, dx):
     int = -jit(quadax.cumulative_trapezoid)(y=flip_array, dx=dx, initial=0)
     return jnp.flip(int)
     
+def mft_decomposition_jax(filename, pressure = False, xy = False, data = False):
+    """
+    Mean Field Theory decomposition of the data.
+    Considering that A = ⟨A⟩ + δA with ⟨δA⟩ = 0
+    This function returns ⟨A⟩ and δA from A. 
+    
+    Parameters
+    ----------
+    filename : str
+        The path to the file.
+        The data is 2D.
+    pressure : bool, optional
+        If True, the file is a pressure file. The default is False.
+    xy : bool, optional
+        If True, the function returns x and y axes. The default is False.
+    data : bool, optional
+        If True, the function returns the data (2D with no transformation). The default is False.
+        
+    Returns
+    -------
+    mean : numpy.ndarray
+        Dim: 1D.
+        The mean field ⟨A⟩.
+    fluctuation : numpy.ndarray
+        Dim: 2D.
+        The fluctuation δA.
+    x : numpy.ndarray
+        Dim: 1D.
+        The x axis.
+    y : numpy.ndarray
+        Dim: 1D.
+        The y axis.
+    data : numpy.ndarray
+        Dim: 2D.
+        The data.
+    """   
+    x, y, data, _ = open2D_jax(filename, pressure)
+    mean = jnp.mean(data)
+    fluctuation = data - mean
+    if xy:
+        return mean, fluctuation, x, y
+    elif data:
+        return mean, fluctuation, x, y, data
+    else:
+        return mean, fluctuation
