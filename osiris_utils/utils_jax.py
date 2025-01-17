@@ -1,5 +1,27 @@
 import jax.numpy as jnp
+from jax import jit
 import h5py  
+import quadax
+
+
+def courant2D_jax(dx, dy):
+    """
+    Compute the Courant number for a 2D simulation.
+
+    Parameters
+    ----------
+    dx : float
+        The spacing in the x direction.
+    dy : float
+        The spacing in the y direction.
+
+    Returns
+    -------
+    float
+        The limit for dt.
+    """
+    dt = 1/(jnp.sqrt(1/dx**2 + 1/dy**2))
+    return dt
 
 def read_osiris_file_jax(filename, pressure = False):
     f = h5py.File(filename, 'r+')
@@ -31,7 +53,7 @@ def read_osiris_file_jax(filename, pressure = False):
     
     return attrs, axis, jnp.array(data)
 
-def open1D_jax(filename):
+def open1D_jax(filename, pressure = False):
     """ 
     Open a 1D OSIRIS file and return the x axis and the data array.
 
@@ -47,7 +69,7 @@ def open1D_jax(filename):
     data_array : numpy.ndarray
         The data array.
     """
-    attrs, axes, data = read_osiris_file_jax(filename)
+    attrs, axes, data = read_osiris_file_jax(filename, pressure)
     datash = data.shape
     ax1 = axes[0]
     x = jnp.linspace(ax1[0], ax1[1], datash[0])
@@ -79,9 +101,9 @@ def open2D_jax(filename, pressure = False):
     x = jnp.linspace(ax1[0], ax1[1], datash[-1])
     y = jnp.linspace(ax2[0], ax2[1], datash[-2])
     data_array = jnp.array(data[:])
-    return x, y, data_array, [attrs, axes, data]
+    return jnp.array(x), jnp.array(y), jnp.asarray(data_array), [attrs, axes, data]
 
-def open3D_jax(filename):
+def open3D_jax(filename, pressure = False):
     """
     Open a 3D OSIRIS file and return the x, y and z axes and the data array.
 
@@ -101,7 +123,7 @@ def open3D_jax(filename):
     data_array : numpy.ndarray
         The data array.
     """
-    attrs, axes, data = read_osiris_file_jax(filename)
+    attrs, axes, data = read_osiris_file_jax(filename, pressure)
     datash = data.shape
     ax1 = axes[0]
     ax2 = axes[1]
@@ -110,4 +132,49 @@ def open3D_jax(filename):
     y = jnp.linspace(ax2[0], ax2[1], datash[-2])
     z = jnp.linspace(ax3[0], ax3[1], datash[-3])
     data_array = jnp.array(data[:])
-    return x, y, z, data_array, [attrs, axes, data]
+    return jnp.array(x), jnp.array(y), jnp.array(z), jnp.asarray(data_array), [attrs, axes, data]
+
+def transverse_average_jax(data):
+    """
+    Compute the transverse average of a 2D array.
+
+    Parameters
+    ----------
+    data : numpy.ndarray
+        The 2D array.
+
+    Returns
+    -------
+    numpy.ndarray
+        The transverse average.
+    """
+    if len(data.shape) != 2:
+        raise ValueError("The input data must be a 2D array.")
+    return jnp.mean(data, axis=0)
+
+def integrate_jax(array, dx):
+    """
+    Integrate an the tranverse average from the left to the right. This may be changed in the future to allow 
+    for integration in both directions or for other more general cases.
+
+    Parameters
+    ----------
+    array : jax.numpy.ndarray
+        Dim: 1D.
+        The input array.
+    dx : float
+        The spacing between points.
+
+    Returns
+    -------
+    jax.numpy.ndarray
+        Dim: 1D.
+        The integrated array.
+    """
+    if len(array.shape) != 1:
+        raise ValueError("The input array must be 1D.")
+    flip_array = jnp.flip(array)
+    
+    int = -jit(quadax.cumulative_trapezoid)(y=flip_array, dx=dx, initial=0)
+    return jnp.flip(int)
+    
