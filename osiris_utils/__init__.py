@@ -4,4 +4,4 @@ from .utils import (read_osiris_file, open1D, open2D, open3D, time_estimation,
 from .utils_jax import (read_osiris_file_jax, open1D_jax, open2D_jax, open3D_jax, courant2D_jax,
                         transverse_average_jax, integrate_jax, mft_decomposition_jax)
 from .analysis import TwoFluid2D
-from .data_jax import create_dataset
+from .data import create_dataset
