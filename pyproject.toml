@@ -29,7 +29,5 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/joaopedrobiu6/utils_osiris
+Homepage = "https://github.com/joaopedrobiu6/utils_osiris"
 Repository = "https://github.com/joaopedrobiu6/utils_osiris"
-
-
