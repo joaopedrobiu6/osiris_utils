@@ -15,8 +15,8 @@ with open(os.path.join(here, "requirements.txt"), encoding="utf-8") as f:
 
 setup(
     name="osiris_utils",
-    version="0.0.1",
-    description=("OSIRIS Utils"),
+    version="v1.0.0",
+    description=("Utilities to manipulate and visualize OSIRIS framework output data"),
     # long_description=long_description,
     long_description_content_type="text/markdown",
     author="João Pedro Ferreira Biu",
@@ -33,9 +33,9 @@ setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Topic :: Scientific/Engineering",
-        "Topic :: Scientific/Engineering :: Mathematics",
+        "Topic :: Scientific/Engineering :: physics",
     ],
-    keywords="OSIRIS",
+    keywords=["OSIRIS", "particle-in-cell", "plasma", "physics"],
     packages=find_packages(exclude=["docs", "tests", "local", "report"]),
     include_package_data=True,
     install_requires=requirements,

@@ -1,33 +1,3 @@
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
-
-[project]
-name = "osiris-utils"
-version = "v1.0.0"
-dependencies = [
-    "numpy",
-    "matplotlib",
-    "pandas",
-    "scipy",
-    "h5py",
-]
-requires-python = ">=3.12"
-authors = [
-  {name = "João Biu", email = "joaopedrofbiu@tecnico.ulisboa.pt"},
-]
-maintainers = [
-  {name = "João Biu", email = "joaopedrofbiu@tecnico.ulisboa.pt"}
-]
-description = "Utilities to manipulate and visualize OSIRIS framework output data"
-readme = "README.md"
-license = "MIT"
-license-files = ["LICENSE.*"]
-keywords = ["OSIRIS", "particle-in-cell", "plasma", "physics"]
-classifiers = [
-  "Programming Language :: Python"
-]
-
-[project.urls]
-Homepage = "https://github.com/joaopedrobiu6/utils_osiris"
-Repository = "https://github.com/joaopedrobiu6/utils_osiris"
