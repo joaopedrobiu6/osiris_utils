@@ -1,7 +1,6 @@
 import jax.numpy as jnp
 from jax import jit
 import h5py  
-import quadax
 
 
 def courant2D_jax(dx, dy):
@@ -152,31 +151,31 @@ def transverse_average_jax(data):
         raise ValueError("The input data must be a 2D array.")
     return jnp.mean(data, axis=0)
 
-def integrate_jax(array, dx):
-    """
-    Integrate an the tranverse average from the left to the right. This may be changed in the future to allow 
-    for integration in both directions or for other more general cases.
+# def integrate_jax(array, dx):
+#     """
+#     Integrate an the tranverse average from the left to the right. This may be changed in the future to allow 
+#     for integration in both directions or for other more general cases.
 
-    Parameters
-    ----------
-    array : jax.numpy.ndarray
-        Dim: 1D.
-        The input array.
-    dx : float
-        The spacing between points.
+#     Parameters
+#     ----------
+#     array : jax.numpy.ndarray
+#         Dim: 1D.
+#         The input array.
+#     dx : float
+#         The spacing between points.
 
-    Returns
-    -------
-    jax.numpy.ndarray
-        Dim: 1D.
-        The integrated array.
-    """
-    if len(array.shape) != 1:
-        raise ValueError("The input array must be 1D.")
-    flip_array = jnp.flip(array)
+#     Returns
+#     -------
+#     jax.numpy.ndarray
+#         Dim: 1D.
+#         The integrated array.
+#     """
+#     if len(array.shape) != 1:
+#         raise ValueError("The input array must be 1D.")
+#     flip_array = jnp.flip(array)
     
-    int = -jit(quadax.cumulative_trapezoid)(y=flip_array, dx=dx, initial=0)
-    return jnp.flip(int)
+#     int = -jit(quadax.cumulative_trapezoid)(y=flip_array, dx=dx, initial=0)
+#     return jnp.flip(int)
     
 def mft_decomposition_jax(filename, pressure = False, xy = False, data = False):
     """

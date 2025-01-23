@@ -275,7 +275,10 @@ def animate_2D(datafiles, frames, interval, fps, savename, **kwargs):
         x, y, data, _ = open2D(datafiles % i)
         ax.clear()
         # Display image data, make sure data shape is valid for imshow
-        im = ax.imshow(data, extent=[x.min(), x.max(), y.min(), y.max()], aspect='auto', origin='lower', **kwargs)
+        im = ax.imshow(-data, extent=[x.min(), x.max(), y.min(), y.max()], aspect='auto', origin='lower', **kwargs)
+        plt.xlabel(r"x [c/$\omega_p$]")
+        plt.ylabel(r"y [c/$\omega_p$]")
+        
 
     # Creating the animation, and frames should be updated accordingly
     ani = animation.FuncAnimation(fig, animate, frames=frames, interval=interval)
