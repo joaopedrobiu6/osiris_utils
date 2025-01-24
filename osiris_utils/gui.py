@@ -7,10 +7,10 @@ import numpy as np
 from .data import open1D, open2D, open3D, read_osiris_file  # Relative import
 from .utils import integrate, transverse_average
 
-class DataViewerApp:
+class LAVA:
     def __init__(self, root):
         self.root = root
-        self.root.title("OSIRIS Data Grid Viewer")
+        self.root.title("LAVA (LabAstro Visualization Assistant) - OSIRIS Data Grid Viewer")
         self.root.geometry("1000x600")
         
         # UI Elements
@@ -179,7 +179,7 @@ class DataViewerApp:
 
 def main():
     root = tk.Tk()
-    app = DataViewerApp(root)
+    app = LAVA(root)
     root.mainloop()
 
 if __name__ == "__main__":
