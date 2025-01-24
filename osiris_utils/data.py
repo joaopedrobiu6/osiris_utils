@@ -115,8 +115,8 @@ def open3D(filename):
     x = np.linspace(ax1[0], ax1[1], datash[-1])
     y = np.linspace(ax2[0], ax2[1], datash[-2])
     z = np.linspace(ax3[0], ax3[1], datash[-3])
-    data_array = data[:], [attrs, axes, data]
-    return x, y, z, data_array
+    data_array = data[:]
+    return x, y, z, data_array, [attrs, axes, data]
 
 def create_dataset(folder, pressure = False):
     data_list = []
