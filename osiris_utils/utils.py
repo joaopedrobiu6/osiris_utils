@@ -2,7 +2,7 @@ import numpy as np
 import h5py  
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from PIL import Image
+from .data import *
 import scipy 
 import pandas as pd
 
@@ -24,117 +24,6 @@ def courant2D(dx, dy):
     """
     dt = 1 / (np.sqrt(1/dx**2 + 1/dy**2))
     return dt
-
-def read_osiris_file(filename, pressure = False):
-    f = h5py.File(filename, 'r+')
-    atr = f.attrs
-    k = [key for key in f.keys()]
-    if "SIMULATION" in k:
-        attrs1 = atr
-        attrs2 = f["SIMULATION"].attrs
-        attrs = {}
-        for i in range(len(attrs1)):
-            attrs[[key for key in attrs1][i]] = [value for value in attrs1.values()][i]
-        for i in range(len(attrs2)):
-            attrs[[key for key in attrs2][i]] = [value for value in attrs2.values()][i]
-    ax = f.get([key for key in f.keys()][0])
-    leanx = len(ax)
-    axis = []
-    for i in range(leanx):
-        axis.append(ax.get([key for key in ax.keys()][i]))
-    if "SIMULATION" in k and pressure == False:
-        data = f.get([key for key in f.keys()][2])
-        data.attrs["UNITS"] = attrs1["UNITS"]
-        data.attrs["LONG_NAME"] = attrs1["LABEL"]
-    elif "SIMULATION" in k and pressure == True:
-        data = f.get([key for key in f.keys()][1])
-        data.attrs["UNITS"] = attrs1["UNITS"]
-        data.attrs["LONG_NAME"] = attrs1["LABEL"]
-    else:
-        data = f.get([key for key in f.keys()][1])
-    
-    return attrs, axis, data
-
-def open1D(filename, pressure = False):
-    """ 
-    Open a 1D OSIRIS file and return the x axis and the data array.
-
-    Parameters
-    ----------
-    filename : str
-        The path to the file.
-    
-    Returns
-    -------
-    x : numpy.ndarray
-        The x axis.
-    data_array : numpy.ndarray
-        The data array.
-    """
-    attrs, axes, data = read_osiris_file(filename, pressure)
-    datash = data.shape
-    ax1 = axes[0]
-    x = np.linspace(ax1[0], ax1[1], datash[0])
-    data_array = data[:]
-    return x, data_array, [attrs, axes, data]
-
-def open2D(filename, pressure = False):
-    """
-    Open a 2D OSIRIS file and return the x and y axes and the data array.
-
-    Parameters
-    ----------
-    filename : str
-        The path to the file.
-    
-    Returns
-    -------
-    x : numpy.ndarray
-        The x axis.
-    y : numpy.ndarray
-        The y axis.
-    data_array : numpy.ndarray
-        The data array.
-    """
-    attrs, axes, data = read_osiris_file(filename, pressure)
-    datash = data.shape
-    ax1 = axes[0]
-    ax2 = axes[1]
-    x = np.linspace(ax1[0], ax1[1], datash[-1])
-    y = np.linspace(ax2[0], ax2[1], datash[-2])
-    data_array = data[:]
-    return x, y, data_array, [attrs, axes, data]
-
-def open3D(filename):
-    """
-    Open a 3D OSIRIS file and return the x, y and z axes and the data array.
-
-    Parameters
-    ----------
-    filename : str
-        The path to the file.
-
-    Returns
-    -------
-    x : numpy.ndarray
-        The x axis.
-    y : numpy.ndarray
-        The y axis.
-    z : numpy.ndarray
-        The z axis.
-    data_array : numpy.ndarray
-        The data array.
-    """
-    attrs, axes, data = read_osiris_file(filename)
-    datash = data.shape
-    ax1 = axes[0]
-    ax2 = axes[1]
-    ax3 = axes[2]
-    x = np.linspace(ax1[0], ax1[1], datash[-1])
-    y = np.linspace(ax2[0], ax2[1], datash[-2])
-    z = np.linspace(ax3[0], ax3[1], datash[-3])
-    data_array = data[:], [attrs, axes, data]
-    return x, y, z, data_array
 
 def time_estimation(n_cells, ppc, push_time, t_steps, n_cpu, hours = False):
     """
@@ -193,7 +82,7 @@ def transverse_average(data):
 
 def integrate(array, dx):
     """
-    Integrate an the tranverse average from the left to the right. This may be changed in the future to allow 
+    Integrate a 1D from the left to the right. This may be changed in the future to allow 
     for integration in both directions or for other more general cases.
 
     Parameters
@@ -212,43 +101,10 @@ def integrate(array, dx):
     """
 
     if len(array.shape) != 1:
-        raise ValueError(f"Array must be 1D\nFaz a transverse average antes de integrar...")
+        raise ValueError(f"Array must be 1D\n Array shape: {array.shape}")
     flip_array = np.flip(array)
     int = -scipy.integrate.cumulative_trapezoid(flip_array, dx = dx, initial=0)
     return np.flip(int)
-
-def compare_LHS_RHS(LHS, RHS, x, dx, **kwargs):
-    """
-    Compare the left hand side of the equation with the right hand side of the equation.
-
-    Parameters
-    ----------
-    LHS : numpy.ndarray
-        Dim: 1D.
-        The left hand side of the equation.
-    RHS : numpy.ndarray
-        Dim: 1D.
-        The right hand side of the equation.
-    x : numpy.ndarray
-        Dim: 1D.
-        The x axis.
-    dx : float
-        The spacing between points.
-    kwargs : dict
-        Additional keyword arguments for plotting.
-    """
-    if len(LHS.shape) != 2 or len(RHS.shape) != 2:
-        raise ValueError(f"LHS and RHS must be 2D")
-    if len(LHS) != len(RHS):
-        raise ValueError("LHS and RHS must have the same length.")
-    LHS_avg = transverse_average(LHS)
-    RHS_avg = transverse_average(RHS)
-    LHS_int = integrate(LHS_avg, dx)
-    RHS_int = integrate(RHS_avg, dx)
-    plt.plot(x, LHS_int, label='LHS', **kwargs)
-    plt.plot(x, RHS_int, label='RHS', **kwargs)
-    plt.legend()
-    plt.show()
 
 def animate_2D(datafiles, frames, interval, fps, savename, **kwargs):
     """
@@ -289,27 +145,25 @@ def animate_2D(datafiles, frames, interval, fps, savename, **kwargs):
     # Display the animation
     return ani
 
-def save_data(x, LHS, RHS, savename, option="numpy"):
+def save_data(data, savename, option="numpy"):
     """
-    Save the data to a .txt file.
+    Save the data to a .txt (with Numpy) or .csv (with Pandas) file.
 
     Parameters
     ----------
-    x : numpy.ndarray
-        Dim: 1D.
-        The x axis.
-    LHS : numpy.ndarray
-        Dim: 1D.
-        The left hand side of the equation.
-    RHS : numpy.ndarray
-        Dim: 1D.
-        The right hand side of the equation.
+    data : list 
+        The data to be saved.
+    savename : str
+        The path to the file.
+    option : str, optional
+        The option for saving the data. The default is "numpy". Can be "numpy" or "pandas".
     """
     if option == "numpy":
-        np.savetxt(savename, np.array([x, LHS, RHS]).T, header="x LHS RHS")
+        np.savetxt(savename, data)
     elif option == "pandas":
-        df = pd.DataFrame({"x": x, "LHS": LHS, "RHS": RHS})
-        df.to_csv(savename, index=False)
+        pd.DataFrame(data).to_csv(savename, index=False)
+    else:
+        raise ValueError("Option must be 'numpy' or 'pandas'.")
 
 def read_data(filename, option="numpy"):
     """
