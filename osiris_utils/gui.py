@@ -7,7 +7,7 @@ import numpy as np
 from .data import open1D, open2D, open3D, read_osiris_file  # Relative import
 from .utils import integrate, transverse_average
 
-class LAVA:
+class LAVA_app:
     def __init__(self, root):
         self.root = root
         self.root.title("LAVA (LabAstro Visualization Assistant) - OSIRIS Data Grid Viewer")
@@ -15,11 +15,11 @@ class LAVA:
         
         # UI Elements
         self.frame_controls = tk.Frame(self.root)
-        self.frame_controls.pack(padx=10, pady=10, fill=tk.X)
+        self.frame_controls.pack(padx=10, pady=10, fill=tk.X, side=tk.TOP)
         
         # Add label controls
         self.frame_labels = tk.Frame(self.root)
-        self.frame_labels.pack(padx=10, pady=5, fill=tk.X)
+        self.frame_labels.pack(padx=10, pady=5, fill=tk.X, side=tk.TOP)
         
         # Title and labels entries
         self.title_var = tk.StringVar()
@@ -55,9 +55,9 @@ class LAVA:
         self.plot_type_var.trace_add("write", lambda *_: self.plot_data())  # Auto-update
         
         # Plot area
-        self.figure = plt.figure(figsize=(8, 6))
+        self.figure = plt.figure(figsize=(8, 4))
         self.canvas = FigureCanvasTkAgg(self.figure, master=self.root)
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, pady=20)
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, side=tk.TOP)
         self.slice_slider = None
         self.data_info = None
         self.dims = 0
@@ -110,6 +110,7 @@ class LAVA:
         elif self.dims == 2:
             self.plot_2d()
         self.update_plot_labels()
+        self.figure.tight_layout()  # Add this line
         self.canvas.draw()
 
     def plot_1d(self):
@@ -177,10 +178,10 @@ class LAVA:
         self.figure.suptitle(title)
         self.canvas.draw()
 
-def main():
+def LAVA():
     root = tk.Tk()
-    app = LAVA(root)
+    app = LAVA_app(root)
     root.mainloop()
 
 if __name__ == "__main__":
-    main()
+    LAVA()
