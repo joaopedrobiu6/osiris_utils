@@ -39,8 +39,8 @@ setup(
     include_package_data=True,
     install_requires=requirements,
     python_requires=">=3.12",
-    # project_urls={
-    #     "Issues Tracker": "https://github.com/joaopedrobiu6/nldesa/issues/",
-    #     "Source Code": "https://github.com/joaopedrobiu6/nldesa/",
-    # },
+    project_urls={
+        "Issues Tracker": "https://github.com/joaopedrobiu6/osiris_utils/issues",
+        "Source Code": "https://github.com/joaopedrobiu6/osiris_utils",
+    },
 )
