@@ -20,7 +20,7 @@ setup(
     # long_description=long_description,
     long_description_content_type="text/markdown",
     author="João Pedro Ferreira Biu",
-    author_email="joaopedrofbiu@tecnico.ulisboa.ptt",
+    author_email="joaopedrofbiu@tecnico.ulisboa.pt",
     license="MIT",
     classifiers=[
         "Development Status :: 3 - Alpha",
@@ -33,7 +33,6 @@ setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Topic :: Scientific/Engineering",
-        "Topic :: Scientific/Engineering :: physics",
     ],
     keywords=["OSIRIS", "particle-in-cell", "plasma", "physics"],
     packages=find_packages(exclude=["docs", "tests", "local", "report"]),
