@@ -1,5 +1,5 @@
 from .utils import transverse_average, integrate
-from .data import open2D
+from .data_readers import open2D
 import numpy as np
 import pandas as pd
 

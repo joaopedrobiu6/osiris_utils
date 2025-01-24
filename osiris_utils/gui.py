@@ -4,7 +4,7 @@ from tkinter import filedialog, messagebox
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import numpy as np
-from .data import open1D, open2D, open3D, read_osiris_file  # Relative import
+from .data_readers import open1D, open2D, open3D, read_osiris_file  # Relative import
 from .utils import integrate, transverse_average
 
 class LAVA:
