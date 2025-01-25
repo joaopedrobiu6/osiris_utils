@@ -15,6 +15,8 @@ data Module (Structures)
 .. automodule:: osiris_utils.data
    :members: OsirisGridFile
    :special-members: __init__
+   :inherited-members:
+   :undoc-members:
 
 GUI Module
 ----------
@@ -30,15 +32,15 @@ Utilities Module
 ----------------
 .. automodule:: osiris_utils.utils
    :members: 
-    - time_estimation
-    - filesize_estimation
-    - transverse_average
-    - integrate
-    - animate_2D
-    - save_data
-    - read_data
-    - mft_decomposition
-    - courant2D
+       time_estimation,
+       filesize_estimation,
+       transverse_average,
+       integrate,
+       animate_2D,
+       save_data,
+       read_data,
+       mft_decomposition,
+       courant2D
    :show-inheritance:
 
 Special Functions
