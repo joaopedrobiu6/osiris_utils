@@ -34,21 +34,24 @@ Utilities Module
    :members: 
        time_estimation,
        filesize_estimation,
-       transverse_average,
        integrate,
-       animate_2D,
        save_data,
-       read_data,
-       mft_decomposition,
-       courant2D
+       read_data
+   :exclude-members: 
+       - animate_2D
+       - courant2D
+       - mft_decomposition
+       - transverse_average
    :show-inheritance:
 
-Special Functions
------------------
+Visualization Functions
+-----------------------
 animate_2D
 ~~~~~~~~~~
 .. autofunction:: osiris_utils.utils.animate_2D
 
+Physics Calculations
+--------------------
 courant2D
 ~~~~~~~~~
 .. autofunction:: osiris_utils.utils.courant2D
