@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.abspath("."))
-sys.path.append(os.path.abspath("../"))
+sys.path.append(os.path.abspath("../.."))
 
 project = "osiris_utils"
 copyright = "2025, João Biu"

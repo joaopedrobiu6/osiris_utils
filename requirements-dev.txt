@@ -9,3 +9,5 @@ matplotlib
 pandas
 scipy
 h5py
+
+-e .
