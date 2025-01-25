@@ -6,19 +6,19 @@ Core Modules
 
 data_readers Module
 ~~~~~~~~~~~~~~~~~~~
-.. automodule:: your_package.data_readers
+.. automodule:: osiris_utils.data_readers
    :members: create_dataset, open1D, open2D, open3D, read_osiris_file
    :show-inheritance:
 
 data Module (Structures)
 ~~~~~~~~~~~~~~~~~~~~~~~~
-.. automodule:: your_package.data
+.. automodule:: osiris_utils.data
    :members: OsirisGridFile
    :special-members: __init__
 
 GUI Module
 ----------
-.. autoclass:: your_package.gui.LAVA
+.. autoclass:: osiris_utils.gui.LAVA
    :members:
    :undoc-members:
    :show-inheritance:
@@ -28,7 +28,7 @@ GUI Module
 
 Utilities Module
 ----------------
-.. automodule:: your_package.utils
+.. automodule:: osiris_utils.utils
    :members: 
     - time_estimation
     - filesize_estimation
@@ -45,18 +45,18 @@ Special Functions
 -----------------
 animate_2D
 ~~~~~~~~~~
-.. autofunction:: your_package.utils.animate_2D
+.. autofunction:: osiris_utils.utils.animate_2D
 
 courant2D
 ~~~~~~~~~
-.. autofunction:: your_package.utils.courant2D
+.. autofunction:: osiris_utils.utils.courant2D
 
 Data Processing
 ---------------
 mft_decomposition
 ~~~~~~~~~~~~~~~~~
-.. autofunction:: your_package.utils.mft_decomposition
+.. autofunction:: osiris_utils.utils.mft_decomposition
 
 transverse_average
 ~~~~~~~~~~~~~~~~~~
-.. autofunction:: your_package.utils.transverse_average
+.. autofunction:: osiris_utils.utils.transverse_average
