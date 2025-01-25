@@ -19,8 +19,8 @@ setup(
     description=("Utilities to manipulate and visualize OSIRIS framework output data"),
     # long_description=long_description,
     long_description_content_type="text/markdown",
-    author="João Pedro Ferreira Biu",
-    author_email="joaopedrofbiu@tecnico.ulisboa.pt",
+    author=["João Pedro Ferreira Biu", "Rafael Russo de Almeida"],
+    author_email=["joaopedrofbiu@tecnico.ulisboa.pt", "rafaelrussoalmeida@tecnico.ulisboa.pt"],
     license="MIT",
     classifiers=[
         "Development Status :: 3 - Alpha",
