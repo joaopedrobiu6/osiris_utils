@@ -4,3 +4,4 @@ osiris_utils/__pycache__/
 *.pyc
 .DS_Store
 dist/
+osiris_utils/.DS_Store
