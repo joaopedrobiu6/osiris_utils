@@ -57,15 +57,15 @@ class OsirisGridFile():
                 
                 self.nx = f[variable_key][()].transpose().shape
                 self.dx = (self.grid[:, 1] - self.grid[:, 0])/self.nx
-                self.axis = []
-                for ax in axis:
-                    self.axis_data = {
-                        "name": f["AXIS/"+ax].attrs["NAME"][0].decode('utf-8'),
-                        "units": f["AXIS/"+ax].attrs["UNITS"][0].decode('utf-8'),
-                        "long_name": f["AXIS/"+ax].attrs["LONG_NAME"][0].decode('utf-8'),
-                        "type": f["AXIS/"+ax].attrs["TYPE"][0].decode('utf-8'),
-                    }
-                    self.axis.append( self.axis_data )
+            self.axis = []
+            for ax in axis:
+                self.axis_data = {
+                    "name": f["AXIS/"+ax].attrs["NAME"][0].decode('utf-8'),
+                    "units": f["AXIS/"+ax].attrs["UNITS"][0].decode('utf-8'),
+                    "long_name": f["AXIS/"+ax].attrs["LONG_NAME"][0].decode('utf-8'),
+                    "type": f["AXIS/"+ax].attrs["TYPE"][0].decode('utf-8'),
+                }
+                self.axis.append( self.axis_data )
                     
             # NOW WORK ON THE SIMULATION DATA
             self.dt = float(f["SIMULATION"].attrs["DT"][0])
