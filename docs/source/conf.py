@@ -51,7 +51,7 @@ extensions = [
     "sphinx_github_style",
 ]
 # options for sphinx_github_style
-top_level = "osiris_utils"
+top_level = "OSIRIS Utils"
 linkcode_blob = "head"
 linkcode_url = r"https://github.com/joaopedrobiu6/osiris_utils/"
 linkcode_link_text = "Source"
