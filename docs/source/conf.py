@@ -1,24 +1,190 @@
 # Configuration file for the Sphinx documentation builder.
 #
-# For the full list of built-in configuration values, see the documentation:
+# This file only contains a selection of the most common options. For a full
+# list see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
-# -- Project information -----------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
+# -- Path setup --------------------------------------------------------------
 
-project = 'osiris-utils'
-copyright = '2025, João Biu'
-author = 'João Biu'
-release = 'v1.0.2'
+# If extensions (or modules to document with autodoc) are in another directory,
+# add these directories to sys.path here. If the directory is relative to the
+# documentation root, use os.path.abspath to make it absolute, like shown here.
+#
+# import os
+# import sys
+# sys.path.insert(0, os.path.abspath('.'))
+
+
+# -- Project information -----------------------------------------------------
+
+import inspect
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, os.path.abspath("."))
+sys.path.append(os.path.abspath("../"))
+
+project = "osiris_utils"
+copyright = "2025, João Biu"
+author = "João Biu"
+version = "v1.0.2"
+release = version
+
 
 # -- General configuration ---------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ["sphinx_rtd_theme"]
+# Add any Sphinx extension module names here, as strings. They can be
+# extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
+# ones.
+extensions = [
+    "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
+    "sphinx.ext.coverage",
+    "sphinx.ext.doctest",
+    "sphinx.ext.githubpages",
+    "sphinx.ext.intersphinx",
+    "sphinx.ext.mathjax",
+    "sphinx.ext.napoleon",
+    "sphinx_copybutton",
+    "sphinx_github_style",
+]
+# options for sphinx_github_style
+top_level = "osiris_utils"
+linkcode_blob = "head"
+linkcode_url = r"https://github.com/joaopedrobiu6/osiris_utils/"
+linkcode_link_text = "Source"
 
-templates_path = ['_templates']
-exclude_patterns = []
 
+def linkcode_resolve(domain, info):
+    """Returns a link to the source code on GitHub, with appropriate lines highlighted"""
+
+    if domain != "py" or not info["module"]:
+        return None
+
+    modname = info["module"]
+    fullname = info["fullname"]
+
+    submod = sys.modules.get(modname)
+    if submod is None:
+        return None
+
+    obj = submod
+    for part in fullname.split("."):
+        try:
+            obj = getattr(obj, part)
+        except AttributeError:
+            return None
+
+    # for jitted stuff, get the original src
+    if hasattr(obj, "__wrapped__"):
+        obj = obj.__wrapped__
+
+    # get the link to HEAD
+    cmd = "git log -n1 --pretty=%H"
+    try:
+        # get most recent commit hash
+        head = subprocess.check_output(cmd.split()).strip().decode("utf-8")
+
+        # if head is a tag, use tag as reference
+        cmd = "git describe --exact-match --tags " + head
+        try:
+            tag = subprocess.check_output(cmd.split(" ")).strip().decode("utf-8")
+            blob = tag
+
+        except subprocess.CalledProcessError:
+            blob = head
+
+    except subprocess.CalledProcessError:
+        print("Failed to get head")  # so no head?
+        blob = "main"
+
+    linkcode_url = r"https://github.com/joaopedrobiu6/osiris_utils/"
+    linkcode_url = linkcode_url.strip("/") + f"/blob/{blob}/"
+    linkcode_url += "{filepath}#L{linestart}-L{linestop}"
+
+    # get a Path object representing the working directory of the repository.
+    try:
+        cmd = "git rev-parse --show-toplevel"
+        repo_dir = Path(subprocess.check_output(cmd.split(" ")).strip().decode("utf-8"))
+
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError("Unable to determine the repository directory") from e
+
+    # For ReadTheDocs, repo is cloned to /path/to/<repo_dir>/checkouts/<version>/
+    if repo_dir.parent.stem == "checkouts":
+        repo_dir = repo_dir.parent.parent
+
+    # path to source file
+    try:
+        filepath = os.path.relpath(inspect.getsourcefile(obj), repo_dir)
+        if filepath is None:
+            return
+    except Exception:
+        return None
+
+    # lines in source file
+    try:
+        source, lineno = inspect.getsourcelines(obj)
+    except OSError:
+        return None
+    else:
+        linestart, linestop = lineno, lineno + len(source) - 1
+
+    # Fix links with "../../../" or "..\\..\\..\\"
+    filepath = "/".join(filepath[filepath.find(top_level) :].split("\\"))
+
+    final_link = linkcode_url.format(
+        filepath=filepath, linestart=linestart, linestop=linestop
+    )
+    print(f"Final Link for {fullname}: {final_link}")
+    return final_link
+
+
+# numpydoc_class_members_toctree = False
+# Napoleon settings
+napoleon_google_docstring = False
+napoleon_numpy_docstring = True
+napoleon_include_init_with_doc = False
+napoleon_include_private_with_doc = False
+napoleon_include_special_with_doc = True
+napoleon_use_admonition_for_examples = False
+napoleon_use_admonition_for_notes = False
+napoleon_use_admonition_for_references = False
+napoleon_use_ivar = False
+napoleon_use_param = True
+napoleon_use_rtype = False
+
+autodoc_default_options = {
+    "member-order": "bysource",
+    "exclude-members": "__init__",
+}
+# Add any paths that contain templates here, relative to this directory.
+templates_path = ["_templates"]
+
+# The suffix(es) of source filenames.
+# You can specify multiple suffix as a list of string:
+#
+source_suffix = [".rst", ".md"]
+# source_suffix = {
+#     '.rst': 'restructuredtext',
+#     '.md': 'markdown',
+# }
+# The master toctree document.
+master_doc = "index"
+
+# The language for content autogenerated by Sphinx. Refer to documentation
+# for a list of supported languages.
+#
+# This is also used if you do content translation via gettext catalogs.
+# Usually you set "language" from the command line for these cases.
+language = "en"
+
+# List of patterns, relative to source directory, that match files and
+# directories to ignore when looking for source files.
+# This pattern also affects html_static_path and html_extra_path.
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.rst"]
 
 
 # -- Options for HTML output -------------------------------------------------
