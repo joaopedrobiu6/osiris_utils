@@ -32,6 +32,7 @@ class OsirisGridFile():
             str
         - units: the units of the data
             str
+        - label: the label of the data (LaTeX formatted)
     '''
     def __init__(self, filename):
         with h5py.File(filename, 'r+') as f:
@@ -59,18 +60,20 @@ class OsirisGridFile():
                 self.dx = (self.grid[:, 1] - self.grid[:, 0])/self.nx
             self.axis = []
             for ax in axis:
-                self.axis_data = {
+                axis_data = {
                     "name": f["AXIS/"+ax].attrs["NAME"][0].decode('utf-8'),
                     "units": f["AXIS/"+ax].attrs["UNITS"][0].decode('utf-8'),
                     "long_name": f["AXIS/"+ax].attrs["LONG_NAME"][0].decode('utf-8'),
                     "type": f["AXIS/"+ax].attrs["TYPE"][0].decode('utf-8'),
                 }
-                self.axis.append( self.axis_data )
+                self.axis.append(axis_data)
                     
             # NOW WORK ON THE SIMULATION DATA
             self.dt = float(f["SIMULATION"].attrs["DT"][0])
-            self.dim = int(f["SIMULATION"].attrs["NDIMS"][0])
+            self.dims_simulation = int(f["SIMULATION"].attrs["NDIMS"][0])
             self.time = [float(f.attrs["TIME"][0]), f.attrs["TIME UNITS"][0].decode('utf-8')]
             self.iter = int(f.attrs["ITER"][0])
             self.name = f.attrs["NAME"][0].decode('utf-8')
             self.units = f.attrs["UNITS"][0].decode('utf-8')
+            self.label = f.attrs["LABEL"][0].decode('utf-8')
+            self.type = f.attrs["TYPE"][0].decode('utf-8')

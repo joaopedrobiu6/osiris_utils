@@ -4,10 +4,6 @@ sphinx_copybutton <= 0.5.2
 sphinx-rtd-theme >= 1.0, < 3.0.3
 sphinx-github-style >= 1.0, <= 1.2.2
 
-numpy
-matplotlib
-pandas
-scipy
-h5py
+-r requirements.txt
 
 -e .

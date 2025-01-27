@@ -1,109 +1,184 @@
 # your_package/gui.py
-import tkinter as tk
-from tkinter import filedialog, messagebox
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import sys
+import os
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QPushButton, 
+                              QFileDialog, QMessageBox, QComboBox, QHBoxLayout,
+                              QVBoxLayout, QLabel, QLineEdit, QFrame)
+from PySide6.QtCore import Qt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import numpy as np
-from .data_readers import open1D, open2D, open3D, read_osiris_file  # Relative import
-from .utils import integrate, transverse_average
+from .data import OsirisGridFile  # Update import as needed
+from .utils import integrate, transverse_average  # Update import as needed
 
-class LAVA_app:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("LAVA (LabAstro Visualization Assistant) - OSIRIS Data Grid Viewer")
-        self.root.geometry("1000x600")
+class LAVA_Qt(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("LAVA (LabAstro Visualization Assistant) - OSIRIS Data Grid Viewer")
+        self.setGeometry(100, 100, 1000, 600)
         
-        # UI Elements
-        self.frame_controls = tk.Frame(self.root)
-        self.frame_controls.pack(padx=10, pady=10, fill=tk.X)
-        
-        # Add label controls
-        self.frame_labels = tk.Frame(self.root)
-        self.frame_labels.pack(padx=10, pady=5, fill=tk.X)
-        
-        # Title and labels entries
-        self.title_var = tk.StringVar()
-        self.xlabel_var = tk.StringVar()
-        self.ylabel_var = tk.StringVar()
-        
-        tk.Label(self.frame_labels, text="Title:").pack(side=tk.LEFT)
-        tk.Entry(self.frame_labels, textvariable=self.title_var, width=30).pack(side=tk.LEFT, padx=5)
-        tk.Label(self.frame_labels, text="X Label:").pack(side=tk.LEFT)
-        tk.Entry(self.frame_labels, textvariable=self.xlabel_var, width=20).pack(side=tk.LEFT, padx=5)
-        tk.Label(self.frame_labels, text="Y Label:").pack(side=tk.LEFT)
-        tk.Entry(self.frame_labels, textvariable=self.ylabel_var, width=20).pack(side=tk.LEFT, padx=5)
-        
-        # Set up trace for automatic updates
-        self.title_var.trace_add("write", self.update_plot_labels)
-        self.xlabel_var.trace_add("write", self.update_plot_labels)
-        self.ylabel_var.trace_add("write", self.update_plot_labels)
-
-        # Existing controls
-        self.browse_btn = tk.Button(self.frame_controls, text="Browse Files", command=self.load_file)
-        self.browse_btn.pack(side=tk.LEFT)
-        
-        self.pressure_var = tk.BooleanVar()
-        self.pressure_check = tk.Checkbutton(self.frame_controls, text="Pressure", variable=self.pressure_var)
-        self.pressure_check.pack(side=tk.LEFT, padx=10)
-        
-        self.save_btn = tk.Button(self.frame_controls, text="Save Plot", command=self.save_plot)
-        self.save_btn.pack(side=tk.LEFT, padx=10)
-        
-        self.plot_type_var = tk.StringVar()
-        self.plot_menu = tk.OptionMenu(self.frame_controls, self.plot_type_var, "Select Plot Type")
-        self.plot_menu.pack(side=tk.LEFT, padx=10)
-        self.plot_type_var.trace_add("write", lambda *_: self.plot_data())  # Auto-update
-        
-        # Plot area
-        self.figure = plt.figure(figsize=(8, 6))
-        self.canvas = FigureCanvasTkAgg(self.figure, master=self.root)
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, pady=20)
-        self.slice_slider = None
+        # Initialize data
         self.data_info = None
         self.dims = 0
         self.current_ax = None
-
-    def load_file(self):
-        filepath = filedialog.askopenfilename(filetypes=[("HDF5 Files", "*.h5")])
-        if not filepath:
-            return
+        self.current_folder = None
         
+        # Main widget and layout
+        self.main_widget = QWidget()
+        self.setCentralWidget(self.main_widget)
+        self.main_layout = QVBoxLayout(self.main_widget)
+        
+        # Create UI elements
+        self.create_controls()
+        self.create_labels_section()
+        self.create_plot_area()
+
+    def create_controls(self):
+        # Control buttons frame
+        control_frame = QWidget()
+        control_layout = QHBoxLayout(control_frame)
+        
+        # Buttons
+        self.browse_btn = QPushButton("Browse Folder")
+        self.browse_btn.clicked.connect(self.load_folder)
+        self.save_btn = QPushButton("Save Plot")
+        self.save_btn.clicked.connect(self.save_plot)
+        
+        # File selector
+        self.file_selector = QComboBox()
+        self.file_selector.setPlaceholderText("Select file...")
+        self.file_selector.currentIndexChanged.connect(self.file_selection_changed)
+        self.file_selector.view().setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.file_selector.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        
+        # Plot type combo box
+        self.plot_combo = QComboBox()
+        self.plot_combo.addItem("Select Plot Type")
+        self.plot_combo.currentTextChanged.connect(self.plot_data)
+        
+        control_layout.addWidget(self.browse_btn)
+        control_layout.addWidget(self.save_btn)
+        control_layout.addWidget(QLabel("Files:"))
+        control_layout.addWidget(self.file_selector)
+        control_layout.addWidget(QLabel("Plot Type:"))
+        control_layout.addWidget(self.plot_combo)
+        self.main_layout.addWidget(control_frame)
+
+    def create_labels_section(self):
+        # Labels frame
+        labels_frame = QWidget()
+        labels_layout = QHBoxLayout(labels_frame)
+        
+        # Title and labels
+        self.title_edit = QLineEdit()
+        self.xlabel_edit = QLineEdit()
+        self.ylabel_edit = QLineEdit()
+        
+        # Connect text changes
+        self.title_edit.textChanged.connect(self.update_plot_labels)
+        self.xlabel_edit.textChanged.connect(self.update_plot_labels)
+        self.ylabel_edit.textChanged.connect(self.update_plot_labels)
+        
+        labels_layout.addWidget(QLabel("Title:"))
+        labels_layout.addWidget(self.title_edit)
+        labels_layout.addWidget(QLabel("X Label:"))
+        labels_layout.addWidget(self.xlabel_edit)
+        labels_layout.addWidget(QLabel("Y Label:"))
+        labels_layout.addWidget(self.ylabel_edit)
+        
+        self.main_layout.addWidget(labels_frame)
+
+    def create_plot_area(self):
+        # Matplotlib figure and canvas
+        self.figure = Figure(figsize=(8, 6))
+        self.canvas = FigureCanvas(self.figure)
+        self.main_layout.addWidget(self.canvas)
+
+    def load_folder(self):
+        folder_dialog = QFileDialog()
+        folderpath = folder_dialog.getExistingDirectory(
+            self, "Select Folder with HDF5 Files"
+        )
+        
+        if not folderpath:
+            return
+            
         try:
-            pressure = self.pressure_var.get()
-            _, _, data_ = read_osiris_file(filepath, pressure)
-            self.dims = len(data_[:].shape)
+            self.current_folder = folderpath
+            self.file_selector.clear()
             
-            # Set default labels based on dimensionality
-            if self.dims == 1:
-                self.xlabel_var.set(r"x [c/$\omega_p$]")
-                self.ylabel_var.set("Value")
-                x, data_arr, _ = open1D(filepath, pressure)
-                self.data_info = (x, data_arr)
-            elif self.dims == 2:
-                self.xlabel_var.set(r"x [c/$\omega_p$]")
-                self.ylabel_var.set(r"y [c/$\omega_p$]")
-                x, y, data_arr, _ = open2D(filepath, pressure)
-                self.data_info = (x, y, data_arr)
-            else:
-                raise ValueError("Unsupported dimensionality")
+            # Find all .h5 files
+            h5_files = [f for f in os.listdir(folderpath) if f.endswith('.h5')]
+            # all the files end with xxxxxx.h5 so we can use this to order them by the number
+            def sort_key(filename):
+                try:
+                    # Split filename into parts and get the numeric portion
+                    base = os.path.splitext(filename)[0]  # Remove .h5
+                    numeric_part = base.split('-')[-1]    # Get last part after -
+                    return int(numeric_part)
+                except (IndexError, ValueError):
+                    return 0  # Fallback for malformed filenames
+
+            h5_files.sort(key=sort_key)
             
-            self.title_var.set("")  # Clear title on new file
-            self.update_plot_menu()
-            self.plot_data()
+            if not h5_files:
+                raise ValueError("No HDF5 files found in selected folder")
+            
+            self.file_selector.addItems(h5_files)
+            self.file_selector.setCurrentIndex(0)
             
         except Exception as e:
-            messagebox.showerror("Error", str(e))
+            QMessageBox.critical(self, "Error", str(e))
 
-    def update_plot_labels(self, *args):
-        """Update labels without replotting data"""
+    def file_selection_changed(self, index):
+        """Handle file selection change in the combo box"""
+        if index >= 0 and self.current_folder:
+            filename = self.file_selector.itemText(index)
+            self.process_file(filename)
+
+    def process_file(self, filename):
+        try:
+            filepath = os.path.join(self.current_folder, filename)
+            gridfile = OsirisGridFile(filepath)
+            self.dims = len(gridfile.axis)
+            self.type = gridfile.type
+            
+            if self.type == "grid":
+                if self.dims == 1:
+                    x = np.linspace(gridfile.grid[0], gridfile.grid[1], gridfile.nx)
+                    self.xlabel_edit.setText(r"$%s$ [$%s$]" % (gridfile.axis[0]["long_name"], gridfile.axis[0]["units"]))
+                    self.ylabel_edit.setText(r"$%s$ [$%s$]" % (gridfile.label, gridfile.units))
+                    self.data_info = (x, gridfile.data)
+                elif self.dims == 2:
+                    x = np.linspace(gridfile.grid[0][0], gridfile.grid[0][1], gridfile.nx[0])
+                    y = np.linspace(gridfile.grid[1][0], gridfile.grid[1][1], gridfile.nx[1])
+                    self.xlabel_edit.setText(r"$%s$ [$%s$]" % (gridfile.axis[0]["long_name"], gridfile.axis[0]["units"]))
+                    self.ylabel_edit.setText(r"$%s$ [$%s$]" % (gridfile.axis[1]["long_name"], gridfile.axis[1]["units"]))
+                    self.data_info = (x, y, gridfile.data)
+                elif self.dims == 3:
+                    raise ValueError("3D not supported yet")
+                else:
+                    raise ValueError("Unsupported dimensionality")
+                
+                self.title_edit.setText(r"$%s$ [$%s$]" %( gridfile.label, gridfile.units))
+                self.update_plot_menu()
+                self.plot_data()
+                
+            else:
+                QMessageBox.information(self, "Info", f"{self.type} data not supported yet")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
+    def update_plot_labels(self):
         if self.current_ax:
-            self.current_ax.set_xlabel(self.xlabel_var.get())
-            self.current_ax.set_ylabel(self.ylabel_var.get())
-            self.figure.suptitle(self.title_var.get())
+            self.current_ax.set_xlabel(self.xlabel_edit.text())
+            self.current_ax.set_ylabel(self.ylabel_edit.text())
+            self.figure.suptitle(self.title_edit.text())
             self.canvas.draw()
 
     def plot_data(self):
-        """Full plot recreation with current settings"""
         self.figure.clear()
         if self.dims == 1:
             self.plot_1d()
@@ -115,72 +190,59 @@ class LAVA_app:
     def plot_1d(self):
         x, data = self.data_info
         self.current_ax = self.figure.add_subplot(111)
-        plot_type = self.plot_type_var.get()
+        plot_type = self.plot_combo.currentText()
         
         if "Line" in plot_type:
-            self.current_ax.clear()
             self.current_ax.plot(x, data)
         elif "Scatter" in plot_type:
-            self.current_ax.clear()
             self.current_ax.scatter(x, data)
-        
-        # Apply initial labels
-        self.current_ax.set_xlabel(self.xlabel_var.get())
-        self.current_ax.set_ylabel(self.ylabel_var.get())
-        self.figure.suptitle(self.title_var.get())
+            
+        self.current_ax.set_xlabel(self.xlabel_edit.text())
+        self.current_ax.set_ylabel(self.ylabel_edit.text())
+        self.figure.suptitle(self.title_edit.text())
 
     def plot_2d(self):
         x, y, data = self.data_info
         self.current_ax = self.figure.add_subplot(111)
-        plot_type = self.plot_type_var.get()
+        plot_type = self.plot_combo.currentText()
         
         if "Quantity" in plot_type:
-            self.current_ax.clear()
             img = self.current_ax.imshow(data, extent=(x[0], x[-1], y[0], y[-1]), 
                                        origin='lower', aspect='auto')
             self.figure.colorbar(img)
         elif "Integral" in plot_type:
-            self.current_ax.clear()
             avg = integrate(transverse_average(data), x[-1]/len(x))
             self.current_ax.plot(x, avg)
         elif "Transverse" in plot_type:
-            self.current_ax.clear()
             avg = transverse_average(data)
             self.current_ax.plot(x, avg)
-        
-        # Apply initial labels
-        self.current_ax.set_xlabel(self.xlabel_var.get())
-        self.current_ax.set_ylabel(self.ylabel_var.get())
-        self.figure.suptitle(self.title_var.get())
-        
+            
+        self.current_ax.set_xlabel(self.xlabel_edit.text())
+        self.current_ax.set_ylabel(self.ylabel_edit.text())
+        self.figure.suptitle(self.title_edit.text())
+
     def update_plot_menu(self):
-        menu = self.plot_menu["menu"]
-        menu.delete(0, "end")
-        
+        self.plot_combo.clear()
         if self.dims == 1:
-            options = ["Line Plot", "Scatter Plot"]
+            self.plot_combo.addItems(["Line Plot", "Scatter Plot"])
         elif self.dims == 2:
-            options = ["Quantity Plot", "T. Average Integral", "Transverse Average"]
-        
-        for opt in options:
-            menu.add_command(label=opt, command=lambda v=opt: self.plot_type_var.set(v))
-        self.plot_type_var.set(options[0])
-        
-        
+            self.plot_combo.addItems(["Quantity Plot", "T. Average Integral", "Transverse Average"])
+        self.plot_combo.setCurrentIndex(0)
+
     def save_plot(self):
-        filepath = filedialog.asksaveasfilename(filetypes=[("PNG Files", "*.png"), ("PDF Files", "*.pdf")])
-        if not filepath:
-            return
-        self.figure.savefig(filepath, dpi=800, bbox_inches="tight")
+        file_dialog = QFileDialog()
+        filepath, _ = file_dialog.getSaveFileName(
+            self, "Save Plot", "", "PNG Files (*.png);;PDF Files (*.pdf)"
+        )
         
-    def add_title(self, title):
-        self.figure.suptitle(title)
-        self.canvas.draw()
+        if filepath:
+            self.figure.savefig(filepath, dpi=800, bbox_inches="tight")
 
 def LAVA():
-    root = tk.Tk()
-    app = LAVA_app(root)
-    root.mainloop()
+    app = QApplication(sys.argv)
+    window = LAVA_Qt()
+    window.show()
+    sys.exit(app.exec())
 
 if __name__ == "__main__":
     LAVA()
