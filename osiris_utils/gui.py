@@ -1,12 +1,10 @@
-# your_package/gui.py
 import sys
 import os
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QPushButton, 
                               QFileDialog, QMessageBox, QComboBox, QHBoxLayout,
-                              QVBoxLayout, QLabel, QLineEdit, QFrame)
+                              QVBoxLayout, QLabel, QLineEdit, QFrame, QDoubleSpinBox)
 from PySide6.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import numpy as np
 from .data import OsirisGridFile  # Update import as needed
@@ -80,6 +78,7 @@ class LAVA_Qt(QMainWindow):
         self.xlabel_edit.textChanged.connect(self.update_plot_labels)
         self.ylabel_edit.textChanged.connect(self.update_plot_labels)
         
+        
         labels_layout.addWidget(QLabel("Title:"))
         labels_layout.addWidget(self.title_edit)
         labels_layout.addWidget(QLabel("X Label:"))
@@ -87,14 +86,10 @@ class LAVA_Qt(QMainWindow):
         labels_layout.addWidget(QLabel("Y Label:"))
         labels_layout.addWidget(self.ylabel_edit)
         
+        # define the size of the labels frame
         self.main_layout.addWidget(labels_frame)
 
-    def create_plot_area(self):
-        # Matplotlib figure and canvas
-        self.figure = Figure(figsize=(8, 6))
-        self.canvas = FigureCanvas(self.figure)
-        self.main_layout.addWidget(self.canvas)
-
+    
     def load_folder(self):
         folder_dialog = QFileDialog()
         folderpath = folder_dialog.getExistingDirectory(
@@ -171,6 +166,12 @@ class LAVA_Qt(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
 
+    def create_plot_area(self):
+        # Matplotlib figure and canvas
+        self.figure = plt.figure(figsize=(8, 6))
+        self.canvas = FigureCanvas(self.figure)
+        self.main_layout.addWidget(self.canvas)
+
     def update_plot_labels(self):
         if self.current_ax:
             self.current_ax.set_xlabel(self.xlabel_edit.text())
@@ -207,8 +208,7 @@ class LAVA_Qt(QMainWindow):
         plot_type = self.plot_combo.currentText()
         
         if "Quantity" in plot_type:
-            img = self.current_ax.imshow(data, extent=(x[0], x[-1], y[0], y[-1]), 
-                                       origin='lower', aspect='auto')
+            img = self.current_ax.imshow(data, extent=(x[0], x[-1], y[0], y[-1]), origin='lower', aspect='auto')
             self.figure.colorbar(img)
         elif "Integral" in plot_type:
             avg = integrate(transverse_average(data), x[-1]/len(x))
