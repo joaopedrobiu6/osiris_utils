@@ -7,7 +7,7 @@ This package contains a set of utilities to open and analyze OSIRIS output files
 To install this package, you can use `pip`:
 
 ```bash
-pip install osiris-utils
+pip install osiris_utils
 ```
 
 To install it from source, you can clone this repository and run (in the folder containing `setup.py`):
