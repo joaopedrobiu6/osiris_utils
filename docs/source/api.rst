@@ -7,7 +7,7 @@ Core Modules
 data_readers Module
 ~~~~~~~~~~~~~~~~~~~
 .. automodule:: osiris_utils.data_readers
-   :members: create_dataset, open1D, open2D, open3D, read_osiris_file
+   :members: open1D, open2D, open3D, read_osiris_file
    :show-inheritance:
 
 data Module (Structures)
