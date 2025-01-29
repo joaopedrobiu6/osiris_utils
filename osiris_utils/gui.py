@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QPushButton,
 from PySide6.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 import numpy as np
 from .data import OsirisGridFile  # Update import as needed
 from .utils import integrate, transverse_average  # Update import as needed
@@ -216,18 +217,35 @@ class LAVA_Qt(QMainWindow):
         elif "Transverse" in plot_type:
             avg = transverse_average(data)
             self.current_ax.plot(x, avg)
-            
+        elif "Phase" in plot_type:
+            img = self.current_ax.imshow(np.abs(-data), extent=(x[0], x[-1], y[0], y[-1]), origin='lower', aspect='auto', norm=LogNorm())
+            self.figure.colorbar(img)
+        
         self.current_ax.set_xlabel(self.xlabel_edit.text())
         self.current_ax.set_ylabel(self.ylabel_edit.text())
         self.figure.suptitle(self.title_edit.text())
 
     def update_plot_menu(self):
+        
+        # Save current plot type before clearing
+        current_plot_type = self.plot_combo.currentText()
         self.plot_combo.clear()
+        
+        # Determine items based on dimensions
         if self.dims == 1:
-            self.plot_combo.addItems(["Line Plot", "Scatter Plot"])
+            items = ["Line Plot", "Scatter Plot"]
         elif self.dims == 2:
-            self.plot_combo.addItems(["Quantity Plot", "T. Average Integral", "Transverse Average"])
-        self.plot_combo.setCurrentIndex(0)
+            items = ["Quantity Plot", "T. Average Integral", "Transverse Average", "Phase Space"]
+        else:
+            items = []
+        
+        self.plot_combo.addItems(items)
+    
+        # Restore previous selection if possible
+        if current_plot_type in items:
+            self.plot_combo.setCurrentText(current_plot_type)
+        else:
+            self.plot_combo.setCurrentIndex(0 if items else -1)
 
     def save_plot(self):
         file_dialog = QFileDialog()
