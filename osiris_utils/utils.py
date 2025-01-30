@@ -103,7 +103,8 @@ def integrate(array, dx):
     if len(array.shape) != 1:
         raise ValueError(f"Array must be 1D\n Array shape: {array.shape}")
     flip_array = np.flip(array)
-    int = -scipy.integrate.cumulative_trapezoid(flip_array, dx = dx, initial=0)
+    # int = -scipy.integrate.cumulative_trapezoid(flip_array, dx = dx, initial = flip_array[0])
+    int = -scipy.integrate.cumulative_simpson(flip_array, dx = dx, initial = flip_array[0])
     return np.flip(int)
 
 def animate_2D(datafiles, frames, interval, fps, savename, **kwargs):
