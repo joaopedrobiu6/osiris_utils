@@ -88,22 +88,24 @@ class OsirisRawFile():
         
     Attributes:
 
-        - axis: A dictionary where each key is a dataset name, and each value is another dictionary containing:
+        - axis: a dictionary where each key is a dataset name, and each value is another dictionary containing:
                 name (str): The name of the quantity (e.g., 'x1', 'ene').
                 units (str): The units associated with that dataset in LaTeX (e.g., 'c/\\omega_p', 'm_e c^2').
                 long_name (str): The name of the quantity in LaTeX (e.g., 'x_1', 'En2').
             dictionary of dictionaries
-        - dt: the time step
-            float
+        - data: a dictionary where each key is a dataset name, and each value is the data
+            dictionary of np.arrays
         - dim: the number of dimensions
             int
-        - time: the time and its units
-            list [time, units]
-            list [float, str]
+        - dt: the time step
+            float
         - iter: the iteration number
             int
         - name: the name of the species
             str
+        - time: the time and its units
+            list [time, units]
+            list [float, str]
         -type: type of data (particles in the case of raw files) 
             str
 
