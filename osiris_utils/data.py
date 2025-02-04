@@ -17,7 +17,7 @@ class OsirisGridFile():
             numpy.ndarray
         - axis: the axis data [(name_x1, units_x1, long_name_x1, type_x1), ...]
             list of dictionaries
-        - data: the data (numpy array) (it is transposed so the shape will be (nx3, nx2, nx1))
+        - data: the data (numpy array) with shape (nx1, nx2, nx3) (Transpose to use `plt.imshow`)
             numpy.ndarray
         - dt: the time step
             float
@@ -33,6 +33,13 @@ class OsirisGridFile():
         - units: the units of the data
             str
         - label: the label of the data (LaTeX formatted)
+        
+    Example:
+        example = utils.OsirisGridFile("grid/file/osiris/output-000000.h5")
+        plt.imshow(example.data.T, aspect='auto', origin='lower', extent=[example.grid[0][0], example.grid[0][-1], example.grid[1][0], example.grid[1][-1]])
+        plt.xlabel(rf"${example.axis[0]["long_name"]}$ [${example.axis[0]["units"]}$]")
+        plt.ylabel(rf"${example.axis[1]["long_name"]}$ [${example.axis[1]["units"]}$]")
+        plt.title(rf"${example.label}$, t={example.time[0]} ${example.time[1]}$")
     '''
     def __init__(self, filename):
         with h5py.File(filename, 'r+') as f:
@@ -77,6 +84,7 @@ class OsirisGridFile():
             self.units = f.attrs["UNITS"][0].decode('utf-8')
             self.label = f.attrs["LABEL"][0].decode('utf-8')
             self.type = f.attrs["TYPE"][0].decode('utf-8')
+            self.data = self.data.T
 
 
 class OsirisRawFile():
