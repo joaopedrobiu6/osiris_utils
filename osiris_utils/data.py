@@ -107,6 +107,8 @@ class OsirisRawFile():
             int
         - dt: the time step
             float
+        - grid: maximum and minimum coordinates of the box, for each axis 
+            numpy.ndarray(dim,2)
         - iter: the iteration number
             int
         - name: the name of the species
@@ -138,6 +140,7 @@ class OsirisRawFile():
             self.iter = int(f.attrs["ITER"][0])
             self.name = f.attrs["NAME"][0].decode('utf-8')
             self.type = f.attrs["TYPE"][0].decode('utf-8')
+            self.grid = np.array([f["SIMULATION"].attrs["XMIN"], f["SIMULATION"].attrs["XMAX"]]).T
 
             self.data = {}
             self.axis = {}
