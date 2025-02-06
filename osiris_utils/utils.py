@@ -78,7 +78,7 @@ def transverse_average(data):
 
     if len(data.shape) != 2:
         raise ValueError("The input data must be a 2D array.")
-    return np.mean(data, axis = 0)
+    return np.mean(data, axis = 1)
 
 def integrate(array, dx):
     """
@@ -104,7 +104,7 @@ def integrate(array, dx):
         raise ValueError(f"Array must be 1D\n Array shape: {array.shape}")
     flip_array = np.flip(array)
     # int = -scipy.integrate.cumulative_trapezoid(flip_array, dx = dx, initial = flip_array[0])
-    int = -scipy.integrate.cumulative_simpson(flip_array, dx = dx, initial = flip_array[0])
+    int = -scipy.integrate.cumulative_simpson(flip_array, dx = dx, initial = 0)
     return np.flip(int)
 
 def animate_2D(datafiles, frames, interval, fps, savename, **kwargs):
