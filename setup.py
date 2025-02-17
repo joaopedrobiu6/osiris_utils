@@ -15,12 +15,12 @@ with open(os.path.join(here, "requirements.txt"), encoding="utf-8") as f:
 
 setup(
     name="osiris_utils",
-    version="v1.0.4",
+    version="v1.0.5",
     description=("Utilities to manipulate and visualize OSIRIS framework output data"),
     # long_description=long_description,
     long_description_content_type="text/markdown",
-    author=["João Pedro Ferreira Biu", "Rafael Russo de Almeida"],
-    author_email=["joaopedrofbiu@tecnico.ulisboa.pt", "rafaelrussoalmeida@tecnico.ulisboa.pt"],
+    author=["João Pedro Ferreira Biu", "João Cândido", "Rafael Russo de Almeida"],
+    author_email=["joaopedrofbiu@tecnico.ulisboa.pt"],
     license="MIT",
     classifiers=[
         "Development Status :: 3 - Alpha",
