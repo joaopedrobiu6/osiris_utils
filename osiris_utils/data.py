@@ -118,15 +118,6 @@ class OsirisRawFile():
             list [float, str]
         -type: type of data (particles in the case of raw files) 
             str
-
-    Example:
-
-        electrons = utils.OsirisRawFile("MS/RAW/electrons/RAW-electrons-000002.h5")
-        plt.hist2d(electrons.data["x1"], electrons.data["x2"], bins=100, cmap='plasma', norm=mpl.colors.LogNorm())
-        plt.xlabel(r"${}$".format(electrons.axis["x1"]["long_name"]) + r"$\quad[{}]$".format(electrons.axis["x1"]["units"]))
-        plt.ylabel(r"${}$".format(electrons.axis["x2"]["long_name"]) + r"$\quad[{}]$".format(electrons.axis["x2"]["units"]))
-        plt.title(r"$t={}$".format(electrons.time[0]) + r"$\quad[{}]$".format(electrons.time[1]))
-        plt.show()
     '''
     
     def __init__(self, filename):
