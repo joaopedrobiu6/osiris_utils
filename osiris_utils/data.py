@@ -89,7 +89,7 @@ class OsirisRawFile():
         - filename: the path to the HDF5 file
     
     Attributes:
-        - axis: a dictionary where each key is a dataset name, and each value is another dictionary containing:
+        - axis: a dictionary where each key is a dataset name, and each value is another dictionary containing
             name (str): The name of the quantity (e.g., r'x1', r'ene').
             units (str): The units associated with that dataset in LaTeX (e.g., r'c/\\omega_p', r'm_e c^2').
             long_name (str): The name of the quantity in LaTeX (e.g., r'x_1', r'En2').
