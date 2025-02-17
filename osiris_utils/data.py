@@ -34,12 +34,6 @@ class OsirisGridFile():
             str
         - label: the label of the data (LaTeX formatted)
         
-    Example:
-        example = utils.OsirisGridFile("grid/file/osiris/output-000000.h5")
-        plt.imshow(example.data.T, aspect='auto', origin='lower', extent=[example.grid[0][0], example.grid[0][-1], example.grid[1][0], example.grid[1][-1]])
-        plt.xlabel(rf"${example.axis[0]["long_name"]}$ [${example.axis[0]["units"]}$]")
-        plt.ylabel(rf"${example.axis[1]["long_name"]}$ [${example.axis[1]["units"]}$]")
-        plt.title(rf"${example.label}$, t={example.time[0]} ${example.time[1]}$")
     '''
     def __init__(self, filename):
         with h5py.File(filename, 'r+') as f:
@@ -96,9 +90,9 @@ class OsirisRawFile():
     
     Attributes:
         - axis: a dictionary where each key is a dataset name, and each value is another dictionary containing:
-            name (str): The name of the quantity (e.g., 'x1', 'ene').
-            units (str): The units associated with that dataset in LaTeX (e.g., 'c/\\omega_p', 'm_e c^2').
-            long_name (str): The name of the quantity in LaTeX (e.g., 'x_1', 'En2').
+            name (str): The name of the quantity (e.g., r'x1', r'ene').
+            units (str): The units associated with that dataset in LaTeX (e.g., r'c/\\omega_p', r'm_e c^2').
+            long_name (str): The name of the quantity in LaTeX (e.g., r'x_1', r'En2').
             dictionary of dictionaries
         - data: a dictionary where each key is a dataset name, and each value is the data
             dictionary of np.arrays
@@ -117,6 +111,7 @@ class OsirisRawFile():
             list [float, str]
         -type: type of data (particles in the case of raw files) 
             str
+
     '''
     
     def __init__(self, filename):
