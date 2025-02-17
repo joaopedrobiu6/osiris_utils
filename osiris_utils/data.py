@@ -109,7 +109,7 @@ class OsirisRawFile():
         - time: the time and its units
             list [time, units]
             list [float, str]
-        -type: type of data (particles in the case of raw files) 
+        - type: type of data (particles in the case of raw files)
             str
 
     '''
