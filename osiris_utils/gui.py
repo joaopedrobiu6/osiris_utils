@@ -142,13 +142,13 @@ class LAVA_Qt(QMainWindow):
             
             if self.type == "grid":
                 if self.dims == 1:
-                    x = np.linspace(gridfile.grid[0], gridfile.grid[1], gridfile.nx)
+                    x = np.arange(gridfile.grid[0], gridfile.grid[1], gridfile.dx)
                     self.xlabel_edit.setText(r"$%s$ [$%s$]" % (gridfile.axis[0]["long_name"], gridfile.axis[0]["units"]))
                     self.ylabel_edit.setText(r"$%s$ [$%s$]" % (gridfile.label, gridfile.units))
                     self.data_info = (x, gridfile.data)
                 elif self.dims == 2:
-                    x = np.linspace(gridfile.grid[0][0], gridfile.grid[0][1], gridfile.nx[0])
-                    y = np.linspace(gridfile.grid[1][0], gridfile.grid[1][1], gridfile.nx[1])
+                    x = np.arange(gridfile.grid[0][0], gridfile.grid[0][1], gridfile.dx[0])
+                    y = np.arange(gridfile.grid[1][0], gridfile.grid[1][1], gridfile.dx[1])
                     self.xlabel_edit.setText(r"$%s$ [$%s$]" % (gridfile.axis[0]["long_name"], gridfile.axis[0]["units"]))
                     self.ylabel_edit.setText(r"$%s$ [$%s$]" % (gridfile.axis[1]["long_name"], gridfile.axis[1]["units"]))
                     self.data_info = (x, y, gridfile.data)
