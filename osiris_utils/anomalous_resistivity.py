@@ -133,7 +133,7 @@ class AnomalousResistivity:
         dataframe_table = pa.Table.from_pandas(dataframe)
         pq.write_table(dataframe_table, filename)
 
-def Omega_K(quantities_folder, velocity_folder, range_iter, dump):
+def Omega_K(quantities_folder, velocity_folder, range_iter, dump, vmin_=0, vmax_=1):
     try:
         AR = np.loadtxt("AR.txt")
     except:
@@ -183,7 +183,7 @@ def Omega_K(quantities_folder, velocity_folder, range_iter, dump):
 
     # Plot the FFT magnitude
     plt.figure(figsize=(12, 6))
-    plt.pcolormesh(K, W, magnitude, shading='auto', cmap='grey')#, vmin=0, vmax=10)
+    plt.pcolormesh(K, W, magnitude, shading='auto', cmap='grey', vmin=vmin_, vmax=vmax_)
     plt.colorbar(label='Magnitude')
     plt.xlim(0, K.max())
     plt.ylim(0, W.max())
