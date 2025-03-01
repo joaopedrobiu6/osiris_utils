@@ -1,3 +1,4 @@
+from matplotlib.patches import bbox_artist
 import numpy as np
 from .utils import *
 from .data import *
@@ -186,4 +187,4 @@ def Omega_K(quantities_folder, velocity_folder, range_iter, dump):
     plt.xlabel(r'Wavenumber (k)')
     plt.ylabel(r'Frequency ($\omega$)')
     plt.title(r'$|A(k, ω)|^2$')
-    plt.savefig("DispersionRelation.png")
+    plt.savefig("DispersionRelation.png", dpi=500, bbox_inches='tight')
