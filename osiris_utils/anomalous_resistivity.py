@@ -5,6 +5,7 @@ from .data import *
 import pandas as pd
 import pyarrow.parquet as pq
 import pyarrow as pa
+import tqdm as tqdm
 
 class AnomalousResistivity:
     def __init__(self, quantity_folder, velocity_folder, quantity_iter, dump):
@@ -136,8 +137,11 @@ def Omega_K(quantities_folder, velocity_folder, range_iter, dump):
     try:
         AR = np.loadtxt("AR.txt")
     except:
-        AR = [AnomalousResistivity(quantities_folder, velocity_folder, i, dump).Momentum()[1] for i in range(range_iter[0], range_iter[1])]
-        AR = np.nan_to_num(AR)
+        AR_list = []
+        for i in tqdm.trange(range_iter[0], range_iter[1], desc="Computing AR"):
+            result = AnomalousResistivity(quantities_folder, velocity_folder, i, dump).Momentum()[1]
+            AR_list.append(result)
+        AR = np.nan_to_num(AR_list)
 
     AR = np.array(AR)
 
