@@ -105,6 +105,18 @@ class AnomalousResistivity:
         self.eta_dominant = - self.term2 + self.term4 - self.term5 - self.term6 - self.term7 - self.term8 - self.term10
 
     def Momentum(self):
+        """
+        Returns the momentum equation for average quantities, eta, and the eta with dominant terms
+
+        Returns:
+        --------
+        momentum_bar: numpy array
+            momentum equation for average quantities
+        eta: numpy array
+            eta term in the momentum equation
+        eta_dominant: numpy array
+            eta term with dominant terms
+        """
         return self.momentum_bar, self.eta, self.eta_dominant
     
     def ElectricFields(self):
@@ -118,3 +130,60 @@ class AnomalousResistivity:
                           'eta': np.squeeze(self.eta)})
         dataframe_table = pa.Table.from_pandas(dataframe)
         pq.write_table(dataframe_table, filename)
+
+def Omega_K(quantities_folder, velocity_folder, range_iter, dump):
+    try:
+        AR = np.loadtxt("AR.txt")
+    except:
+        AR = [AnomalousResistivity(quantities_folder, velocity_folder, i, dump).Momentum()[1] for i in range(range_iter[0], range_iter[1])]
+        AR = np.nan_to_num(AR)
+
+    AR = np.array(AR)
+
+    if np.isnan(AR).any():
+        AR = np.nan_to_num(AR)
+    if np.isinf(AR).any():
+        AR = np.nan_to_num(AR)
+
+    if not os.path.isfile("AR.txt"):
+        np.savetxt("AR.txt", AR)
+
+    # For labels and infos:
+    E1 = OsirisGridFile(quantities_folder + f'FLD/e1/e1-000001.h5')
+
+    x = np.arange(E1.grid[0][0],  E1.grid[0][1], E1.dx[0])
+    t = np.arange(range_iter[0]*E1.dt, range_iter[1]*E1.dt + E1.dt, E1.dt)
+
+    # hanning
+    AR_han = AR * np.hanning(AR.shape[0])[:, np.newaxis]
+
+    # Compute the 2D FFT of AR
+    AR_fft = np.abs(np.fft.fft2(AR_han))**2
+    AR_fft = np.fft.fftshift(AR_fft)
+
+    # Compute the magnitude of the FFT
+    magnitude = AR_fft
+
+    # Compute the corresponding k and omega values
+    kx = np.fft.fftfreq(AR.shape[1], d=E1.dx[0])  # Wavenumbers (k)
+    omega = np.fft.fftfreq(AR.shape[0], d=E1.dt)  # Frequencies (ω)
+
+    # Shift the frequencies to match the shifted FFT
+    kx_shifted = np.fft.fftshift(kx)
+    omega_shifted = np.fft.fftshift(omega)
+
+    # Create a meshgrid for k and omega
+    K, W = np.meshgrid(kx_shifted, omega_shifted)
+
+
+    # Plot the FFT magnitude
+    plt.figure(figsize=(12, 6))
+    plt.pcolormesh(K, W, magnitude, shading='auto', cmap='grey')#, vmin=0, vmax=10)
+    plt.colorbar(label='Magnitude')
+    plt.xlim(0, K.max())
+    plt.ylim(0, W.max())
+
+    plt.xlabel(r'Wavenumber (k)')
+    plt.ylabel(r'Frequency ($\omega$)')
+    plt.title(r'$|A(k, ω)|^2$')
+    plt.savefig("DispersionRelation.png")

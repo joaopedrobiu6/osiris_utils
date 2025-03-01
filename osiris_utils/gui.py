@@ -209,7 +209,7 @@ class LAVA_Qt(QMainWindow):
         plot_type = self.plot_combo.currentText()
         
         if "Quantity" in plot_type:
-            img = self.current_ax.imshow(data, extent=(x[0], x[-1], y[0], y[-1]), origin='lower', aspect='auto')
+            img = self.current_ax.imshow(data.T, extent=(x[0], x[-1], y[0], y[-1]), origin='lower', aspect='auto')
             self.figure.colorbar(img)
         elif "Integral" in plot_type:
             avg = integrate(transverse_average(data), x[-1]/len(x))
@@ -218,7 +218,7 @@ class LAVA_Qt(QMainWindow):
             avg = transverse_average(data)
             self.current_ax.plot(x, avg)
         elif "Phase" in plot_type:
-            img = self.current_ax.imshow(np.abs(-data), extent=(x[0], x[-1], y[0], y[-1]), origin='lower', aspect='auto', norm=LogNorm())
+            img = self.current_ax.imshow(np.abs(-data.T), extent=(x[0], x[-1], y[0], y[-1]), origin='lower', aspect='auto', norm=LogNorm())
             self.figure.colorbar(img)
         
         self.current_ax.set_xlabel(self.xlabel_edit.text())
