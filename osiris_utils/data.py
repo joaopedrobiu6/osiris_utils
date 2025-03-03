@@ -77,7 +77,7 @@ class OsirisGridFile():
                     
             # NOW WORK ON THE SIMULATION DATA
             self.dt = float(f["SIMULATION"].attrs["DT"][0])
-            self.dims_simulation = int(f["SIMULATION"].attrs["NDIMS"][0])
+            self.dim = int(f["SIMULATION"].attrs["NDIMS"][0])
             self.time = [float(f.attrs["TIME"][0]), f.attrs["TIME UNITS"][0].decode('utf-8')]
             self.iter = int(f.attrs["ITER"][0])
             self.name = f.attrs["NAME"][0].decode('utf-8')
@@ -85,6 +85,175 @@ class OsirisGridFile():
             self.label = f.attrs["LABEL"][0].decode('utf-8')
             self.type = f.attrs["TYPE"][0].decode('utf-8')
             self.data = self.data.T
+
+
+    def __yeeToCellCorner1d(self, x):
+        """
+        ! Converts 1d EM fields from a staggered Yee mesh to a grid with field values centered on the corner
+        ! of the cell (the corner of the cell [1] has coordinates [1])
+        """
+
+
+        def B1(B1, x):
+            return(B1[x])
+        
+        def B2(B2, x):
+            return(0.5 * (B2[x] + B2[x-1]))     
+
+        def B3(B3, x):
+            return(0.5 * (B3[x] + B3[x-1])) 
+
+        def E1(E1, x):
+            return(0.5 * (E1[x] + E1[x-1]))
+        
+        def E2(E2, x):
+            return(E2[x])     
+
+        def E3(E3, x):
+            return(E3[x]) 
+              
+        def case_default(data, x):
+            raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
+        
+        cases = {
+            'b1': B1,
+            'b2': B2,
+            'b3': B3,
+            'e1': E1,
+            'e2': E2,
+            'e3': E3,
+            'default': case_default,
+        }
+
+        return cases.get(self.name, cases['default'])(self.data, x)
+    
+
+    def __yeeToCellCorner2d(self, x, y):
+        """
+        ! Converts 2d EM fields from a staggered Yee mesh to a grid with field values centered on the corner
+        ! of the cell (the corner of the cell [1,1] has coordinates [1,1])
+        """
+
+
+        def B1(B1, x, y):
+            return(0.5 * (B1[x, y] + B1[x, y-1]))
+        
+        def B2(B2, x, y):
+            return(0.5 * (B2[x, y] + B2[x-1, y]))
+        
+        def B3(B3, x, y):
+            return(0.25 * (B3[x, y] + B3[x-1, y] + B3[x, y-1] + B3[x-1, y-1]))
+        
+        def E1(E1, x, y):
+            return(0.5 * (E1[x, y] + E1[x-1, y]))
+        
+        def E2(E2, x, y):
+            return(0.5 * (E2[x, y] + E2[x, y-1]))
+        
+        def E3(E3, x, y):
+            return(E3[x, y])
+        
+        def case_default(data, x, y):
+            raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
+        
+        cases = {
+            'b1': B1,
+            'b2': B2,
+            'b3': B3,
+            'e1': E1,
+            'e2': E2,
+            'e3': E3,
+            'default': case_default,
+        }
+
+        return cases.get(self.name, cases['default'])(self.data, x, y)
+    
+
+    def __yeeToCellCorner3d(self, x, y, z):
+        """
+        ! Converts 3d EM fields from a staggered Yee mesh to a grid with field values centered on the corner
+        ! of the cell (the corner of the cell [1,1,1] has coordinates [1,1,1])
+        """
+
+
+        def B1(B1, x, y, z):
+            return(0.25 * (B1[x, y, z] + B1[x, y-1, z] + B1[x, y, z-1] + B1[x, y-1, z-1]))
+        
+        def B2(B2, x, y, z):
+            return(0.25 * (B2[x, y, z] + B2[x-1, y, z] + B2[x, y, z-1] + B2[x-1, y, z-1]))
+        
+        def B3(B3, x, y, z):
+            return(0.25 * (B3[x, y, z] + B3[x-1, y, z] + B3[x, y-1, z] + B3[x-1, y-1, z]))
+        
+        def E1(E1, x, y, z):
+            return(0.5 * (E1[x, y, z] + E1[x-1, y, z]))
+        
+        def E2(E2, x, y, z):
+            return(0.5 * (E2[x, y, z] + E2[x, y-1, z]))
+        
+        def E3(E3, x, y, z):
+            return(0.5 * (E3[x, y, z] + E3[x, y, z-1]))
+        
+        def case_default(data, x, y, z):
+            raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
+        
+        cases = {
+            'b1': B1,
+            'b2': B2,
+            'b3': B3,
+            'e1': E1,
+            'e2': E2,
+            'e3': E3,
+            'default': case_default,
+        }
+
+        return cases.get(self.name, cases['default'])(self.data, x, y, z)
+        
+        
+    def yeeToCellCorner(self):
+        """
+        Converts EM fields from a staggered Yee mesh to a grid with field values centered on the corner
+        of the cell (ex the corner of the cell [1,1,1] has coordinates [1,1,1])
+        The dimension of the new data is smaller because it is not possible to calcualte the values on the corners 
+        of the 0th cells
+
+        Returns:
+        - new_data: the data (numpy array) with shape (nx1-1), (nx1-1, nx2-1) or (nx1-1, nx2-1, nx3-1), 
+            depending on the dimension, with the fields defined on the corner of the grid, instead of the Yee mesh.
+            numpy.ndarray
+        """ 
+        
+        
+        if self.dim == 1:
+            shape = np.shape(self.data)
+            new_data = np.empty(shape-np.array([1]))
+            for x in range(1, shape[0]):
+                        new_data[x-1] = self.__yeeToCellCorner1d(x)
+
+            return new_data
+
+        elif self.dim == 2:
+            shape = np.shape(self.data)
+            new_data = np.empty(shape-np.array([1,1]))
+            for x in range(1, shape[0]):
+                for y in range(1, shape[1]):
+                        new_data[x-1][y-1] = self.__yeeToCellCorner2d(x, y)
+
+            return new_data
+
+        elif self.dim == 3:
+            shape = np.shape(self.data)
+            new_data = np.empty(shape-np.array([1,1,1]))
+            for x in range(1, shape[0]):
+                for y in range(1, shape[1]):
+                    for z in range(1, shape[2]):
+                        new_data[x-1][y-1][z-1] = self.__yeeToCellCorner3d(x, y, z)
+
+            return new_data
+        
+        else:
+            raise ValueError("Invalid simulation dimension.")
+
 
 
 class OsirisRawFile():
