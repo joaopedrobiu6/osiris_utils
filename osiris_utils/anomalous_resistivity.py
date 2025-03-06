@@ -86,12 +86,14 @@ class AnomalousResistivity:
         self.momentum_bar = self.E_vlasov_bar + self.dV1dt_bar + self.V1_dV1dx_bar + self.dT11nedx_bar/self.ne_bar + self.V2V3_bar - self.V3V2_bar         
         self.momentum_bar = np.squeeze(self.momentum_bar)
         
-        # convective term, u x B term
+        # convective term, u x B term - common terms
         self.term1 = transverse_average(self.V1_delta*np.gradient(self.V1_delta, self.V1.dx[0], axis=0))
         self.term2 = transverse_average(self.V2_delta*self.B3_delta)
         self.term3 = transverse_average(self.V3_delta*self.B2_delta)
         
-        # thermal pressure gradient term xx
+        # thermal pressure gradient term xx 
+
+        # OPTION 1x§
         self.term4 = transverse_average((np.gradient(self.ne_bar*self.T11_bar, self.T11.dx[0], axis=0)/self.ne.data)*(self.ne_delta/self.ne_bar))
         self.term5 = transverse_average(np.gradient(self.ne_bar*self.T11_delta, self.T11.dx[0], axis=0)/self.ne.data)
         self.term6 = transverse_average(np.gradient(self.ne_delta*self.T11_bar, self.T11.dx[0], axis=0)/self.ne.data)
@@ -105,7 +107,6 @@ class AnomalousResistivity:
         self.term9 = transverse_average(np.gradient(self.ne_delta*self.T12_bar, self.T12.dx[1], axis=1)/self.ne.data)
         self.term10 = transverse_average(np.gradient(self.ne_delta*self.T12_delta, self.T12.dx[1], axis=1)/self.ne.data)
         
-
         self.eta =  - self.term1 - self.term2 + self.term3 + self.term4 - self.term5 - self.term6 - self.term7 - self.term8 - self.term9 - self.term10        
         self.eta_dominant = - self.term2 + self.term4 - self.term5 - self.term6 - self.term7 - self.term8 - self.term10
         
