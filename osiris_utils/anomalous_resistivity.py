@@ -97,6 +97,9 @@ class AnomalousResistivity:
         self.term6 = transverse_average(np.gradient(self.ne_delta*self.T11_bar, self.T11.dx[0], axis=0)/self.ne.data)
         self.term7 = transverse_average(np.gradient(self.ne_delta*self.T11_delta, self.T11.dx[0], axis=0)/self.ne.data)
 
+        self.term4_model1 = transverse_average(np.gradient(self.ne_delta*self.T11_delta, self.T11.dx[0], axis=0)/self.ne_bar)
+        self.term5_model1 = transverse_average((np.gradient(self.ne.data*self.T11.data, self.T11.dx[0], axis=0)/self.ne.data)*(self.ne_delta/self.ne_bar))
+
         # thermal pressure gradient term xy
         self.term8 = transverse_average(np.gradient(self.ne_bar*self.T12_delta, self.T12.dx[1], axis=1)/self.ne.data)
         self.term9 = transverse_average(np.gradient(self.ne_delta*self.T12_bar, self.T12.dx[1], axis=1)/self.ne.data)
@@ -105,6 +108,10 @@ class AnomalousResistivity:
 
         self.eta =  - self.term1 - self.term2 + self.term3 + self.term4 - self.term5 - self.term6 - self.term7 - self.term8 - self.term9 - self.term10        
         self.eta_dominant = - self.term2 + self.term4 - self.term5 - self.term6 - self.term7 - self.term8 - self.term10
+        
+        self.eta_model1 = - self.term1 - self.term2 + self.term3 - self.term4_model1 + self.term5_model1 - self.term8 - self.term9 - self.term10 
+        self.eta_model1_dom = - self.term2 - self.term4_model1 + self.term5_model1 - self.term8 - self.term10 
+
 
     def Momentum(self):
         """
@@ -120,6 +127,9 @@ class AnomalousResistivity:
             eta term with dominant terms
         """
         return self.momentum_bar, self.eta, self.eta_dominant
+    
+    def Model_1(self):
+        return self.momentum_bar, self.eta_model1, self.eta_model1_dom
     
     def ElectricFields(self):
         return self.E1, self.E_vlasov
