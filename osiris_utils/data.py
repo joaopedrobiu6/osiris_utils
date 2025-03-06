@@ -168,8 +168,6 @@ class OsirisGridFile():
         ! Converts 3d EM fields from a staggered Yee mesh to a grid with field values centered on the corner
         ! of the cell (the corner of the cell [1,1,1] has coordinates [1,1,1])
         """
-
-
         def B1(B1, x, y, z):
             return(0.25 * (B1[x, y, z] + B1[x, y-1, z] + B1[x, y, z-1] + B1[x, y-1, z-1]))
         
@@ -212,9 +210,8 @@ class OsirisGridFile():
         of the 0th cells
 
         Returns:
-        - new_data: the data (numpy array) with shape (nx1-1), (nx1-1, nx2-1) or (nx1-1, nx2-1, nx3-1), 
-            depending on the dimension, with the fields defined on the corner of the grid, instead of the Yee mesh.
-            numpy.ndarray
+            - new_data: the data (numpy array) with shape (nx1-1), (nx1-1, nx2-1) or (nx1-1, nx2-1, nx3-1), depending on the dimension, with the fields defined on the corner of the grid, instead of the Yee mesh.
+                numpy.ndarray
         """ 
         
         
