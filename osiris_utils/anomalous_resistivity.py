@@ -9,6 +9,9 @@ import tqdm as tqdm
 
 class AnomalousResistivity:
     def __init__(self, quantity_folder, velocity_folder, quantity_iter, dump):
+        
+        
+        # Load the quantities
         iter = quantity_iter
         vt_minus = dump*iter - 1
         vt_plus = dump*iter + 1
@@ -32,7 +35,7 @@ class AnomalousResistivity:
         self.P11 = OsirisGridFile(quantity_folder + f'UDIST/electrons/P11/P11-electrons-{iter:06}.h5')
         self.P11.data = self.P11.data - self.ne.data*self.V1.data*self.V1.data
         
-        ############################################################################################################
+        # Compute components of the mometum equation
         self.dV1dt = (self.V1_a.data - self.V1_b.data)/(2*self.V1_a.dt)
         self.V1_dV1dx = self.V1.data * np.gradient(self.V1.data, self.V1.dx[0], axis=0)
         
@@ -44,8 +47,7 @@ class AnomalousResistivity:
         
         self.E_vlasov = - self.dV1dt - self.V1_dV1dx - (1/self.ne.data)*(self.dT11nedx + self.dT12nedy) - (self.V2B3 - self.V3B2)
 
-        ############################################################################################################
-        
+        # Separate quantities in average and fluctuating parts - A = A_bar + A_delta
         self.V1_b_bar = np.expand_dims(transverse_average(self.V1_b.data), axis=1)
         self.V1_a_bar = np.expand_dims(transverse_average(self.V1_a.data), axis=1)
 
@@ -72,7 +74,7 @@ class AnomalousResistivity:
         
         self.E_vlasov_bar = np.expand_dims(transverse_average(self.E_vlasov), axis=1)
 
-        ###########################################################################################################
+        # Compute components of the mometum equation for average quantities
         self.dV1dt_bar = (self.V1_a_bar - self.V1_b_bar)/(2*self.V1_a.dt)
         self.V1_dV1dx_bar = self.V1_bar*np.gradient(self.V1_bar, self.V1.dx[0], axis=0)
         
@@ -81,37 +83,62 @@ class AnomalousResistivity:
             
         self.V2V3_bar = self.V2_bar*self.B3_bar
         self.V3V2_bar = self.V3_bar*self.B2_bar
-        ############################################################################################################
-        
+
+        # Momentum equation for average quantities
         self.momentum_bar = self.E_vlasov_bar + self.dV1dt_bar + self.V1_dV1dx_bar + self.dT11nedx_bar/self.ne_bar + self.V2V3_bar - self.V3V2_bar         
         self.momentum_bar = np.squeeze(self.momentum_bar)
         
+        # Compute the anomalous resistivity - averages over second-order non vanishing transverse fluctuations
+        
         # convective term, u x B term - common terms
-        self.term1 = transverse_average(self.V1_delta*np.gradient(self.V1_delta, self.V1.dx[0], axis=0))
-        self.term2 = transverse_average(self.V2_delta*self.B3_delta)
-        self.term3 = transverse_average(self.V3_delta*self.B2_delta)
+        self.term1 = transverse_average(self.V1_delta*np.gradient(self.V1_delta, self.V1.dx[0], axis=0))                                                            # -
+        self.term2 = transverse_average(self.V2_delta*self.B3_delta)                                                                                                # -
+        self.term3 = transverse_average(self.V3_delta*self.B2_delta)                                                                                                # + 
         
-        # thermal pressure gradient term xx 
+        self.commom_terms = - self.term1 - self.term2 + self.term3
 
-        # OPTION 1x§
-        self.term4 = transverse_average((np.gradient(self.ne_bar*self.T11_bar, self.T11.dx[0], axis=0)/self.ne.data)*(self.ne_delta/self.ne_bar))
-        self.term5 = transverse_average(np.gradient(self.ne_bar*self.T11_delta, self.T11.dx[0], axis=0)/self.ne.data)
-        self.term6 = transverse_average(np.gradient(self.ne_delta*self.T11_bar, self.T11.dx[0], axis=0)/self.ne.data)
-        self.term7 = transverse_average(np.gradient(self.ne_delta*self.T11_delta, self.T11.dx[0], axis=0)/self.ne.data)
+        # Thermal pressure gradient term xx 
+        # Model XX1
+        self.xx1_term1 = transverse_average((np.gradient(self.ne_bar*self.T11_bar, self.T11.dx[0], axis=0)/self.ne.data)*(self.ne_delta/self.ne_bar))               # +
+        self.xx1_term2 = transverse_average(np.gradient(self.ne_bar*self.T11_delta, self.T11.dx[0], axis=0)/self.ne.data)                                           # -
+        self.xx1_term3 = transverse_average(np.gradient(self.ne_delta*self.T11_bar, self.T11.dx[0], axis=0)/self.ne.data)                                           # -
+        self.xx1_term4 = transverse_average(np.gradient(self.ne_delta*self.T11_delta, self.T11.dx[0], axis=0)/self.ne.data)                                         # -
 
-        self.term4_model1 = transverse_average(np.gradient(self.ne_delta*self.T11_delta, self.T11.dx[0], axis=0)/self.ne_bar)
-        self.term5_model1 = transverse_average((np.gradient(self.ne.data*self.T11.data, self.T11.dx[0], axis=0)/self.ne.data)*(self.ne_delta/self.ne_bar))
+        self.xx1_full = self.xx1_term1 - self.xx1_term2 - self.xx1_term3 - self.xx1_term4
 
-        # thermal pressure gradient term xy
-        self.term8 = transverse_average(np.gradient(self.ne_bar*self.T12_delta, self.T12.dx[1], axis=1)/self.ne.data)
-        self.term9 = transverse_average(np.gradient(self.ne_delta*self.T12_bar, self.T12.dx[1], axis=1)/self.ne.data)
-        self.term10 = transverse_average(np.gradient(self.ne_delta*self.T12_delta, self.T12.dx[1], axis=1)/self.ne.data)
+        # Model XX2
+        self.xx2_term1 = transverse_average(np.gradient(self.ne_delta*self.T11_delta, self.T11.dx[0], axis=0)/self.ne_bar)                                          # -
+        self.xx2_term2 = transverse_average((np.gradient(self.ne.data*self.T11.data, self.T11.dx[0], axis=0)/self.ne.data)*(self.ne_delta/self.ne_bar))             # +
+
+        self.xx2_full = - self.xx2_term1 + self.xx2_term2
+
+        # Thermal pressure gradient term xy
+        # Model XY1
+        self.xy1_term1 = transverse_average(np.gradient(self.ne_bar*self.T12_delta, self.T12.dx[1], axis=1)/self.ne.data)                                           # -
+        self.xy1_term2 = transverse_average(np.gradient(self.ne_delta*self.T12_bar, self.T12.dx[1], axis=1)/self.ne.data)                                           # -
+        self.xy1_term3 = transverse_average(np.gradient(self.ne_delta*self.T12_delta, self.T12.dx[1], axis=1)/self.ne.data)                                         # -
         
-        self.eta =  - self.term1 - self.term2 + self.term3 + self.term4 - self.term5 - self.term6 - self.term7 - self.term8 - self.term9 - self.term10        
-        self.eta_dominant = - self.term2 + self.term4 - self.term5 - self.term6 - self.term7 - self.term8 - self.term10
+        self.xy1_full = - self.xy1_term1 - self.xy1_term2 - self.xy1_term3
         
-        self.eta_model1 = - self.term1 - self.term2 + self.term3 - self.term4_model1 + self.term5_model1 - self.term8 - self.term9 - self.term10 
-        self.eta_model1_dom = - self.term2 - self.term4_model1 + self.term5_model1 - self.term8 - self.term10 
+        # Model XY2
+        self.xy2_term1 = transverse_average(np.gradient(self.ne_delta*self.T12_delta, self.T12.dx[1], axis=1)/self.ne_bar)                                          # -
+        self.xy2_term2 = transverse_average((np.gradient(self.ne.data*self.T12.data, self.T12.dx[1], axis=1)/self.ne.data)*(self.ne_delta/self.ne_bar))             # +
+
+        self.xy2_full = - self.xy2_term1 + self.xy2_term2
+
+        # self.eta =  - self.term1 - self.term2 + self.term3 + self.term4 - self.term5 - self.term6 - self.term7 - self.term8 - self.term9 - self.term10        
+        # self.eta_dominant = - self.term2 + self.term4 - self.term5 - self.term6 - self.term7 - self.term8 - self.term10
+        # self.eta_model1 = - self.term1 - self.term2 + self.term3 - self.term4_model1 + self.term5_model1 - self.term8 - self.term9 - self.term10 
+        # self.eta_model1_dom = - self.term2 - self.term4_model1 + self.term5_model1 - self.term8 - self.term10 
+        
+        self.eta_xx1_xy1 = self.commom_terms + self.xx1_full + self.xy1_full
+        self.eta_xx2_xy2 = self.commom_terms + self.xx2_full + self.xy2_full
+        self.eta_xx1_xy2 = self.commom_terms + self.xx1_full + self.xy2_full
+        self.eta_xx2_xy1 = self.commom_terms + self.xx2_full + self.xy1_full
+
+        self.eta = self.eta_xx2_xy1
+        self.eta_dominant = self.eta_xx2_xy1
+
 
 
     def Momentum(self):
@@ -129,8 +156,17 @@ class AnomalousResistivity:
         """
         return self.momentum_bar, self.eta, self.eta_dominant
     
-    def Model_1(self):
-        return self.momentum_bar, self.eta_model1, self.eta_model1_dom
+    def model_xx1_xy1(self):
+        return self.momentum_bar, self.eta_xx1_xy1
+    
+    def model_xx2_xy2(self):
+        return self.momentum_bar, self.eta_xx2_xy2
+    
+    def model_xx1_xy2(self):
+        return self.momentum_bar, self.eta_xx1_xy2
+    
+    def model_xx2_xy1(self):
+        return self.momentum_bar, self.eta_xx2_xy1
     
     def ElectricFields(self):
         return self.E1, self.E_vlasov
