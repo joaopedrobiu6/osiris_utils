@@ -37,28 +37,25 @@ class OsirisGridFile():
     '''
     def __init__(self, filename):
         with h5py.File(filename, 'r+') as f:
-            # Get the data 
-            known_keys = {"AXIS", "SIMULATION"}
-            all_keys = set(f.keys())
-            variable_key = (all_keys - known_keys).pop()
+            self._load_basic_attributes(f)
+            variable_key = self._get_variable_key(f)
             
             # The data
-            self.data = np.array(f[variable_key][:])
+            data = np.array(f[variable_key][:])
 
-            keys = list(f.keys())
             # Now get the infos
             axis = list(f["AXIS"].keys())
             if len(axis) == 1:
                 self.grid = f["AXIS/"+axis[0]][()]
-                self.nx = len(self.data)
+                self.nx = len(data)
                 self.dx = (self.grid[1] - self.grid[0] ) / self.nx
             else: 
                 grid = []
                 for ax in axis: grid.append(f["AXIS/"+ax][()])
                 self.grid = np.array(grid)
-                
                 self.nx = f[variable_key][()].transpose().shape
                 self.dx = (self.grid[:, 1] - self.grid[:, 0])/self.nx
+
             self.axis = []
             for ax in axis:
                 axis_data = {
@@ -69,17 +66,24 @@ class OsirisGridFile():
                 }
                 self.axis.append(axis_data)
                     
+            
             # NOW WORK ON THE SIMULATION DATA
-            self.dt = float(f["SIMULATION"].attrs["DT"][0])
-            self.dim = int(f["SIMULATION"].attrs["NDIMS"][0])
-            self.time = [float(f.attrs["TIME"][0]), f.attrs["TIME UNITS"][0].decode('utf-8')]
-            self.iter = int(f.attrs["ITER"][0])
-            self.name = f.attrs["NAME"][0].decode('utf-8')
-            self.units = f.attrs["UNITS"][0].decode('utf-8')
-            self.label = f.attrs["LABEL"][0].decode('utf-8')
-            self.type = f.attrs["TYPE"][0].decode('utf-8')
-            self.data = self.data.T
+            self.data = np.ascontiguousarray(data.T)
 
+    def _load_basic_attributes(self, f: h5py.File) -> None:
+        """Load common attributes from HDF5 file"""
+        self.dt = float(f["SIMULATION"].attrs["DT"][0])
+        self.dim = int(f["SIMULATION"].attrs["NDIMS"][0])
+        self.time = [float(f.attrs["TIME"][0]), f.attrs["TIME UNITS"][0].decode('utf-8')]
+        self.iter = int(f.attrs["ITER"][0])
+        self.name = f.attrs["NAME"][0].decode('utf-8')
+        self.units = f.attrs["UNITS"][0].decode('utf-8')
+        self.label = f.attrs["LABEL"][0].decode('utf-8')
+        self.type = f.attrs["TYPE"][0].decode('utf-8')
+
+    def _get_variable_key(self, f: h5py.File) -> str:
+        # Get the data 
+        return next(k for k in f.keys() if k not in {"AXIS", "SIMULATION"})
 
     def __yeeToCellCorner1d(self, x):
         """
@@ -168,8 +172,6 @@ class OsirisGridFile():
         ! Converts 3d EM fields from a staggered Yee mesh to a grid with field values centered on the corner
         ! of the cell (the corner of the cell [1,1,1] has coordinates [1,1,1])
         """
-
-
         def B1(B1, x, y, z):
             return(0.25 * (B1[x, y, z] + B1[x, y-1, z] + B1[x, y, z-1] + B1[x, y-1, z-1]))
         
@@ -212,9 +214,8 @@ class OsirisGridFile():
         of the 0th cells
 
         Returns:
-        - new_data: the data (numpy array) with shape (nx1-1), (nx1-1, nx2-1) or (nx1-1, nx2-1, nx3-1), 
-            depending on the dimension, with the fields defined on the corner of the grid, instead of the Yee mesh.
-            numpy.ndarray
+            - new_data: the data (numpy array) with shape (nx1-1), (nx1-1, nx2-1) or (nx1-1, nx2-1, nx3-1), depending on the dimension, with the fields defined on the corner of the grid, instead of the Yee mesh.
+                numpy.ndarray
         """ 
         
         
