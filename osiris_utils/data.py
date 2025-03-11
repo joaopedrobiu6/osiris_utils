@@ -63,8 +63,10 @@ class OsirisGridFile():
                     "units": f["AXIS/"+ax].attrs["UNITS"][0].decode('utf-8'),
                     "long_name": f["AXIS/"+ax].attrs["LONG_NAME"][0].decode('utf-8'),
                     "type": f["AXIS/"+ax].attrs["TYPE"][0].decode('utf-8'),
+                    "plot_label": rf"${f["AXIS/"+ax].attrs["LONG_NAME"][0].decode('utf-8')}$ $[{f["AXIS/"+ax].attrs['UNITS'][0].decode('utf-8')}]$",
                 }
                 self.axis.append(axis_data)
+            
                     
             
             # NOW WORK ON THE SIMULATION DATA
