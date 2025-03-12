@@ -56,8 +56,6 @@ class OsirisGridFile():
                 self.grid = np.array(grid)
                 self.nx = f[variable_key][()].transpose().shape
                 self.dx = (self.grid[:, 1] - self.grid[:, 0])/self.nx
-                print(self.grid)
-                print(self.dx)
                 self.x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
 
             self.axis = []
