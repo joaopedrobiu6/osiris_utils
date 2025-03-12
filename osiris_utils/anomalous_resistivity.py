@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
-from torch import norm 
 import numpy as np
 from .utils import *
 from .data import *
@@ -8,6 +7,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 import pyarrow as pa
 import tqdm as tqdm
+
 
 class AnomalousResistivity:
     def __init__(self, quantity_folder, velocity_folder, quantity_iter, dump):
@@ -225,8 +225,6 @@ def Omega_K(E_filename, eta_filename, quantities_folder, velocity_folder, range_
             data = np.nan_to_num(data_list)
         data = np.array(data)
 
-        print(f"Data loaded for {filename}...")
-
         if np.isnan(data).any():
             data = np.nan_to_num(data)
         if np.isinf(data).any():
@@ -236,6 +234,7 @@ def Omega_K(E_filename, eta_filename, quantities_folder, velocity_folder, range_
             print(f"Data saved as {filename}.txt...")
         return data
         
+
     def omegak(data):
         print("Computing the FFT of the data...")
         E1 = OsirisGridFile(quantities_folder + f'FLD/e1/e1-000001.h5')
@@ -279,7 +278,7 @@ def Omega_K(E_filename, eta_filename, quantities_folder, velocity_folder, range_
 
         fig, ax = plt.subplots(figsize=(12, 6), tight_layout=True)
         im = ax.imshow( magnitude, origin = 'lower', extent = ( -k_max, k_max, -omega_max, omega_max ),
-           aspect = 'auto', cmap = 'gray')
+           aspect = 'auto', cmap = 'gray')#, norm = LogNorm())
         cbar = plt.colorbar(im, ax=ax)
         cbar.set_label(r'$|A(k, \omega)|^2$')
         # ax.plot(k, w, label=r'$\omega(k) = \sqrt{\omega_p^2 + 3v_{th}^2 k^2}$')
