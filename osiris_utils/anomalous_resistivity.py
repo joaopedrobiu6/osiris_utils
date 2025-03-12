@@ -1,4 +1,6 @@
-from matplotlib.patches import bbox_artist
+import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
+from torch import norm 
 import numpy as np
 from .utils import *
 from .data import *
@@ -136,12 +138,12 @@ class AnomalousResistivity:
         self.eta_xx1_xy2 = self.commom_terms + self.xx1_full + self.xy2_full
         self.eta_xx2_xy1 = self.commom_terms + self.xx2_full + self.xy1_full
 
-        self.eta = self.eta_xx2_xy1
-        self.eta_dominant = self.eta_xx2_xy1
+        self.eta = self.eta_xx1_xy1
+        self.eta_dominant = - self.term2 + self.xx1_term1 - self.xx1_term2 - self.xx1_term3 - self.xx1_term4 - self.xy1_term1 - self.xy1_term3
 
 
 
-    def Momentum(self):
+    def Momentum(self) -> tuple:
         """
         Returns the momentum equation for average quantities, eta, and the eta with dominant terms
 
@@ -155,6 +157,27 @@ class AnomalousResistivity:
             eta term with dominant terms
         """
         return self.momentum_bar, self.eta, self.eta_dominant
+    
+    def MomentumTerms(self) -> tuple:
+        """ 
+        Returns the terms of the momentum equation
+
+        Returns:
+        --------
+        - E_vlasov_bar: numpy array
+            sign +
+        - dV1dt_bar: numpy array
+            sign +
+        - V1_dV1dx_bar: numpy array
+            sign +
+        - dT11nedx_bar/ne_bar: numpy array
+            sign +
+        - V2V3_bar: numpy array
+            sign +
+        - V3V2_bar: numpy array
+            sign -
+        """
+        return np.squeeze(self.E_vlasov_bar), np.squeeze(self.dV1dt_bar), np.squeeze(self.V1_dV1dx_bar), np.squeeze(self.dT11nedx_bar/self.ne_bar), np.squeeze(self.V2V3_bar), np.squeeze(self.V3V2_bar) 
     
     def model_xx1_xy1(self):
         return self.momentum_bar, self.eta_xx1_xy1
@@ -179,63 +202,110 @@ class AnomalousResistivity:
                           'eta': np.squeeze(self.eta)})
         dataframe_table = pa.Table.from_pandas(dataframe)
         pq.write_table(dataframe_table, filename)
+    
+    def Axis_to_Plot(self):
+        x = np.arange(self.ne.grid[0][0], self.ne.grid[0][1], self.ne.dx[0])
+        dx = self.ne.dx[0]
+        return x, dx
 
-def Omega_K(quantities_folder, velocity_folder, range_iter, dump, vmin_=0, vmax_=1):
-    try:
-        AR = np.loadtxt("AR.txt")
-    except:
-        AR_list = []
-        for i in tqdm.trange(range_iter[0], range_iter[1], desc="Computing AR"):
-            result = AnomalousResistivity(quantities_folder, velocity_folder, i, dump).Momentum()[1]
-            AR_list.append(result)
-        AR = np.nan_to_num(AR_list)
+def Omega_K(E_filename, eta_filename, quantities_folder, velocity_folder, range_iter, dump):
+    
+    def load_and_create_file(filename, func="ElectricFields"):
+        # print loading data
+        print(f"Loading data for {filename}...")
+        try:
+            data = np.loadtxt(filename + ".txt")
+        except:
+            data_list = []
+            for i in tqdm.trange(range_iter[0], range_iter[1], desc="Computing " + filename):
+                if func == "ElectricFields":
+                    data_list.append(transverse_average(AnomalousResistivity(quantities_folder, velocity_folder, i, dump).ElectricFields()[1]))
+                elif func == "Momentum":
+                    data_list.append(AnomalousResistivity(quantities_folder, velocity_folder, i, dump).Momentum()[1])
+            data = np.nan_to_num(data_list)
+        data = np.array(data)
 
-    AR = np.array(AR)
+        print(f"Data loaded for {filename}...")
 
-    if np.isnan(AR).any():
-        AR = np.nan_to_num(AR)
-    if np.isinf(AR).any():
-        AR = np.nan_to_num(AR)
+        if np.isnan(data).any():
+            data = np.nan_to_num(data)
+        if np.isinf(data).any():
+            data = np.nan_to_num(data)
+        if not os.path.isfile(filename + ".txt"):
+            np.savetxt(filename + ".txt", data)
+            print(f"Data saved as {filename}.txt...")
+        return data
+        
+    def omegak(data):
+        print("Computing the FFT of the data...")
+        E1 = OsirisGridFile(quantities_folder + f'FLD/e1/e1-000001.h5')
+        data_han = data * np.hanning(data.shape[0])[:, np.newaxis]
+        # data_fft = np.abs(np.fft.fft2(data_han))**2
+        # data_fft = np.fft.fftshift(data_fft)
 
-    if not os.path.isfile("AR.txt"):
-        np.savetxt("AR.txt", AR)
+        # # Compute the magnitude of the FFT
+        # magnitude = data_fft
+
+        # # Compute the corresponding k and omega values
+        # kx = np.fft.fftfreq(data.shape[1], d=E1.dx[0])  # Wavenumbers (k)
+        # omega = np.fft.fftfreq(data.shape[0], d=E1.dt)  # Frequencies (ω)
+
+        # # Shift the frequencies to match the shifted FFT
+        # kx_shifted = np.fft.fftshift(kx)
+        # omega_shifted = np.fft.fftshift(omega)
+
+        # # Create a meshgrid for k and omega
+        # K, W = np.meshgrid(kx_shifted, omega_shifted)
+        # print("FFT computed...")
+        # return K, W, magnitude, kx_shifted
+
+        sp = np.abs(np.fft.fft2(data_han))**2
+        sp = np.fft.fftshift( sp )
+
+        k_max = np.pi / E1.dx[0]
+        omega_max = np.pi / E1.dt
+
+        return k_max, omega_max, sp
+    
+    def plot_dispersion_relation(k_max, omega_max, magnitude, normalized=True, filename="DispersionRelation.png"):
+        print("Plotting the dispersion relation...")
+        print("Shape of the magnitude: ", magnitude.shape)
+        if normalized:
+            magnitude = magnitude/magnitude.max()
+
+        v_the = 0.001
+        k = np.linspace(-k_max, k_max, num = magnitude.shape[1])
+        w=np.sqrt(1 + 3 * v_the**2 * k**2)
+
+        fig, ax = plt.subplots(figsize=(12, 6), tight_layout=True)
+        im = ax.imshow( magnitude, origin = 'lower', extent = ( -k_max, k_max, -omega_max, omega_max ),
+           aspect = 'auto', cmap = 'gray')
+        cbar = plt.colorbar(im, ax=ax)
+        cbar.set_label(r'$|A(k, \omega)|^2$')
+        # ax.plot(k, w, label=r'$\omega(k) = \sqrt{\omega_p^2 + 3v_{th}^2 k^2}$')
+        ax.set_title(r'$|A(k, \omega)|^2$')
+        ax.set_xlabel(r'$k$')
+        ax.set_ylabel(r'$\omega$')
+        ax.set_xlim(0, k_max)
+        ax.set_ylim(0, omega_max)
+        # ax.legend()
+
+        return fig, ax
+
+    E = load_and_create_file(E_filename, "ElectricFields")
+    AR = load_and_create_file(eta_filename, "Momentum")
+
+    E_omegak = omegak(E)
+    AR_omegak = omegak(AR)
+
+    fig_e, ax_e = plot_dispersion_relation(*E_omegak, normalized=False)
+    fig_ar, ax_ar = plot_dispersion_relation(*AR_omegak, normalized=False)
+
+    fig_e.savefig(E_filename + ".png")
+    fig_ar.savefig(eta_filename + ".png")
+
+    print("Done!")
+    return E_omegak, AR_omegak
 
     # For labels and infos:
-    E1 = OsirisGridFile(quantities_folder + f'FLD/e1/e1-000001.h5')
 
-    x = np.arange(E1.grid[0][0],  E1.grid[0][1], E1.dx[0])
-    t = np.arange(range_iter[0]*E1.dt, range_iter[1]*E1.dt + E1.dt, E1.dt)
-
-    # hanning
-    AR_han = AR * np.hanning(AR.shape[0])[:, np.newaxis]
-
-    # Compute the 2D FFT of AR
-    AR_fft = np.abs(np.fft.fft2(AR_han))**2
-    AR_fft = np.fft.fftshift(AR_fft)
-
-    # Compute the magnitude of the FFT
-    magnitude = AR_fft
-
-    # Compute the corresponding k and omega values
-    kx = np.fft.fftfreq(AR.shape[1], d=E1.dx[0])  # Wavenumbers (k)
-    omega = np.fft.fftfreq(AR.shape[0], d=E1.dt)  # Frequencies (ω)
-
-    # Shift the frequencies to match the shifted FFT
-    kx_shifted = np.fft.fftshift(kx)
-    omega_shifted = np.fft.fftshift(omega)
-
-    # Create a meshgrid for k and omega
-    K, W = np.meshgrid(kx_shifted, omega_shifted)
-
-
-    # Plot the FFT magnitude
-    plt.figure(figsize=(12, 6))
-    plt.pcolormesh(K, W, magnitude, shading='auto', cmap='grey', vmin=vmin_, vmax=vmax_)
-    plt.colorbar(label='Magnitude')
-    plt.xlim(0, K.max())
-    plt.ylim(0, W.max())
-
-    plt.xlabel(r'Wavenumber (k)')
-    plt.ylabel(r'Frequency ($\omega$)')
-    plt.title(r'$|A(k, ω)|^2$')
-    plt.savefig("DispersionRelation.png", dpi=500, bbox_inches='tight')
