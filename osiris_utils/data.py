@@ -9,30 +9,30 @@ class OsirisGridFile():
         - filename: the path to the HDF5 file
         
     Attributes:
-        - grid: the grid data ((x1.min, x1.max), (x2.min, x2.max), (x3.min, x3.max))
+        - grid - the grid data ((x1.min, x1.max), (x2.min, x2.max), (x3.min, x3.max))
             numpy.ndarray
-        - nx: the number of grid points (nx1, nx2, nx3)
+        - nx - the number of grid points (nx1, nx2, nx3)
             numpy.ndarray
-        - dx: the grid spacing (dx1, dx2, dx3)
+        - dx - the grid spacing (dx1, dx2, dx3)
             numpy.ndarray
-        - axis: the axis data [(name_x1, units_x1, long_name_x1, type_x1), ...]
+        - axis - the axis data [(name_x1, units_x1, long_name_x1, type_x1), ...]
             list of dictionaries
         - data: the data (numpy array) with shape (nx1, nx2, nx3) (Transpose to use `plt.imshow`)
             numpy.ndarray
-        - dt: the time step
+        - dt - the time step
             float
-        - dim: the number of dimensions
+        - dim - the number of dimensions
             int
-        - time: the time and its units
+        - time - the time and its units
             list [time, units]
             list [float, str]
-        - iter: the iteration number
+        - iter - the iteration number
             int
-        - name: the name of the data
+        - name - the name of the data
             str
-        - units: the units of the data
+        - units - the units of the data
             str
-        - label: the label of the data (LaTeX formatted)
+        - label - the label of the data (LaTeX formatted)
         
     '''
     def __init__(self, filename):
@@ -49,12 +49,14 @@ class OsirisGridFile():
                 self.grid = f["AXIS/"+axis[0]][()]
                 self.nx = len(data)
                 self.dx = (self.grid[1] - self.grid[0] ) / self.nx
+                self.x = np.arange(self.grid[0], self.grid[1], self.dx)
             else: 
                 grid = []
                 for ax in axis: grid.append(f["AXIS/"+ax][()])
                 self.grid = np.array(grid)
                 self.nx = f[variable_key][()].transpose().shape
                 self.dx = (self.grid[:, 1] - self.grid[:, 0])/self.nx
+                self.x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
 
             self.axis = []
             for ax in axis:
@@ -63,8 +65,10 @@ class OsirisGridFile():
                     "units": f["AXIS/"+ax].attrs["UNITS"][0].decode('utf-8'),
                     "long_name": f["AXIS/"+ax].attrs["LONG_NAME"][0].decode('utf-8'),
                     "type": f["AXIS/"+ax].attrs["TYPE"][0].decode('utf-8'),
+                    "plot_label": rf"${f["AXIS/"+ax].attrs["LONG_NAME"][0].decode('utf-8')}$ $[{f["AXIS/"+ax].attrs['UNITS'][0].decode('utf-8')}]$",
                 }
                 self.axis.append(axis_data)
+            
                     
             
             # NOW WORK ON THE SIMULATION DATA
@@ -259,27 +263,27 @@ class OsirisRawFile():
         - filename: the path to the HDF5 file
     
     Attributes:
-        - axis: a dictionary where each key is a dataset name, and each value is another dictionary containing
+        - axis - a dictionary where each key is a dataset name, and each value is another dictionary containing
             name (str): The name of the quantity (e.g., r'x1', r'ene').
             units (str): The units associated with that dataset in LaTeX (e.g., r'c/\\omega_p', r'm_e c^2').
             long_name (str): The name of the quantity in LaTeX (e.g., r'x_1', r'En2').
             dictionary of dictionaries
-        - data: a dictionary where each key is a dataset name, and each value is the data
+        - data - a dictionary where each key is a dataset name, and each value is the data
             dictionary of np.arrays
-        - dim: the number of dimensions
+        - dim - the number of dimensions
             int
-        - dt: the time step
+        - dt - the time step
             float
-        - grid: maximum and minimum coordinates of the box, for each axis 
+        - grid - maximum and minimum coordinates of the box, for each axis 
             numpy.ndarray(dim,2)
-        - iter: the iteration number
+        - iter - the iteration number
             int
-        - name: the name of the species
+        - name - the name of the species
             str
-        - time: the time and its units
+        - time - the time and its units
             list [time, units]
             list [float, str]
-        - type: type of data (particles in the case of raw files)
+        - type - type of data (particles in the case of raw files)
             str
 
     '''
