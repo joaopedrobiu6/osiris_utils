@@ -40,19 +40,17 @@ class OsirisGridFile():
             self._load_basic_attributes(f)
             variable_key = self._get_variable_key(f)
             
-            # The data
             data = np.array(f[variable_key][:])
 
-            # Now get the infos
             axis = list(f["AXIS"].keys())
             if len(axis) == 1:
-                self.grid = f["AXIS/"+axis[0]][()]
+                self.grid = f["AXIS/" + axis[0]][()]
                 self.nx = len(data)
                 self.dx = (self.grid[1] - self.grid[0] ) / self.nx
                 self.x = np.arange(self.grid[0], self.grid[1], self.dx)
             else: 
                 grid = []
-                for ax in axis: grid.append(f["AXIS/"+ax][()])
+                for ax in axis: grid.append(f["AXIS/" + ax][()])
                 self.grid = np.array(grid)
                 self.nx = f[variable_key][()].transpose().shape
                 self.dx = (self.grid[:, 1] - self.grid[:, 0])/self.nx
@@ -69,10 +67,7 @@ class OsirisGridFile():
                 }
                 self.axis.append(axis_data)
             
-                    
-            
-            # NOW WORK ON THE SIMULATION DATA
-            self.data = np.ascontiguousarray(data.T)
+                self.data = np.ascontiguousarray(data.T)
 
     def _load_basic_attributes(self, f: h5py.File) -> None:
         """Load common attributes from HDF5 file"""
@@ -86,129 +81,90 @@ class OsirisGridFile():
         self.type = f.attrs["TYPE"][0].decode('utf-8')
 
     def _get_variable_key(self, f: h5py.File) -> str:
-        # Get the data 
         return next(k for k in f.keys() if k not in {"AXIS", "SIMULATION"})
 
-    def __yeeToCellCorner1d(self, x):
+    def _yeeToCellCorner1d(self):
         """
-        ! Converts 1d EM fields from a staggered Yee mesh to a grid with field values centered on the corner
-        ! of the cell (the corner of the cell [1] has coordinates [1])
+        Converts 1d EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell (the corner of the cell [1] has coordinates [1])
         """
 
+        if self.name.lower() in ["b2", "b3", "e1"]:
+            return 0.5 * (self.data[1:] + self.data[:-1])
+        elif self.name.lower() in ["b1", "e2", "e3"]:
+            return self.data[1:]
+        else: 
+            raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
 
-        def B1(B1, x):
-            return(B1[x])
+        # def B1(B1, x):
+        #     return(B1[x])
         
-        def B2(B2, x):
-            return(0.5 * (B2[x] + B2[x-1]))     
+        # def B2(B2, x):
+        #     return(0.5 * (B2[x] + B2[x-1]))     
 
-        def B3(B3, x):
-            return(0.5 * (B3[x] + B3[x-1])) 
+        # def B3(B3, x):
+        #     return(0.5 * (B3[x] + B3[x-1])) 
 
-        def E1(E1, x):
-            return(0.5 * (E1[x] + E1[x-1]))
+        # def E1(E1, x):
+        #     return(0.5 * (E1[x] + E1[x-1]))
         
-        def E2(E2, x):
-            return(E2[x])     
+        # def E2(E2, x):
+        #     return(E2[x])     
 
-        def E3(E3, x):
-            return(E3[x]) 
+        # def E3(E3, x):
+        #     return(E3[x]) 
               
-        def case_default(data, x):
-            raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
+        # def case_default(data, x):
+        #     raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
         
-        cases = {
-            'b1': B1,
-            'b2': B2,
-            'b3': B3,
-            'e1': E1,
-            'e2': E2,
-            'e3': E3,
-            'default': case_default,
-        }
+        # cases = {
+        #     'b1': B1,
+        #     'b2': B2,
+        #     'b3': B3,
+        #     'e1': E1,
+        #     'e2': E2,
+        #     'e3': E3,
+        #     'default': case_default,
+        # }
 
-        return cases.get(self.name, cases['default'])(self.data, x)
+        # return cases.get(self.name, cases['default'])(self.data, x)
     
 
-    def __yeeToCellCorner2d(self, x, y):
+    def _yeeToCellCorner2d(self):
         """
-        ! Converts 2d EM fields from a staggered Yee mesh to a grid with field values centered on the corner
-        ! of the cell (the corner of the cell [1,1] has coordinates [1,1])
+        Converts 2d EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell (the corner of the cell [1,1] has coordinates [1,1])
         """
 
-
-        def B1(B1, x, y):
-            return(0.5 * (B1[x, y] + B1[x, y-1]))
-        
-        def B2(B2, x, y):
-            return(0.5 * (B2[x, y] + B2[x-1, y]))
-        
-        def B3(B3, x, y):
-            return(0.25 * (B3[x, y] + B3[x-1, y] + B3[x, y-1] + B3[x-1, y-1]))
-        
-        def E1(E1, x, y):
-            return(0.5 * (E1[x, y] + E1[x-1, y]))
-        
-        def E2(E2, x, y):
-            return(0.5 * (E2[x, y] + E2[x, y-1]))
-        
-        def E3(E3, x, y):
-            return(E3[x, y])
-        
-        def case_default(data, x, y):
+        if self.name.lower() in ["e1", "b2"]:
+            return 0.5 * (self.data[1:, 1:] + self.data[:-1, 1:])
+        elif self.name.lower() in ["e2", "b1"]:
+            return 0.5 * (self.data[1:, 1:] + self.data[1:, :-1])
+        elif self.name.lower() in ["b3"]:
+            return 0.25 * (self.data[1:, 1:] + self.data[:-1, 1:] + self.data[1:, :-1] + self.data[:-1, :-1])
+        elif self.name.lower() in ["e3"]:
+            return self.data
+        else:
             raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
         
-        cases = {
-            'b1': B1,
-            'b2': B2,
-            'b3': B3,
-            'e1': E1,
-            'e2': E2,
-            'e3': E3,
-            'default': case_default,
-        }
 
-        return cases.get(self.name, cases['default'])(self.data, x, y)
-    
+    def _yeeToCellCorner3d(self):
+        """
+        Converts 3d EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell (the corner of the cell [1,1,1] has coordinates [1,1,1])
+        """
 
-    def __yeeToCellCorner3d(self, x, y, z):
-        """
-        ! Converts 3d EM fields from a staggered Yee mesh to a grid with field values centered on the corner
-        ! of the cell (the corner of the cell [1,1,1] has coordinates [1,1,1])
-        """
-        def B1(B1, x, y, z):
-            return(0.25 * (B1[x, y, z] + B1[x, y-1, z] + B1[x, y, z-1] + B1[x, y-1, z-1]))
-        
-        def B2(B2, x, y, z):
-            return(0.25 * (B2[x, y, z] + B2[x-1, y, z] + B2[x, y, z-1] + B2[x-1, y, z-1]))
-        
-        def B3(B3, x, y, z):
-            return(0.25 * (B3[x, y, z] + B3[x-1, y, z] + B3[x, y-1, z] + B3[x-1, y-1, z]))
-        
-        def E1(E1, x, y, z):
-            return(0.5 * (E1[x, y, z] + E1[x-1, y, z]))
-        
-        def E2(E2, x, y, z):
-            return(0.5 * (E2[x, y, z] + E2[x, y-1, z]))
-        
-        def E3(E3, x, y, z):
-            return(0.5 * (E3[x, y, z] + E3[x, y, z-1]))
-        
-        def case_default(data, x, y, z):
+        if self.name.lower() == "b1":
+            return 0.25 * (self.data[1:, 1:, 1:] + self.data[1:, :-1, 1:] + self.data[1:, 1:, :-1] + self.data[1:, :-1, :-1])
+        elif self.name.lower() == "b2":
+            return 0.25 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:] + self.data[1:, 1:, :-1] + self.data[:-1, 1:, :-1])
+        elif self.name.lower() == "b3":
+            return 0.25 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:] + self.data[1:, :-1, 1:] + self.data[:-1, :-1, 1:])
+        elif self.name.lower() == "e1":
+            return 0.5 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:])
+        elif self.name.lower() == "e2":
+            return 0.5 * (self.data[1:, 1:, 1:] + self.data[1:, :-1, 1:])
+        elif self.name.lower() == "e3":
+            return 0.5 * (self.data[1:, 1:, 1:] + self.data[1:, 1:, :-1])
+        else:
             raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
-        
-        cases = {
-            'b1': B1,
-            'b2': B2,
-            'b3': B3,
-            'e1': E1,
-            'e2': E2,
-            'e3': E3,
-            'default': case_default,
-        }
-
-        return cases.get(self.name, cases['default'])(self.data, x, y, z)
-        
         
     def yeeToCellCorner(self):
         """
@@ -222,37 +178,21 @@ class OsirisGridFile():
                 numpy.ndarray
         """ 
         
+        cases = {"b1", "b2", "b3", "e1", "e2", "e3"}
+        if self.name not in cases:
+            raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
         
         if self.dim == 1:
-            shape = np.shape(self.data)
-            new_data = np.empty(shape-np.array([1]))
-            for x in range(1, shape[0]):
-                        new_data[x-1] = self.__yeeToCellCorner1d(x)
-
-            return new_data
-
+            self.data_centered = self._yeeToCellCorner1d()
+            return self.data_centered
         elif self.dim == 2:
-            shape = np.shape(self.data)
-            new_data = np.empty(shape-np.array([1,1]))
-            for x in range(1, shape[0]):
-                for y in range(1, shape[1]):
-                        new_data[x-1][y-1] = self.__yeeToCellCorner2d(x, y)
-
-            return new_data
-
+            self.data_centered = self._yeeToCellCorner2d()
+            return self.data_centered
         elif self.dim == 3:
-            shape = np.shape(self.data)
-            new_data = np.empty(shape-np.array([1,1,1]))
-            for x in range(1, shape[0]):
-                for y in range(1, shape[1]):
-                    for z in range(1, shape[2]):
-                        new_data[x-1][y-1][z-1] = self.__yeeToCellCorner3d(x, y, z)
-
-            return new_data
-        
+            self.data_centered = self._yeeToCellCorner3d()
+            return self.data_centered
         else:
-            raise ValueError("Invalid simulation dimension.")
-
+            raise ValueError(f"Dimension {self.dim} is not supported")
 
 
 class OsirisRawFile():
