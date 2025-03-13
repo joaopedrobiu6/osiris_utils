@@ -91,7 +91,7 @@ class OsirisGridFile():
         if self.name.lower() in ["b2", "b3", "e1"]:
             return 0.5 * (self.data[1:] + self.data[:-1])
         elif self.name.lower() in ["b1", "e2", "e3"]:
-            return self.data
+            return self.data[1:]
         else: 
             raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
 
@@ -135,49 +135,16 @@ class OsirisGridFile():
         """
 
         if self.name.lower() in ["e1", "b2"]:
-            return 0.5 * (self.data[1:, :] + self.data[:-1, :])
+            return 0.5 * (self.data[1:, 1:] + self.data[:-1, 1:])
         elif self.name.lower() in ["e2", "b1"]:
-            return 0.5 * (self.data[:, 1:] + self.data[:, :-1])
+            return 0.5 * (self.data[1:, 1:] + self.data[1:, :-1])
         elif self.name.lower() in ["b3"]:
-            return 0.25 * (self.data[1:, 1:] + self.data[:-1, :-1] + self.data[:-1, 1:] + self.data[1:, :-1])
+            return 0.25 * (self.data[1:, 1:] + self.data[:-1, 1:] + self.data[1:, :-1] + self.data[:-1, :-1])
         elif self.name.lower() in ["e3"]:
             return self.data
         else:
             raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
         
-        # def B1(B1, x, y):
-        #     return(0.5 * (B1[x, y] + B1[x, y-1]))
-        
-        # def B2(B2, x, y):
-        #     return(0.5 * (B2[x, y] + B2[x-1, y]))
-        
-        # def B3(B3, x, y):
-        #     return(0.25 * (B3[x, y] + B3[x-1, y] + B3[x, y-1] + B3[x-1, y-1]))
-        
-        # def E1(E1, x, y):
-        #     return(0.5 * (E1[x, y] + E1[x-1, y]))
-        
-        # def E2(E2, x, y):
-        #     return(0.5 * (E2[x, y] + E2[x, y-1]))
-        
-        # def E3(E3, x, y):
-        #     return(E3[x, y])
-        
-        # def case_default(data, x, y):
-        #     raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
-        
-        # cases = {
-        #     'b1': B1,
-        #     'b2': B2,
-        #     'b3': B3,
-        #     'e1': E1,
-        #     'e2': E2,
-        #     'e3': E3,
-        #     'default': case_default,
-        # }
-
-        # return cases.get(self.name, cases['default'])(self.data, x, y)
-    
 
     def _yeeToCellCorner3d(self):
         """
@@ -198,40 +165,6 @@ class OsirisGridFile():
             return 0.5 * (self.data[1:, 1:, 1:] + self.data[1:, 1:, :-1])
         else:
             raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
-
-        # def B1(B1, x, y, z):
-        #     return(0.25 * (B1[x, y, z] + B1[x, y-1, z] + B1[x, y, z-1] + B1[x, y-1, z-1]))
-        
-        # def B2(B2, x, y, z):
-        #     return(0.25 * (B2[x, y, z] + B2[x-1, y, z] + B2[x, y, z-1] + B2[x-1, y, z-1]))
-        
-        # def B3(B3, x, y, z):
-        #     return(0.25 * (B3[x, y, z] + B3[x-1, y, z] + B3[x, y-1, z] + B3[x-1, y-1, z]))
-        
-        # def E1(E1, x, y, z):
-        #     return(0.5 * (E1[x, y, z] + E1[x-1, y, z]))
-        
-        # def E2(E2, x, y, z):
-        #     return(0.5 * (E2[x, y, z] + E2[x, y-1, z]))
-        
-        # def E3(E3, x, y, z):
-        #     return(0.5 * (E3[x, y, z] + E3[x, y, z-1]))
-        
-        # def case_default(data, x, y, z):
-        #     raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
-        
-        # cases = {
-        #     'b1': B1,
-        #     'b2': B2,
-        #     'b3': B3,
-        #     'e1': E1,
-        #     'e2': E2,
-        #     'e3': E3,
-        #     'default': case_default,
-        # }
-
-        # return cases.get(self.name, cases['default'])(self.data, x, y, z)
-        
         
     def yeeToCellCorner(self):
         """
@@ -258,37 +191,8 @@ class OsirisGridFile():
         elif self.dim == 3:
             self.data_centered = self._yeeToCellCorner3d()
             return self.data_centered
-
-        # if self.dim == 1:
-        #     shape = np.shape(self.data)
-        #     new_data = np.empty(shape-np.array([1]))
-        #     for x in range(1, shape[0]):
-        #                 new_data[x-1] = self.__yeeToCellCorner1d(x)
-
-        #     return new_data
-
-        # elif self.dim == 2:
-        #     shape = np.shape(self.data)
-        #     new_data = np.empty(shape-np.array([1,1]))
-        #     for x in range(1, shape[0]):
-        #         for y in range(1, shape[1]):
-        #                 new_data[x-1][y-1] = self.__yeeToCellCorner2d(x, y)
-
-        #     return new_data
-
-        # elif self.dim == 3:
-        #     shape = np.shape(self.data)
-        #     new_data = np.empty(shape-np.array([1,1,1]))
-        #     for x in range(1, shape[0]):
-        #         for y in range(1, shape[1]):
-        #             for z in range(1, shape[2]):
-        #                 new_data[x-1][y-1][z-1] = self.__yeeToCellCorner3d(x, y, z)
-
-        #     return new_data
-        
-        # else:
-        #     raise ValueError("Invalid simulation dimension.")
-
+        else:
+            raise ValueError(f"Dimension {self.dim} is not supported")
 
 
 class OsirisRawFile():
