@@ -15,11 +15,11 @@ with open(os.path.join(here, "requirements.txt"), encoding="utf-8") as f:
 
 setup(
     name="osiris_utils",
-    version="v1.0.5",
+    version="v1.0.6",
     description=("Utilities to manipulate and visualize OSIRIS framework output data"),
     # long_description=long_description,
     long_description_content_type="text/markdown",
-    author=["João Pedro Ferreira Biu", "João Cândido", "Rafael Russo de Almeida"],
+    author=["João Pedro Ferreira Biu", "João Cândido"],
     author_email=["joaopedrofbiu@tecnico.ulisboa.pt"],
     license="MIT",
     classifiers=[
@@ -32,6 +32,7 @@ setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
         "Topic :: Scientific/Engineering",
     ],
     keywords=["OSIRIS", "particle-in-cell", "plasma", "physics"],
