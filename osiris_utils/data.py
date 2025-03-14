@@ -79,6 +79,7 @@ class OsirisGridFile():
         self._units = f.attrs["UNITS"][0].decode('utf-8')
         self._label = f.attrs["LABEL"][0].decode('utf-8')
         self._type = f.attrs["TYPE"][0].decode('utf-8')
+        self._FFTdata = None
 
     def _get_variable_key(self, f: h5py.File) -> str:
         return next(k for k in f.keys() if k not in {"AXIS", "SIMULATION"})
@@ -210,7 +211,17 @@ class OsirisGridFile():
             The type of data
         """
         return self._type
-    
+    @property
+    def FFTdata(self):
+        """
+        Returns
+        -------
+        numpy.ndarray
+            The FFT of the data
+        """
+        if self._FFTdata is None:
+            raise ValueError("The FFT of the data has not been computed yet. Compute it using the FFT method.")
+        return self._FFTdata
     # Setters
     @data.setter
     def data(self, data):
@@ -309,6 +320,15 @@ class OsirisGridFile():
             return self.data_centered
         else:
             raise ValueError(f"Dimension {self.dim} is not supported")
+        
+    def FFT(self, axis=(0, )):
+        """
+        Computes the Fast Fourier Transform of the data along the specified axis and shifts the zero frequency to the center.
+        Transforms the data to the frequency domain. A(x, y, z) -> A(kx, ky, kz)
+        """
+        datafft = np.fft.fftn(self.data, axes=axis)
+        self._FFTdata = np.fft.fftshift(datafft, axes=axis)
+
 
 
 class OsirisRawFile():
