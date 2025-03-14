@@ -239,24 +239,6 @@ def Omega_K(E_filename, eta_filename, quantities_folder, velocity_folder, range_
         print("Computing the FFT of the data...")
         E1 = OsirisGridFile(quantities_folder + f'FLD/e1/e1-000001.h5')
         data_han = data * np.hanning(data.shape[0])[:, np.newaxis]
-        # data_fft = np.abs(np.fft.fft2(data_han))**2
-        # data_fft = np.fft.fftshift(data_fft)
-
-        # # Compute the magnitude of the FFT
-        # magnitude = data_fft
-
-        # # Compute the corresponding k and omega values
-        # kx = np.fft.fftfreq(data.shape[1], d=E1.dx[0])  # Wavenumbers (k)
-        # omega = np.fft.fftfreq(data.shape[0], d=E1.dt)  # Frequencies (ω)
-
-        # # Shift the frequencies to match the shifted FFT
-        # kx_shifted = np.fft.fftshift(kx)
-        # omega_shifted = np.fft.fftshift(omega)
-
-        # # Create a meshgrid for k and omega
-        # K, W = np.meshgrid(kx_shifted, omega_shifted)
-        # print("FFT computed...")
-        # return K, W, magnitude, kx_shifted
 
         sp = np.abs(np.fft.fft2(data_han))**2
         sp = np.fft.fftshift( sp )
