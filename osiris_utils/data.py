@@ -1,24 +1,21 @@
 import numpy as np
 import h5py
 
-class OsirisGridFile():
-    '''
-    Class to read the grid data from an OSIRIS HDF5 file.
-    
+class OsirisData():
+    """
+    Parent class for Osiris data files.
+
     Input:
+    ------
         - filename: the path to the HDF5 file
-        
     Attributes:
-        - grid - the grid data ((x1.min, x1.max), (x2.min, x2.max), (x3.min, x3.max))
-            numpy.ndarray
-        - nx - the number of grid points (nx1, nx2, nx3)
-            numpy.ndarray
-        - dx - the grid spacing (dx1, dx2, dx3)
-            numpy.ndarray
-        - axis - the axis data [(name_x1, units_x1, long_name_x1, type_x1), ...]
-            list of dictionaries
-        - data: the data (numpy array) with shape (nx1, nx2, nx3) (Transpose to use `plt.imshow`)
-            numpy.ndarray
+    ----------
+        - filename - the path to the HDF5 file
+            str
+        - file - the HDF5 file
+            h5py.File
+        - verbose - if True, the class will print messages
+            bool
         - dt - the time step
             float
         - dim - the number of dimensions
@@ -30,44 +27,196 @@ class OsirisGridFile():
             int
         - name - the name of the data
             str
+        - type - the type of data
+            str
+    """
+    def __init__(self, filename):
+        self._filename = filename
+        self._file = None
+
+        self._verbose = False
+
+        self._open_file(self._filename)
+        self._load_basic_attributes(self._file)
+        
+    def _load_basic_attributes(self, f: h5py.File) -> None:
+        """Load common attributes from HDF5 file"""
+        self._dt = float(f["SIMULATION"].attrs["DT"][0])
+        self._dim = int(f["SIMULATION"].attrs["NDIMS"][0])
+        self._time = [float(f.attrs["TIME"][0]), f.attrs["TIME UNITS"][0].decode('utf-8')]
+        self._iter = int(f.attrs["ITER"][0])
+        self._name = f.attrs["NAME"][0].decode('utf-8')
+        self._type = f.attrs["TYPE"][0].decode('utf-8')
+    
+    def verbose(self, verbose: bool = True):
+        """
+        Set the verbosity of the class
+
+        Parameters
+        ----------
+        verbose : bool, optional
+            If True, the class will print messages, by default True when calling (False when not calling)
+        """
+        self._verbose = verbose
+
+    def _open_file(self, filename):
+        """
+        Open the HDF5 file.
+
+        Parameters
+        ----------
+        filename : str
+            The path to the HDF5 file.
+        """
+        if self._verbose: print(f"Opening file > {filename}")
+        self._file = h5py.File(self._filename, 'r')
+
+    def _close_file(self):
+        """
+        Close the HDF5 file.
+        """
+        if self._verbose: print("Closing file")
+        if self._file:
+            self._file.close()
+        
+    @property
+    def dt(self):
+        """
+        Returns
+        -------
+        float
+            The time step
+        """
+        return self._dt
+    @property
+    def dim(self):
+        """
+        Returns
+        -------
+        int
+            The number of dimensions
+        """
+        return self._dim
+    @property
+    def time(self):
+        """
+        Returns
+        -------
+        list
+            The time and its units
+        """
+        return self._time
+    @property
+    def iter(self):
+        """
+        Returns
+        -------
+        int
+            The iteration number
+        """
+        return self._iter
+    @property
+    def name(self):
+        """
+        Returns
+        -------
+        str
+            The name of the data
+        """
+        return self._name
+    @property
+    def type(self):
+        """
+        Returns
+        -------
+        str
+            The type of data
+        """
+        return self._type
+
+class OsirisGridFile(OsirisData):
+    '''
+    Class to read the grid data from an OSIRIS HDF5 file.
+    
+    Input:
+    -----
+        - filename: the path to the HDF5 file
+        
+    Attributes:
+    ----------
+        - filename - the path to the HDF5 file
+            str
+        - file - the HDF5 file
+            h5py.File
+        - verbose - if True, the class will print messages
+            bool
+        - dt - the time step
+            float
+        - dim - the number of dimensions
+            int
+        - time - the time and its units
+            list [time, units]
+            list [float, str]
+        - iter - the iteration number
+            int
+        - name - the name of the data
+            str
+        - type - the type of data
+            str
+        - grid - the grid data ((x1.min, x1.max), (x2.min, x2.max), (x3.min, x3.max))
+            numpy.ndarray
+        - nx - the number of grid points (nx1, nx2, nx3)
+            numpy.ndarray
+        - dx - the grid spacing (dx1, dx2, dx3)
+            numpy.ndarray
+        - axis - the axis data [(name_x1, units_x1, long_name_x1, type_x1), ...]
+            list of dictionaries
+        - data: the data (numpy array) with shape (nx1, nx2, nx3) (Transpose to use `plt.imshow`)
+            numpy.ndarray
         - units - the units of the data
             str
         - label - the label of the data (LaTeX formatted)
         
     '''
     def __init__(self, filename):
-        with h5py.File(filename, 'r+') as f:
-            self._load_basic_attributes(f)
-            variable_key = self._get_variable_key(f)
+        super().__init__(filename)
             
-            data = np.array(f[variable_key][:])
+        variable_key = self._get_variable_key(self._file)
+        
+        self._units = self._file.attrs["UNITS"][0].decode('utf-8')
+        self._label = self._file.attrs["LABEL"][0].decode('utf-8')
+        self._FFTdata = None
+        
+        data = np.array(self._file[variable_key][:])
 
-            axis = list(f["AXIS"].keys())
-            if len(axis) == 1:
-                self._grid = f["AXIS/" + axis[0]][()]
-                self._nx = len(data)
-                self._dx = (self.grid[1] - self.grid[0] ) / self.nx
-                self._x = np.arange(self.grid[0], self.grid[1], self.dx)
-            else: 
-                grid = []
-                for ax in axis: grid.append(f["AXIS/" + ax][()])
-                self._grid = np.array(grid)
-                self._nx = f[variable_key][()].transpose().shape
-                self._dx = (self.grid[:, 1] - self.grid[:, 0])/self.nx
-                self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
+        axis = list(self._file["AXIS"].keys())
+        if len(axis) == 1:
+            self._grid = self._file["AXIS/" + axis[0]][()]
+            self._nx = len(data)
+            self._dx = (self.grid[1] - self.grid[0] ) / self.nx
+            self._x = np.arange(self.grid[0], self.grid[1], self.dx)
+        else: 
+            grid = []
+            for ax in axis: grid.append(self._file["AXIS/" + ax][()])
+            self._grid = np.array(grid)
+            self._nx = self._file[variable_key][()].transpose().shape
+            self._dx = (self.grid[:, 1] - self.grid[:, 0])/self.nx
+            self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
 
-            self._axis = []
-            for ax in axis:
-                axis_data = {
-                    "name": f["AXIS/"+ax].attrs["NAME"][0].decode('utf-8'),
-                    "units": f["AXIS/"+ax].attrs["UNITS"][0].decode('utf-8'),
-                    "long_name": f["AXIS/"+ax].attrs["LONG_NAME"][0].decode('utf-8'),
-                    "type": f["AXIS/"+ax].attrs["TYPE"][0].decode('utf-8'),
-                    "plot_label": rf"${f["AXIS/"+ax].attrs["LONG_NAME"][0].decode('utf-8')}$ $[{f["AXIS/"+ax].attrs['UNITS'][0].decode('utf-8')}]$",
-                }
-                self._axis.append(axis_data)
-            
-                self._data = np.ascontiguousarray(data.T)
+        self._axis = []
+        for ax in axis:
+            axis_data = {
+                "name": self._file["AXIS/"+ax].attrs["NAME"][0].decode('utf-8'),
+                "units": self._file["AXIS/"+ax].attrs["UNITS"][0].decode('utf-8'),
+                "long_name": self._file["AXIS/"+ax].attrs["LONG_NAME"][0].decode('utf-8'),
+                "type": self._file["AXIS/"+ax].attrs["TYPE"][0].decode('utf-8'),
+                "plot_label": rf"${self._file["AXIS/"+ax].attrs["LONG_NAME"][0].decode('utf-8')}$ $[{self._file["AXIS/"+ax].attrs['UNITS'][0].decode('utf-8')}]$",
+            }
+            self._axis.append(axis_data)
+        
+        self._data = np.ascontiguousarray(data.T)
+
+        self._close_file()
 
     def _load_basic_attributes(self, f: h5py.File) -> None:
         """Load common attributes from HDF5 file"""
@@ -76,14 +225,11 @@ class OsirisGridFile():
         self._time = [float(f.attrs["TIME"][0]), f.attrs["TIME UNITS"][0].decode('utf-8')]
         self._iter = int(f.attrs["ITER"][0])
         self._name = f.attrs["NAME"][0].decode('utf-8')
-        self._units = f.attrs["UNITS"][0].decode('utf-8')
-        self._label = f.attrs["LABEL"][0].decode('utf-8')
         self._type = f.attrs["TYPE"][0].decode('utf-8')
-        self._FFTdata = None
-
+            
     def _get_variable_key(self, f: h5py.File) -> str:
         return next(k for k in f.keys() if k not in {"AXIS", "SIMULATION"})
-
+    
     # Getters
     @property
     def grid(self):
@@ -140,51 +286,6 @@ class OsirisGridFile():
         """
         return self._data
     @property
-    def dt(self):
-        """
-        Returns
-        -------
-        float
-            The time step
-        """
-        return self._dt
-    @property
-    def dim(self):
-        """
-        Returns
-        -------
-        int
-            The number of dimensions
-        """
-        return self._dim
-    @property
-    def time(self):
-        """
-        Returns
-        -------
-        list
-            The time and its units
-        """
-        return self._time
-    @property
-    def iter(self):
-        """
-        Returns
-        -------
-        int
-            The iteration number
-        """
-        return self._iter
-    @property
-    def name(self):
-        """
-        Returns
-        -------
-        str
-            The name of the data
-        """
-        return self._name
-    @property
     def units(self):
         """
         Returns
@@ -202,15 +303,6 @@ class OsirisGridFile():
             The label of the data (LaTeX formatted)
         """
         return self._label
-    @property
-    def type(self):
-        """
-        Returns
-        -------
-        str
-            The type of data
-        """
-        return self._type
     @property
     def FFTdata(self):
         """
@@ -331,7 +423,7 @@ class OsirisGridFile():
 
 
 
-class OsirisRawFile():
+class OsirisRawFile(OsirisData):
     '''
     Class to read the raw data from an OSIRIS HDF5 file.
     
@@ -365,29 +457,21 @@ class OsirisRawFile():
     '''
     
     def __init__(self, filename):
-        self.filename = filename
+        super().__init__(filename)
 
-        with h5py.File(self.filename, "r") as f: 
+        self.grid = np.array([self._file["SIMULATION"].attrs["XMIN"], self._file["SIMULATION"].attrs["XMAX"]]).T
 
-            self.dt = float(f["SIMULATION"].attrs["DT"][0])
-            self.dim = int(f["SIMULATION"].attrs["NDIMS"][0])
-            self.time = [float(f.attrs["TIME"][0]), f.attrs["TIME UNITS"][0].decode('utf-8')]
-            self.iter = int(f.attrs["ITER"][0])
-            self.name = f.attrs["NAME"][0].decode('utf-8')
-            self.type = f.attrs["TYPE"][0].decode('utf-8')
-            self.grid = np.array([f["SIMULATION"].attrs["XMIN"], f["SIMULATION"].attrs["XMAX"]]).T
+        self.data = {}
+        self.axis = {}
+        for key in self._file.keys():
+            if key == "SIMULATION": continue
 
-            self.data = {}
-            self.axis = {}
-            for key in f.keys():
-                if key == "SIMULATION": continue
+            self.data[key] = np.array(self._file[key][()])
 
-                self.data[key] = np.array(f[key][()])
-
-                idx = np.where(f.attrs["QUANTS"] == str(key).encode('utf-8'))
-                axis_data = {
-                    "name": f.attrs["QUANTS"][idx][0].decode('utf-8'),
-                    "units": f.attrs["UNITS"][idx][0].decode('utf-8'),
-                    "long_name": f.attrs["LABELS"][idx][0].decode('utf-8'),
-                }
-                self.axis[key] = axis_data
+            idx = np.where(self._file.attrs["QUANTS"] == str(key).encode('utf-8'))
+            axis_data = {
+                "name": self._file.attrs["QUANTS"][idx][0].decode('utf-8'),
+                "units": self._file.attrs["UNITS"][idx][0].decode('utf-8'),
+                "long_name": self._file.attrs["LABELS"][idx][0].decode('utf-8'),
+            }
+            self.axis[key] = axis_data
