@@ -142,13 +142,13 @@ class LAVA_Qt(QMainWindow):
             
             if self.type == "grid":
                 if self.dims == 1:
-                    x = np.linspace(gridfile.grid[0], gridfile.grid[1], gridfile.nx)
+                    x = np.arange(gridfile.grid[0], gridfile.grid[1], gridfile.dx)
                     self.xlabel_edit.setText(r"$%s$ [$%s$]" % (gridfile.axis[0]["long_name"], gridfile.axis[0]["units"]))
                     self.ylabel_edit.setText(r"$%s$ [$%s$]" % (gridfile.label, gridfile.units))
                     self.data_info = (x, gridfile.data)
                 elif self.dims == 2:
-                    x = np.linspace(gridfile.grid[0][0], gridfile.grid[0][1], gridfile.nx[0])
-                    y = np.linspace(gridfile.grid[1][0], gridfile.grid[1][1], gridfile.nx[1])
+                    x = np.arange(gridfile.grid[0][0], gridfile.grid[0][1], gridfile.dx[0])
+                    y = np.arange(gridfile.grid[1][0], gridfile.grid[1][1], gridfile.dx[1])
                     self.xlabel_edit.setText(r"$%s$ [$%s$]" % (gridfile.axis[0]["long_name"], gridfile.axis[0]["units"]))
                     self.ylabel_edit.setText(r"$%s$ [$%s$]" % (gridfile.axis[1]["long_name"], gridfile.axis[1]["units"]))
                     self.data_info = (x, y, gridfile.data)
@@ -209,7 +209,7 @@ class LAVA_Qt(QMainWindow):
         plot_type = self.plot_combo.currentText()
         
         if "Quantity" in plot_type:
-            img = self.current_ax.imshow(data, extent=(x[0], x[-1], y[0], y[-1]), origin='lower', aspect='auto')
+            img = self.current_ax.imshow(data.T, extent=(x[0], x[-1], y[0], y[-1]), origin='lower', aspect='auto')
             self.figure.colorbar(img)
         elif "Integral" in plot_type:
             avg = integrate(transverse_average(data), x[-1]/len(x))
@@ -218,7 +218,7 @@ class LAVA_Qt(QMainWindow):
             avg = transverse_average(data)
             self.current_ax.plot(x, avg)
         elif "Phase" in plot_type:
-            img = self.current_ax.imshow(np.abs(-data), extent=(x[0], x[-1], y[0], y[-1]), origin='lower', aspect='auto', norm=LogNorm())
+            img = self.current_ax.imshow(np.abs(-data.T), extent=(x[0], x[-1], y[0], y[-1]), origin='lower', aspect='auto', norm=LogNorm())
             self.figure.colorbar(img)
         
         self.current_ax.set_xlabel(self.xlabel_edit.text())
