@@ -44,19 +44,19 @@ class OsirisGridFile():
 
             axis = list(f["AXIS"].keys())
             if len(axis) == 1:
-                self.grid = f["AXIS/" + axis[0]][()]
-                self.nx = len(data)
-                self.dx = (self.grid[1] - self.grid[0] ) / self.nx
-                self.x = np.arange(self.grid[0], self.grid[1], self.dx)
+                self._grid = f["AXIS/" + axis[0]][()]
+                self._nx = len(data)
+                self._dx = (self.grid[1] - self.grid[0] ) / self.nx
+                self._x = np.arange(self.grid[0], self.grid[1], self.dx)
             else: 
                 grid = []
                 for ax in axis: grid.append(f["AXIS/" + ax][()])
-                self.grid = np.array(grid)
-                self.nx = f[variable_key][()].transpose().shape
-                self.dx = (self.grid[:, 1] - self.grid[:, 0])/self.nx
-                self.x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
+                self._grid = np.array(grid)
+                self._nx = f[variable_key][()].transpose().shape
+                self._dx = (self.grid[:, 1] - self.grid[:, 0])/self.nx
+                self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
 
-            self.axis = []
+            self._axis = []
             for ax in axis:
                 axis_data = {
                     "name": f["AXIS/"+ax].attrs["NAME"][0].decode('utf-8'),
@@ -65,23 +65,168 @@ class OsirisGridFile():
                     "type": f["AXIS/"+ax].attrs["TYPE"][0].decode('utf-8'),
                     "plot_label": rf"${f["AXIS/"+ax].attrs["LONG_NAME"][0].decode('utf-8')}$ $[{f["AXIS/"+ax].attrs['UNITS'][0].decode('utf-8')}]$",
                 }
-                self.axis.append(axis_data)
+                self._axis.append(axis_data)
             
-                self.data = np.ascontiguousarray(data.T)
+                self._data = np.ascontiguousarray(data.T)
 
     def _load_basic_attributes(self, f: h5py.File) -> None:
         """Load common attributes from HDF5 file"""
-        self.dt = float(f["SIMULATION"].attrs["DT"][0])
-        self.dim = int(f["SIMULATION"].attrs["NDIMS"][0])
-        self.time = [float(f.attrs["TIME"][0]), f.attrs["TIME UNITS"][0].decode('utf-8')]
-        self.iter = int(f.attrs["ITER"][0])
-        self.name = f.attrs["NAME"][0].decode('utf-8')
-        self.units = f.attrs["UNITS"][0].decode('utf-8')
-        self.label = f.attrs["LABEL"][0].decode('utf-8')
-        self.type = f.attrs["TYPE"][0].decode('utf-8')
+        self._dt = float(f["SIMULATION"].attrs["DT"][0])
+        self._dim = int(f["SIMULATION"].attrs["NDIMS"][0])
+        self._time = [float(f.attrs["TIME"][0]), f.attrs["TIME UNITS"][0].decode('utf-8')]
+        self._iter = int(f.attrs["ITER"][0])
+        self._name = f.attrs["NAME"][0].decode('utf-8')
+        self._units = f.attrs["UNITS"][0].decode('utf-8')
+        self._label = f.attrs["LABEL"][0].decode('utf-8')
+        self._type = f.attrs["TYPE"][0].decode('utf-8')
 
     def _get_variable_key(self, f: h5py.File) -> str:
         return next(k for k in f.keys() if k not in {"AXIS", "SIMULATION"})
+
+    # Getters
+    @property
+    def grid(self):
+        """
+        Returns
+        -------
+        numpy.ndarray
+            The grid data ((x1.min, x1.max), (x2.min, x2.max), (x3.min, x3.max
+        """
+        return self._grid
+    @property
+    def nx(self):
+        """
+        Returns
+        -------
+        numpy.ndarray
+            The number of grid points (nx1, nx2, nx3)
+        """
+        return self._nx
+    @property
+    def dx(self):
+        """
+        Returns
+        -------
+        numpy.ndarray
+            The grid spacing (dx1, dx2, dx3)
+        """
+        return self._dx
+    @property
+    def x(self):
+        """
+        Returns
+        -------
+        numpy.ndarray
+            The grid points in each axis
+        """
+        return self._x
+    @property
+    def axis(self):
+        """
+        Returns
+        -------
+        list of dictionaries
+            The axis data [(name_x1, units_x1, long_name_x1, type_x1), ...]
+        """
+        return self._axis   
+    @property
+    def data(self):
+        """
+        Returns
+        -------
+        numpy.ndarray
+            The data (numpy array) with shape (nx1, nx2, nx3) (Transpose to use `plt.imshow`)
+        """
+        return self._data
+    @property
+    def dt(self):
+        """
+        Returns
+        -------
+        float
+            The time step
+        """
+        return self._dt
+    @property
+    def dim(self):
+        """
+        Returns
+        -------
+        int
+            The number of dimensions
+        """
+        return self._dim
+    @property
+    def time(self):
+        """
+        Returns
+        -------
+        list
+            The time and its units
+        """
+        return self._time
+    @property
+    def iter(self):
+        """
+        Returns
+        -------
+        int
+            The iteration number
+        """
+        return self._iter
+    @property
+    def name(self):
+        """
+        Returns
+        -------
+        str
+            The name of the data
+        """
+        return self._name
+    @property
+    def units(self):
+        """
+        Returns
+        -------
+        str
+            The units of the data (LaTeX formatted)
+        """
+        return self._units
+    @property
+    def label(self):
+        """
+        Returns
+        -------
+        str
+            The label of the data (LaTeX formatted)
+        """
+        return self._label
+    @property
+    def type(self):
+        """
+        Returns
+        -------
+        str
+            The type of data
+        """
+        return self._type
+    
+    # Setters
+    @data.setter
+    def data(self, data):
+        """
+        Set the data attribute
+        """
+        self._data = data
+
+    def __str__(self):
+        # write me a template to print with the name, label, units, time, iter, grid, nx, dx, axis, dt, dim in a logical way
+        return rf"{self.name}" + f"\n" + rf"Time: [{self.time[0]} {self.time[1]}], dt = {self.dt}" + f"\n" + f"Iteration: {self.iter}" + f"\n" + f"Grid: {self.grid}" + f"\n" + f"dx: {self.dx}" + f"\n" + f"Dimensions: {self.dim}D"
+    
+
+    def __array__(self):
+        return np.asarray(self.data)
+    
 
     def _yeeToCellCorner1d(self, boundary):
         """
@@ -111,7 +256,6 @@ class OsirisGridFile():
             else: return 0.5 * (self.data[1:, 1:] + self.data[1:, :-1])
         elif self.name.lower() in ["b3"]:
             if boundary == "periodic": 
-                # a1 = 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)
                return 0.5 * (np.roll((0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)), shift=1, axis=1) + (0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)))
             else:
                 return 0.25 * (self.data[1:, 1:] + self.data[:-1, 1:] + self.data[1:, :-1] + self.data[:-1, :-1])
@@ -144,16 +288,11 @@ class OsirisGridFile():
             raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
         
     def yeeToCellCorner(self, boundary=None):
+        """"
+        Converts EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell."
+        Can be used for 1D, 2D and 3D simulations."
+        Creates a new attribute `data_centered` with the centered data."
         """
-        Converts EM fields from a staggered Yee mesh to a grid with field values centered on the corner
-        of the cell (ex the corner of the cell [1,1,1] has coordinates [1,1,1])
-        The dimension of the new data is smaller because it is not possible to calcualte the values on the corners 
-        of the 0th cells
-
-        Returns:
-            - new_data: the data (numpy array) with shape (nx1-1), (nx1-1, nx2-1) or (nx1-1, nx2-1, nx3-1), depending on the dimension, with the fields defined on the corner of the grid, instead of the Yee mesh.
-                numpy.ndarray
-        """ 
         
         cases = {"b1", "b2", "b3", "e1", "e2", "e3"}
         if self.name not in cases:
