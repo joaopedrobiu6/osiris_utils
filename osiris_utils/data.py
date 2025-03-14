@@ -83,74 +83,51 @@ class OsirisGridFile():
     def _get_variable_key(self, f: h5py.File) -> str:
         return next(k for k in f.keys() if k not in {"AXIS", "SIMULATION"})
 
-    def _yeeToCellCorner1d(self):
+    def _yeeToCellCorner1d(self, boundary):
         """
         Converts 1d EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell (the corner of the cell [1] has coordinates [1])
         """
 
         if self.name.lower() in ["b2", "b3", "e1"]:
-            return 0.5 * (self.data[1:] + self.data[:-1])
+            if boundary == "periodic": return 0.5 * (np.roll(self.data, shift=1) + self.data) 
+            else: return 0.5 * (self.data[1:] + self.data[:-1])
         elif self.name.lower() in ["b1", "e2", "e3"]:
-            return self.data[1:]
+            if boundary == "periodic": return self.data 
+            else: return  self.data[1:]
         else: 
             raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
-
-        # def B1(B1, x):
-        #     return(B1[x])
-        
-        # def B2(B2, x):
-        #     return(0.5 * (B2[x] + B2[x-1]))     
-
-        # def B3(B3, x):
-        #     return(0.5 * (B3[x] + B3[x-1])) 
-
-        # def E1(E1, x):
-        #     return(0.5 * (E1[x] + E1[x-1]))
-        
-        # def E2(E2, x):
-        #     return(E2[x])     
-
-        # def E3(E3, x):
-        #     return(E3[x]) 
-              
-        # def case_default(data, x):
-        #     raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
-        
-        # cases = {
-        #     'b1': B1,
-        #     'b2': B2,
-        #     'b3': B3,
-        #     'e1': E1,
-        #     'e2': E2,
-        #     'e3': E3,
-        #     'default': case_default,
-        # }
-
-        # return cases.get(self.name, cases['default'])(self.data, x)
     
 
-    def _yeeToCellCorner2d(self):
+    def _yeeToCellCorner2d(self, boundary):
         """
         Converts 2d EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell (the corner of the cell [1,1] has coordinates [1,1])
         """
 
         if self.name.lower() in ["e1", "b2"]:
-            return 0.5 * (self.data[1:, 1:] + self.data[:-1, 1:])
+            if boundary == "periodic": return 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)
+            else: return 0.5 * (self.data[1:, 1:] + self.data[:-1, 1:])
         elif self.name.lower() in ["e2", "b1"]:
-            return 0.5 * (self.data[1:, 1:] + self.data[1:, :-1])
+            if boundary == "periodic": return 0.5 * (np.roll(self.data, shift=1, axis=1) + self.data)
+            else: return 0.5 * (self.data[1:, 1:] + self.data[1:, :-1])
         elif self.name.lower() in ["b3"]:
-            return 0.25 * (self.data[1:, 1:] + self.data[:-1, 1:] + self.data[1:, :-1] + self.data[:-1, :-1])
+            if boundary == "periodic": 
+                # a1 = 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)
+               return 0.5 * (np.roll((0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)), shift=1, axis=1) + (0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)))
+            else:
+                return 0.25 * (self.data[1:, 1:] + self.data[:-1, 1:] + self.data[1:, :-1] + self.data[:-1, :-1])
         elif self.name.lower() in ["e3"]:
-            return self.data
+            if boundary == "periodic": return self.data
+            else: return self.data[1:, 1:]
         else:
             raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
         
 
-    def _yeeToCellCorner3d(self):
+    def _yeeToCellCorner3d(self, boundary):
         """
         Converts 3d EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell (the corner of the cell [1,1,1] has coordinates [1,1,1])
         """
-
+        if boundary == "periodic":
+            raise ValueError("Centering field from 3D simulations considering periodic boundary conditions is not implemented yet")
         if self.name.lower() == "b1":
             return 0.25 * (self.data[1:, 1:, 1:] + self.data[1:, :-1, 1:] + self.data[1:, 1:, :-1] + self.data[1:, :-1, :-1])
         elif self.name.lower() == "b2":
@@ -166,7 +143,7 @@ class OsirisGridFile():
         else:
             raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
         
-    def yeeToCellCorner(self):
+    def yeeToCellCorner(self, boundary=None):
         """
         Converts EM fields from a staggered Yee mesh to a grid with field values centered on the corner
         of the cell (ex the corner of the cell [1,1,1] has coordinates [1,1,1])
@@ -183,13 +160,13 @@ class OsirisGridFile():
             raise TypeError(f"This method expects magnetic or electric field grid data but received \"{self.name}\" instead")
         
         if self.dim == 1:
-            self.data_centered = self._yeeToCellCorner1d()
+            self.data_centered = self._yeeToCellCorner1d(boundary)
             return self.data_centered
         elif self.dim == 2:
-            self.data_centered = self._yeeToCellCorner2d()
+            self.data_centered = self._yeeToCellCorner2d(boundary)
             return self.data_centered
         elif self.dim == 3:
-            self.data_centered = self._yeeToCellCorner3d()
+            self.data_centered = self._yeeToCellCorner3d(boundary)
             return self.data_centered
         else:
             raise ValueError(f"Dimension {self.dim} is not supported")
