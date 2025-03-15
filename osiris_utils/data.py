@@ -210,7 +210,7 @@ class OsirisGridFile(OsirisData):
                 'units': self._file['AXIS/'+ax].attrs['UNITS'][0].decode('utf-8'),
                 'long_name': self._file['AXIS/'+ax].attrs['LONG_NAME'][0].decode('utf-8'),
                 'type': self._file['AXIS/'+ax].attrs['TYPE'][0].decode('utf-8'),
-                'plot_label': rf'${self._file['AXIS/'+ax].attrs['LONG_NAME'][0].decode('utf-8')}$ $[{self._file['AXIS/'+ax].attrs['UNITS'][0].decode('utf-8')}]$',
+                'plot_label': rf'${self._file["AXIS/"+ax].attrs["LONG_NAME"][0].decode("utf-8")}$ $[{self._file["AXIS/"+ax].attrs["UNITS"][0].decode("utf-8")}]$',
             }
             self._axis.append(axis_data)
         
