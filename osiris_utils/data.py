@@ -4,7 +4,7 @@ import h5py
 
 class OsirisData():
     '''
-    Parent class for Osiris data files.
+    Parent class for Osiris data files - either .h5 files or _ene files.
 
     Input:
     ------
