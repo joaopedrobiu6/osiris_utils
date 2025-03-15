@@ -21,7 +21,6 @@ OsirisData (Base Class)
 .. autoclass:: osiris_utils.data.OsirisData
    :members: dt, dim, time, iter, name, type, verbose
    :special-members: __init__
-   :noindex:
    
    Base class for all OSIRIS data types. Provides common attributes and methods for handling simulation metadata.
 
@@ -30,7 +29,6 @@ OsirisGridFile
 .. autoclass:: osiris_utils.data.OsirisGridFile
    :members: grid, nx, dx, x, axis, data, units, label
    :inherited-members:
-   :noindex:
 
    Specialized class for grid-based field data. Inherits from :class:`OsirisData`.
 
@@ -38,8 +36,7 @@ OsirisRawFile
 ~~~~~~~~~~~~~
 .. autoclass:: osiris_utils.data.OsirisRawFile
    :members: data, axis
-   :inherited-members:
-   :noindex:
+   :inherited-members: grid, nx, dx, x, axis, data, units, label
 
    Handles particle/raw data files. Inherits from :class:`OsirisData`.
 
@@ -47,8 +44,7 @@ OsirisHIST
 ~~~~~~~~~~
 .. autoclass:: osiris_utils.data.OsirisHIST
    :members: df
-   :inherited-members:
-   :noindex:
+   :inherited-members: grid, nx, dx, x, axis, data, units, label
 
    Processes HIST file time series data. Inherits from :class:`OsirisData`.
 
@@ -56,7 +52,7 @@ Mean Field Theory Module
 ~~~~~~~~~~~~~~~~~~~~~~~~
 .. autoclass:: osiris_utils.mean_field_theory.MeanFieldTheory
    :members: average, delta, derivative
-   :inherited-members:
+   :inherited-members: grid, nx, dx, x, axis, data, units, label
    :noindex:
 
    Tools for calculating mean field quantities from simulation data.
