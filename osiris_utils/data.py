@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import h5py
 
 class OsirisData():
@@ -32,12 +33,18 @@ class OsirisData():
     '''
     def __init__(self, filename):
         self._filename = filename
-        self._file = None
+        # self._file = None
 
         self._verbose = False
 
-        self._open_file(self._filename)
-        self._load_basic_attributes(self._file)
+        if self._filename.endswith('.h5'):
+            self._open_file_hdf5(self._filename)
+            self._load_basic_attributes(self._file)
+        elif self._filename.endswith('_ene'):
+            self._open_hist_file(self._filename)
+        else:
+            raise ValueError('The file should be an HDF5 file with the extension .h5, or a HIST file ending with _ene.')
+        
         
     def _load_basic_attributes(self, f: h5py.File) -> None:
         '''Load common attributes from HDF5 file'''
@@ -59,9 +66,9 @@ class OsirisData():
         '''
         self._verbose = verbose
 
-    def _open_file(self, filename):
+    def _open_file_hdf5(self, filename):
         '''
-        Open the HDF5 file.
+        Open the OSIRIS output file. Usually an HDF5 file or txt.
 
         Parameters
         ----------
@@ -69,7 +76,14 @@ class OsirisData():
             The path to the HDF5 file.
         '''
         if self._verbose: print(f'Opening file > {filename}')
-        self._file = h5py.File(self._filename, 'r')
+
+        if filename.endswith('.h5'):
+            self._file = h5py.File(filename, 'r')
+        else:
+            raise ValueError('The file should be an HDF5 file with the extension .h5')
+            
+    def _open_hist_file(self, filename):
+        self._df = pd.read_csv(filename, sep=r'\s+', comment='!', header=0, engine='python')
 
     def _close_file(self):
         '''
@@ -475,3 +489,28 @@ class OsirisRawFile(OsirisData):
                 'long_name': self._file.attrs['LABELS'][idx][0].decode('utf-8'),
             }
             self.axis[key] = axis_data
+
+class OsirisHIST(OsirisData):
+    ''''
+    Class to read the data from an OSIRIS HIST file.'
+
+    Input:
+        - filename: the path to the HIST file
+
+    Attributes:
+        - filename - the path to the file
+            str
+        - verbose - if True, the class will print messages
+            bool
+        - df - the data in a pandas DataFrame
+            pandas.DataFrame
+    '''
+    def __init__(self, filename):
+        super().__init__(filename)
+
+    @property
+    def df(self):
+        """
+        Returns the data in a pandas DataFrame
+        """
+        return self._df
