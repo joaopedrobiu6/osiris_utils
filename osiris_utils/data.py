@@ -5,32 +5,6 @@ import h5py
 class OsirisData():
     """
     Parent class for Osiris data files - either .h5 files or _ene files.
-
-    Input
-    -----
-    filename : str
-        The path to the HDF5 file
-
-    Attributes
-    ----------
-    filename : str
-        The path to the HDF5 file
-    file : h5py.File
-        The HDF5 file object
-    verbose : bool
-        If True, the class will print messages
-    dt : float
-        The time step
-    dim : int
-        The number of dimensions
-    time : list[float, str]
-        The time and its units [value, unit]
-    iter : int
-        The iteration number
-    name : str
-        The name of the data
-    type : str
-        The type of data
     """
 
     def __init__(self, filename):
@@ -163,31 +137,22 @@ class OsirisGridFile(OsirisData):
     ----------
     filename - str
         The path to the HDF5 file
-        :noindex:
     file - h5py.File
         The HDF5 file object
-        :noindex:
     verbose - bool
         If True, the class will print messages
-        :noindex:
     dt - float
         The time step
-        :noindex:
     dim - int
         The number of dimensions
-        :noindex:
     time - list[float, str]
         The time and its units [value, unit]
-        :noindex:
     iter - int
         The iteration number
-        :noindex:
     name - str
         The name of the data
-        :noindex:
     type - str
         The type of data
-        :noindex:
     grid - numpy.ndarray
         The grid data ((x1.min, x1.max), (x2.min, x2.max), (x3.min, x3.max))
     nx - numpy.ndarray
