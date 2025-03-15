@@ -11,9 +11,9 @@ def read_osiris_file(filename, pressure = False):
     f = h5py.File(filename, 'r+')
     atr = f.attrs
     k = [key for key in f.keys()]
-    if "SIMULATION" in k:
+    if 'SIMULATION' in k:
         attrs1 = atr
-        attrs2 = f["SIMULATION"].attrs
+        attrs2 = f['SIMULATION'].attrs
         attrs = {}
         for i in range(len(attrs1)):
             attrs[[key for key in attrs1][i]] = [value for value in attrs1.values()][i]
@@ -24,21 +24,21 @@ def read_osiris_file(filename, pressure = False):
     axis = []
     for i in range(leanx):
         axis.append(ax.get([key for key in ax.keys()][i]))
-    if "SIMULATION" in k and pressure == False:
+    if 'SIMULATION' in k and pressure == False:
         data = f.get([key for key in f.keys()][2])
-        data.attrs["UNITS"] = attrs1["UNITS"]
-        data.attrs["LONG_NAME"] = attrs1["LABEL"]
-    elif "SIMULATION" in k and pressure == True:
+        data.attrs['UNITS'] = attrs1['UNITS']
+        data.attrs['LONG_NAME'] = attrs1['LABEL']
+    elif 'SIMULATION' in k and pressure == True:
         data = f.get([key for key in f.keys()][1])
-        data.attrs["UNITS"] = attrs1["UNITS"]
-        data.attrs["LONG_NAME"] = attrs1["LABEL"]
+        data.attrs['UNITS'] = attrs1['UNITS']
+        data.attrs['LONG_NAME'] = attrs1['LABEL']
     else:
         data = f.get([key for key in f.keys()][1])
     
     return attrs, axis, data
 
 def open1D(filename, pressure = False):
-    """ 
+    ''' 
     Open a 1D OSIRIS file and return the x axis and the data array.
 
     Parameters
@@ -52,7 +52,7 @@ def open1D(filename, pressure = False):
         The x axis.
     data_array : numpy.ndarray
         The data array.
-    """
+    '''
     attrs, axes, data = read_osiris_file(filename, pressure)
     datash = data.shape
     ax1 = axes[0]
@@ -61,7 +61,7 @@ def open1D(filename, pressure = False):
     return x, data_array, [attrs, axes, data]
 
 def open2D(filename, pressure = False):
-    """
+    '''
     Open a 2D OSIRIS file and return the x and y axes and the data array.
 
     Parameters
@@ -77,7 +77,7 @@ def open2D(filename, pressure = False):
         The y axis.
     data_array : numpy.ndarray
         The data array.
-    """
+    '''
     attrs, axes, data = read_osiris_file(filename, pressure)
     datash = data.shape
     ax1 = axes[0]
@@ -88,7 +88,7 @@ def open2D(filename, pressure = False):
     return x, y, data_array, [attrs, axes, data]
 
 def open3D(filename):
-    """
+    '''
     Open a 3D OSIRIS file and return the x, y and z axes and the data array.
 
     Parameters
@@ -106,7 +106,7 @@ def open3D(filename):
         The z axis.
     data_array : numpy.ndarray
         The data array.
-    """
+    '''
     attrs, axes, data = read_osiris_file(filename)
     datash = data.shape
     ax1 = axes[0]

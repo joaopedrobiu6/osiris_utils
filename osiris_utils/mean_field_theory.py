@@ -3,7 +3,7 @@ from .data import OsirisGridFile
 
         
 class MeanFieldTheory(OsirisGridFile):
-    """
+    '''
     Class to handle the mean field theory on data. Inherits from OsirisGridFile.
     
     Parameters
@@ -12,7 +12,7 @@ class MeanFieldTheory(OsirisGridFile):
         The filename or an OsirisGridFile object.
     axis : int
         The axis to average over.
-    """
+    '''
     def __init__(self, source, axis=1):
         if isinstance(source, OsirisGridFile):
             self.__dict__.update(source.__dict__)
@@ -36,10 +36,10 @@ class MeanFieldTheory(OsirisGridFile):
         return self._fluctuations
     
     def __str__(self):
-        return super().__str__() + f"\nAverage: {self.average.shape}\nDelta: {self.delta.shape}"
+        return super().__str__() + f'\nAverage: {self.average.shape}\nDelta: {self.delta.shape}'
     
     def derivative(self, field, axis=0):
-        """
+        '''
         Compute the derivative of the average or the fluctuations.
         
         Parameters
@@ -48,5 +48,5 @@ class MeanFieldTheory(OsirisGridFile):
             The field to compute the derivative.
         axis : int
             The axis to compute the derivative.
-        """
+        '''
         return np.gradient(field, self.dx[axis], axis=0)

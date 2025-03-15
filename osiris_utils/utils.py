@@ -7,7 +7,7 @@ import scipy
 import pandas as pd
 
 def courant2D(dx, dy):
-    """
+    '''
     Compute the Courant number for a 2D simulation.
 
     Parameters
@@ -21,12 +21,12 @@ def courant2D(dx, dy):
     -------
     float
         The limit for dt.
-    """
+    '''
     dt = 1 / (np.sqrt(1/dx**2 + 1/dy**2))
     return dt
 
 def time_estimation(n_cells, ppc, push_time, t_steps, n_cpu, hours = False):
-    """
+    '''
     Estimate the simulation time.
 
     Parameters
@@ -48,7 +48,7 @@ def time_estimation(n_cells, ppc, push_time, t_steps, n_cpu, hours = False):
     -------
     float
         The estimated time in seconds or hours.
-    """
+    '''
     time = (n_cells*ppc*push_time*t_steps)/n_cpu
     if hours:
         return time/3600
@@ -59,7 +59,7 @@ def filesize_estimation(n_gridpoints):
     return n_gridpoints*4/(1024**2)
 
 def transverse_average(data):
-    """
+    '''
     Computes the transverse average of a 2D array.
     
     Parameters
@@ -74,14 +74,14 @@ def transverse_average(data):
         Dim: 1D.
         The transverse average.
 
-    """
+    '''
 
     if len(data.shape) != 2:
-        raise ValueError("The input data must be a 2D array.")
+        raise ValueError('The input data must be a 2D array.')
     return np.mean(data, axis = 1)
 
 def integrate(array, dx):
-    """
+    '''
     Integrate a 1D from the left to the right. This may be changed in the future to allow 
     for integration in both directions or for other more general cases.
 
@@ -98,24 +98,24 @@ def integrate(array, dx):
     numpy.ndarray
         Dim: 1D.
         The integrated array.
-    """
+    '''
 
     if len(array.shape) != 1:
-        raise ValueError(f"Array must be 1D\n Array shape: {array.shape}")
+        raise ValueError(f'Array must be 1D\n Array shape: {array.shape}')
     flip_array = np.flip(array)
     # int = -scipy.integrate.cumulative_trapezoid(flip_array, dx = dx, initial = flip_array[0])
     int = -scipy.integrate.cumulative_simpson(flip_array, dx = dx, initial = 0)
     return np.flip(int)
 
 def animate_2D(datafiles, frames, interval, fps, savename, **kwargs):
-    """
+    '''
     Animate 2D OSIRIS files.
 
     Parameters
     ----------
     datafiles : str
         The path to the files.
-        Must be of the type "path/to/file_%06d.h5".
+        Must be of the type 'path/to/file_%06d.h5'.
     kwargs : dict
         Additional keyword arguments for plotting.
 
@@ -123,7 +123,7 @@ def animate_2D(datafiles, frames, interval, fps, savename, **kwargs):
     -------
     matplotlib.animation.FuncAnimation
         The animation.
-    """
+    '''
     fig, ax = plt.subplots(figsize=(12, 6), tight_layout=True)
     im = 0
 
@@ -133,8 +133,8 @@ def animate_2D(datafiles, frames, interval, fps, savename, **kwargs):
         ax.clear()
         # Display image data, make sure data shape is valid for imshow
         im = ax.imshow(-data, extent=[x.min(), x.max(), y.min(), y.max()], aspect='auto', origin='lower', **kwargs)
-        plt.xlabel(r"x [c/$\omega_p$]")
-        plt.ylabel(r"y [c/$\omega_p$]")
+        plt.xlabel(r'x [c/$\omega_p$]')
+        plt.ylabel(r'y [c/$\omega_p$]')
         
 
     # Creating the animation, and frames should be updated accordingly
@@ -146,8 +146,8 @@ def animate_2D(datafiles, frames, interval, fps, savename, **kwargs):
     # Display the animation
     return ani
 
-def save_data(data, savename, option="numpy"):
-    """
+def save_data(data, savename, option='numpy'):
+    '''
     Save the data to a .txt (with Numpy) or .csv (with Pandas) file.
 
     Parameters
@@ -157,17 +157,17 @@ def save_data(data, savename, option="numpy"):
     savename : str
         The path to the file.
     option : str, optional
-        The option for saving the data. The default is "numpy". Can be "numpy" or "pandas".
-    """
-    if option == "numpy":
+        The option for saving the data. The default is 'numpy'. Can be 'numpy' or 'pandas'.
+    '''
+    if option == 'numpy':
         np.savetxt(savename, data)
-    elif option == "pandas":
+    elif option == 'pandas':
         pd.DataFrame(data).to_csv(savename, index=False)
     else:
-        raise ValueError("Option must be 'numpy' or 'pandas'.")
+        raise ValueError('Option must be 'numpy' or 'pandas'.')
 
-def read_data(filename, option="numpy"):
-    """
+def read_data(filename, option='numpy'):
+    '''
     Read the data from a .txt file.
 
     Parameters
@@ -180,5 +180,5 @@ def read_data(filename, option="numpy"):
     numpy.ndarray
         Dim: 2D.
         The data.
-    """
-    return np.loadtxt(filename) if option == "numpy" else pd.read_csv(filename).values
+    '''
+    return np.loadtxt(filename) if option == 'numpy' else pd.read_csv(filename).values
