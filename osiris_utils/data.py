@@ -4,7 +4,34 @@ import h5py
 
 class OsirisData():
     """
-    Parent class for Osiris data files - either .h5 files or _ene files.
+    Base class for handling OSIRIS simulation data files (HDF5 and HIST formats).
+
+    This class provides common functionality for reading and managing basic attributes
+    from OSIRIS output files. It serves as the parent class for specialized data handlers.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the data file. Supported formats:
+        - HDF5 files (.h5 extension)
+        - HIST files (ending with _ene)
+
+    Attributes
+    ----------
+    dt : float
+        Time step of the simulation [simulation units]
+    dim : int
+        Number of dimensions in the simulation (1, 2, or 3)
+    time : list[float, str]
+        Current simulation time and units as [value, unit_string]
+    iter : int
+        Current iteration number
+    name : str
+        Name identifier of the data field
+    type : str
+        Type of data (e.g., 'grid', 'particles')
+    verbose : bool
+        Verbosity flag controlling diagnostic messages (default: False)
     """
 
     def __init__(self, filename):
@@ -90,47 +117,38 @@ class OsirisData():
 
 class OsirisGridFile(OsirisData):
     """
-    Class to read the grid data from an OSIRIS HDF5 file.
-    
-    Input
-    -----
-    filename: str
-        The path to the HDF5 file
+    Handles structured grid data from OSIRIS HDF5 simulations, including electromagnetic fields.
+
+    Parameters
+    ----------
+    filename : str
+        Path to OSIRIS HDF5 grid file (.h5 extension)
 
     Attributes
     ----------
-    filename - str
-        The path to the HDF5 file
-    file - h5py.File
-        The HDF5 file object
-    verbose - bool
-        If True, the class will print messages
-    dt - float
-        The time step
-    dim - int
-        The number of dimensions
-    time - list[float, str]
-        The time and its units [value, unit]
-    iter - int
-        The iteration number
-    name - str
-        The name of the data
-    type - str
-        The type of data
-    grid - numpy.ndarray
-        The grid data ((x1.min, x1.max), (x2.min, x2.max), (x3.min, x3.max))
-    nx - numpy.ndarray
-        The number of grid points (nx1, nx2, nx3)
-    dx - numpy.ndarray
-        The grid spacing (dx1, dx2, dx3)
-    axis - list of dictionaries
-        The axis data [(name_x1, units_x1, long_name_x1, type_x1), ...]
-    data - numpy.ndarray
-        The data (numpy array) with shape (nx1, nx2, nx3) (Transpose to use `plt.imshow`)
-    units - str
-        The units of the data
-    label - str
-        The label of the data (LaTeX formatted)
+    grid : np.ndarray
+        Grid boundaries as ((x1_min, x1_max), (x2_min, x2_max), ...)
+    nx : tuple
+        Number of grid points per dimension (nx1, nx2, nx3)
+    dx : np.ndarray
+        Grid spacing per dimension (dx1, dx2, dx3)
+    x : list[np.ndarray]
+        Spatial coordinates arrays for each dimension
+    axis : list[dict]
+        Axis metadata with keys:
+        - 'name': Axis identifier (e.g., 'x1')
+        - 'units': Physical units (LaTeX formatted)
+        - 'long_name': Descriptive name (LaTeX formatted)
+        - 'type': Axis type (e.g., 'SPATIAL')
+        - 'plot_label': Combined label for plotting
+    data : np.ndarray
+        Raw field data array (shape depends on simulation dimensions)
+    units : str
+        Field units (LaTeX formatted)
+    label : str
+        Field label/name (LaTeX formatted, e.g., r'$E_x$')
+    FFTdata : np.ndarray
+        Fourier-transformed data (available after calling FFT())
     """
 
     def __init__(self, filename):
