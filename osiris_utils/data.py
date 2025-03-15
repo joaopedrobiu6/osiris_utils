@@ -3,14 +3,14 @@ import pandas as pd
 import h5py
 
 class OsirisData():
-    '''
+    """
     Parent class for Osiris data files - either .h5 files or _ene files.
 
     Input:
     ------
         - filename: the path to the HDF5 file
     Attributes:
-    ----------
+    -----------
         - filename - the path to the HDF5 file
             str
         - file - the HDF5 file
@@ -30,7 +30,8 @@ class OsirisData():
             str
         - type - the type of data
             str
-    '''
+    """
+
     def __init__(self, filename):
         self._filename = filename
         # self._file = None
@@ -149,15 +150,15 @@ class OsirisData():
         return self._type
 
 class OsirisGridFile(OsirisData):
-    '''
+    """
     Class to read the grid data from an OSIRIS HDF5 file.
     
     Input:
-    -----
+    ------
         - filename: the path to the HDF5 file
         
     Attributes:
-    ----------
+    -----------
         - filename - the path to the HDF5 file
             str
         - file - the HDF5 file
@@ -189,9 +190,9 @@ class OsirisGridFile(OsirisData):
             numpy.ndarray
         - units - the units of the data
             str
-        - label - the label of the data (LaTeX formatted)
-        
-    '''
+        - label - the label of the data (LaTeX formatted)   
+    """
+
     def __init__(self, filename):
         super().__init__(filename)
             
