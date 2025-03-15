@@ -185,48 +185,6 @@ class OsirisGridFile(OsirisData):
     def _get_variable_key(self, f: h5py.File) -> str:
         return next(k for k in f.keys() if k not in {'AXIS', 'SIMULATION'})
     
-    # Getters
-    @property
-    def grid(self):
-        return self._grid
-    @property
-    def nx(self):
-        return self._nx
-    @property
-    def dx(self):
-        return self._dx
-    @property
-    def x(self):
-        return self._x
-    @property
-    def axis(self):
-        return self._axis   
-    @property
-    def data(self):
-        return self._data
-    @property
-    def units(self):
-        return self._units
-    @property
-    def label(self):
-        return self._label
-    @property
-    def FFTdata(self):
-        if self._FFTdata is None:
-            raise ValueError('The FFT of the data has not been computed yet. Compute it using the FFT method.')
-        return self._FFTdata
-    # Setters
-    @data.setter
-    def data(self, data):
-        self._data = data
-
-    def __str__(self):
-        # write me a template to print with the name, label, units, time, iter, grid, nx, dx, axis, dt, dim in a logical way
-        return rf'{self.name}' + f'\n' + rf'Time: [{self.time[0]} {self.time[1]}], dt = {self.dt}' + f'\n' + f'Iteration: {self.iter}' + f'\n' + f'Grid: {self.grid}' + f'\n' + f'dx: {self.dx}' + f'\n' + f'Dimensions: {self.dim}D'
-    
-
-    def __array__(self):
-        return np.asarray(self.data)
     
 
     def _yeeToCellCorner1d(self, boundary):
@@ -319,6 +277,48 @@ class OsirisGridFile(OsirisData):
         datafft = np.fft.fftn(self.data, axes=axis)
         self._FFTdata = np.fft.fftshift(datafft, axes=axis)
 
+    # Getters
+    @property
+    def grid(self):
+        return self._grid
+    @property
+    def nx(self):
+        return self._nx
+    @property
+    def dx(self):
+        return self._dx
+    @property
+    def x(self):
+        return self._x
+    @property
+    def axis(self):
+        return self._axis   
+    @property
+    def data(self):
+        return self._data
+    @property
+    def units(self):
+        return self._units
+    @property
+    def label(self):
+        return self._label
+    @property
+    def FFTdata(self):
+        if self._FFTdata is None:
+            raise ValueError('The FFT of the data has not been computed yet. Compute it using the FFT method.')
+        return self._FFTdata
+    # Setters
+    @data.setter
+    def data(self, data):
+        self._data = data
+
+    def __str__(self):
+        # write me a template to print with the name, label, units, time, iter, grid, nx, dx, axis, dt, dim in a logical way
+        return rf'{self.name}' + f'\n' + rf'Time: [{self.time[0]} {self.time[1]}], dt = {self.dt}' + f'\n' + f'Iteration: {self.iter}' + f'\n' + f'Grid: {self.grid}' + f'\n' + f'dx: {self.dx}' + f'\n' + f'Dimensions: {self.dim}D'
+    
+
+    def __array__(self):
+        return np.asarray(self.data)
 
 
 class OsirisRawFile(OsirisData):
