@@ -147,7 +147,7 @@ def animate_2D(datafiles, frames, interval, fps, savename, **kwargs):
     return ani
 
 def save_data(data, savename, option='numpy'):
-    '''
+    """
     Save the data to a .txt (with Numpy) or .csv (with Pandas) file.
 
     Parameters
@@ -158,13 +158,13 @@ def save_data(data, savename, option='numpy'):
         The path to the file.
     option : str, optional
         The option for saving the data. The default is 'numpy'. Can be 'numpy' or 'pandas'.
-    '''
+    """
     if option == 'numpy':
         np.savetxt(savename, data)
     elif option == 'pandas':
         pd.DataFrame(data).to_csv(savename, index=False)
     else:
-        raise ValueError('Option must be 'numpy' or 'pandas'.')
+        raise ValueError("Option must be 'numpy' or 'pandas'.")
 
 def read_data(filename, option='numpy'):
     '''
