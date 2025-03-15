@@ -20,7 +20,7 @@ Documentation
 
 The documentation is available at https://osiris-utils.readthedocs.io or via this link: `osiris-utils.readthedocs.io <https://osiris-utils.readthedocs.io>`_.
 
-.. |Pypi| image:: https://img.shields.io/pypi/v/quadax
-    :target: https://pypi.org/project/quadax/
+.. |Pypi| image:: https://img.shields.io/pypi/v/osiris-utils
+    :target: https://pypi.org/project/osiris-utils/
     :alt: Pypi
 
