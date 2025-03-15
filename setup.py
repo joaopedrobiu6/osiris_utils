@@ -7,8 +7,8 @@ from setuptools import find_packages, setup
 here = os.path.abspath(os.path.dirname(__file__))
 
 
-# with open(os.path.join(here, 'README.md'), encoding='utf-8') as f:
-#     long_description = f.read()
+with open(os.path.join(here, 'README.rst'), encoding='utf-8') as f:
+    long_description = f.read()
 
 with open(os.path.join(here, 'requirements.txt'), encoding='utf-8') as f:
     requirements = f.read().splitlines()
@@ -17,8 +17,8 @@ setup(
     name='osiris_utils',
     version='v1.0.9',
     description=('Utilities to manipulate and visualize OSIRIS framework output data'),
-    # long_description=long_description,
-    long_description_content_type='text/markdown',
+    long_description=long_description,
+    long_description_content_type='text/x-rst',
     author=['João Pedro Ferreira Biu', 'João Cândido'],
     author_email=['joaopedrofbiu@tecnico.ulisboa.pt'],
     license='MIT',
