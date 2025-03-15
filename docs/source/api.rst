@@ -13,25 +13,45 @@ Data Readers Module
 
    Functions for reading OSIRIS data files in 1D, 2D, and 3D formats.
 
-Data Structures Module
-~~~~~~~~~~~~~~~~~~~~~~
-.. automodule:: osiris_utils.data
-   :members: 
-       OsirisData, 
-       OsirisGridFile,
-       OsirisRawFile,
-       OsirisHIST
+Core Data Structures
+--------------------
+
+OsirisData (Base Class)
+~~~~~~~~~~~~~~~~~~~~~~~
+.. autoclass:: osiris_utils.data.OsirisData
+   :members: dt, dim, time, iter, name, type, verbose
    :special-members: __init__
-   :exclude-members: 
-       - FFTdata
-       - yeeToCellCorner
-       - FFT
+   :noindex:
+   
+   Base class for all OSIRIS data types. Provides common attributes and methods for handling simulation metadata.
+
+OsirisGridFile
+~~~~~~~~~~~~~~
+.. autoclass:: osiris_utils.data.OsirisGridFile
+   :members: grid, nx, dx, x, axis, data, units, label
+   :inherited-members:
+   :exclude-members: FFTdata, yeeToCellCorner, FFT
    :noindex:
 
-   Base classes for handling OSIRIS data structures and grid files.
+   Specialized class for grid-based field data. Inherits from :class:`OsirisData`.
 
-   **Inherited Members** (from OsirisData):
-   :members: dim, dt, iter, name, time, type, verbose
+OsirisRawFile
+~~~~~~~~~~~~~
+.. autoclass:: osiris_utils.data.OsirisRawFile
+   :members: data, axis
+   :inherited-members:
+   :noindex:
+
+   Handles particle/raw data files. Inherits from :class:`OsirisData`.
+
+OsirisHIST
+~~~~~~~~~~
+.. autoclass:: osiris_utils.data.OsirisHIST
+   :members: df
+   :inherited-members:
+   :noindex:
+
+   Processes HIST file time series data. Inherits from :class:`OsirisData`.
 
 Mean Field Theory Module
 ~~~~~~~~~~~~~~~~~~~~~~~~
