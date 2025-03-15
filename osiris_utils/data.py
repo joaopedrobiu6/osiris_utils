@@ -71,57 +71,21 @@ class OsirisData():
         
     @property
     def dt(self):
-        '''
-        Returns
-        -------
-        float
-            The time step
-        '''
         return self._dt
     @property
     def dim(self):
-        '''
-        Returns
-        -------
-        int
-            The number of dimensions
-        '''
         return self._dim
     @property
     def time(self):
-        '''
-        Returns
-        -------
-        list
-            The time and its units
-        '''
         return self._time
     @property
     def iter(self):
-        '''
-        Returns
-        -------
-        int
-            The iteration number
-        '''
         return self._iter
     @property
     def name(self):
-        '''
-        Returns
-        -------
-        str
-            The name of the data
-        '''
         return self._name
     @property
     def type(self):
-        '''
-        Returns
-        -------
-        str
-            The type of data
-        '''
         return self._type
 
 class OsirisGridFile(OsirisData):
@@ -224,93 +188,36 @@ class OsirisGridFile(OsirisData):
     # Getters
     @property
     def grid(self):
-        '''
-        Returns
-        -------
-        numpy.ndarray
-            The grid data ((x1.min, x1.max), (x2.min, x2.max), (x3.min, x3.max
-        '''
         return self._grid
     @property
     def nx(self):
-        '''
-        Returns
-        -------
-        numpy.ndarray
-            The number of grid points (nx1, nx2, nx3)
-        '''
         return self._nx
     @property
     def dx(self):
-        '''
-        Returns
-        -------
-        numpy.ndarray
-            The grid spacing (dx1, dx2, dx3)
-        '''
         return self._dx
     @property
     def x(self):
-        '''
-        Returns
-        -------
-        numpy.ndarray
-            The grid points in each axis
-        '''
         return self._x
     @property
     def axis(self):
-        '''
-        Returns
-        -------
-        list of dictionaries
-            The axis data [(name_x1, units_x1, long_name_x1, type_x1), ...]
-        '''
         return self._axis   
     @property
     def data(self):
-        '''
-        Returns
-        -------
-        numpy.ndarray
-            The data (numpy array) with shape (nx1, nx2, nx3) (Transpose to use `plt.imshow`)
-        '''
         return self._data
     @property
     def units(self):
-        '''
-        Returns
-        -------
-        str
-            The units of the data (LaTeX formatted)
-        '''
         return self._units
     @property
     def label(self):
-        '''
-        Returns
-        -------
-        str
-            The label of the data (LaTeX formatted)
-        '''
         return self._label
     @property
     def FFTdata(self):
-        '''
-        Returns
-        -------
-        numpy.ndarray
-            The FFT of the data
-        '''
         if self._FFTdata is None:
             raise ValueError('The FFT of the data has not been computed yet. Compute it using the FFT method.')
         return self._FFTdata
     # Setters
     @data.setter
     def data(self, data):
-        '''
-        Set the data attribute
-        '''
         self._data = data
 
     def __str__(self):
