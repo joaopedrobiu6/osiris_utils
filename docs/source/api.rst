@@ -30,7 +30,6 @@ OsirisGridFile
 .. autoclass:: osiris_utils.data.OsirisGridFile
    :members: grid, nx, dx, x, axis, data, units, label
    :inherited-members:
-   :exclude-members: FFTdata, yeeToCellCorner, FFT
    :noindex:
 
    Specialized class for grid-based field data. Inherits from :class:`OsirisData`.
