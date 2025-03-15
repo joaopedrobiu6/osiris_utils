@@ -6,30 +6,31 @@ class OsirisData():
     """
     Parent class for Osiris data files - either .h5 files or _ene files.
 
-    Input:
-    ------
-        - filename: the path to the HDF5 file
-    Attributes:
-    -----------
-        - filename - the path to the HDF5 file
-            str
-        - file - the HDF5 file
-            h5py.File
-        - verbose - if True, the class will print messages
-            bool
-        - dt - the time step
-            float
-        - dim - the number of dimensions
-            int
-        - time - the time and its units
-            list [time, units]
-            list [float, str]
-        - iter - the iteration number
-            int
-        - name - the name of the data
-            str
-        - type - the type of data
-            str
+    Input
+    -----
+    filename : str
+        The path to the HDF5 file
+
+    Attributes
+    ----------
+    filename : str
+        The path to the HDF5 file
+    file : h5py.File
+        The HDF5 file object
+    verbose : bool
+        If True, the class will print messages
+    dt : float
+        The time step
+    dim : int
+        The number of dimensions
+    time : list[float, str]
+        The time and its units [value, unit]
+    iter : int
+        The iteration number
+    name : str
+        The name of the data
+    type : str
+        The type of data
     """
 
     def __init__(self, filename):
@@ -153,44 +154,45 @@ class OsirisGridFile(OsirisData):
     """
     Class to read the grid data from an OSIRIS HDF5 file.
     
-    Input:
-    ------
-        - filename: the path to the HDF5 file
-        
-    Attributes:
-    -----------
-        - filename - the path to the HDF5 file
-            str
-        - file - the HDF5 file
-            h5py.File
-        - verbose - if True, the class will print messages
-            bool
-        - dt - the time step
-            float
-        - dim - the number of dimensions
-            int
-        - time - the time and its units
-            list [time, units]
-            list [float, str]
-        - iter - the iteration number
-            int
-        - name - the name of the data
-            str
-        - type - the type of data
-            str
-        - grid - the grid data ((x1.min, x1.max), (x2.min, x2.max), (x3.min, x3.max))
-            numpy.ndarray
-        - nx - the number of grid points (nx1, nx2, nx3)
-            numpy.ndarray
-        - dx - the grid spacing (dx1, dx2, dx3)
-            numpy.ndarray
-        - axis - the axis data [(name_x1, units_x1, long_name_x1, type_x1), ...]
-            list of dictionaries
-        - data: the data (numpy array) with shape (nx1, nx2, nx3) (Transpose to use `plt.imshow`)
-            numpy.ndarray
-        - units - the units of the data
-            str
-        - label - the label of the data (LaTeX formatted)   
+    Input
+    -----
+    filename: str
+        The path to the HDF5 file
+
+    Attributes
+    ----------
+    filename - str
+        The path to the HDF5 file
+    file - h5py.File
+        The HDF5 file object
+    verbose - bool
+        If True, the class will print messages
+    dt - float
+        The time step
+    dim - int
+        The number of dimensions
+    time - list[float, str]
+        The time and its units [value, unit]
+    iter - int
+        The iteration number
+    name - str
+        The name of the data
+    type - str
+        The type of data
+    grid - numpy.ndarray
+        The grid data ((x1.min, x1.max), (x2.min, x2.max), (x3.min, x3.max))
+    nx - numpy.ndarray
+        The number of grid points (nx1, nx2, nx3)
+    dx - numpy.ndarray
+        The grid spacing (dx1, dx2, dx3)
+    axis - list of dictionaries
+        The axis data [(name_x1, units_x1, long_name_x1, type_x1), ...]
+    data - numpy.ndarray
+        The data (numpy array) with shape (nx1, nx2, nx3) (Transpose to use `plt.imshow`)
+    units - str
+        The units of the data
+    label - str
+        The label of the data (LaTeX formatted)
     """
 
     def __init__(self, filename):
