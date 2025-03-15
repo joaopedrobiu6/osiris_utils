@@ -13,7 +13,15 @@ data_readers Module
 data Module (Structures)
 ~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: osiris_utils.data
-   :members: OsirisGridFile
+   :members: 
+   :special-members: __init__
+   :inherited-members:
+   :undoc-members:
+
+Mean Field Theory Module (Structures)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: osiris_utils.mean_field_theory
+   :members: 
    :special-members: __init__
    :inherited-members:
    :undoc-members:
@@ -40,7 +48,6 @@ Utilities Module
    :exclude-members: 
        - animate_2D
        - courant2D
-       - mft_decomposition
        - transverse_average
    :show-inheritance:
 
@@ -58,9 +65,6 @@ courant2D
 
 Data Processing
 ---------------
-mft_decomposition
-~~~~~~~~~~~~~~~~~
-.. autofunction:: osiris_utils.utils.mft_decomposition
 
 transverse_average
 ~~~~~~~~~~~~~~~~~~
