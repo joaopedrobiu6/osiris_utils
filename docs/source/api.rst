@@ -21,6 +21,7 @@ OsirisData (Base Class)
 .. autoclass:: osiris_utils.data.OsirisData
    :members: dt, dim, time, iter, name, type, verbose
    :special-members: __init__
+   :noindex:
    
    Base class for all OSIRIS data types. Provides common attributes and methods for handling simulation metadata.
 
