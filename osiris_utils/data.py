@@ -3,34 +3,37 @@ import pandas as pd
 import h5py
 
 class OsirisData():
-    '''
-    Parent class for Osiris data files.
+    """
+    Base class for handling OSIRIS simulation data files (HDF5 and HIST formats).
 
-    Input:
-    ------
-        - filename: the path to the HDF5 file
-    Attributes:
+    This class provides common functionality for reading and managing basic attributes
+    from OSIRIS output files. It serves as the parent class for specialized data handlers.
+
+    Parameters
     ----------
-        - filename - the path to the HDF5 file
-            str
-        - file - the HDF5 file
-            h5py.File
-        - verbose - if True, the class will print messages
-            bool
-        - dt - the time step
-            float
-        - dim - the number of dimensions
-            int
-        - time - the time and its units
-            list [time, units]
-            list [float, str]
-        - iter - the iteration number
-            int
-        - name - the name of the data
-            str
-        - type - the type of data
-            str
-    '''
+    filename : str
+        Path to the data file. Supported formats:
+        - HDF5 files (.h5 extension)
+        - HIST files (ending with _ene)
+
+    Attributes
+    ----------
+    dt : float
+        Time step of the simulation [simulation units]
+    dim : int
+        Number of dimensions in the simulation (1, 2, or 3)
+    time : list[float, str]
+        Current simulation time and units as [value, unit_string]
+    iter : int
+        Current iteration number
+    name : str
+        Name identifier of the data field
+    type : str
+        Type of data (e.g., 'grid', 'particles')
+    verbose : bool
+        Verbosity flag controlling diagnostic messages (default: False)
+    """
+
     def __init__(self, filename):
         self._filename = filename
         # self._file = None
@@ -95,103 +98,59 @@ class OsirisData():
         
     @property
     def dt(self):
-        '''
-        Returns
-        -------
-        float
-            The time step
-        '''
         return self._dt
     @property
     def dim(self):
-        '''
-        Returns
-        -------
-        int
-            The number of dimensions
-        '''
         return self._dim
     @property
     def time(self):
-        '''
-        Returns
-        -------
-        list
-            The time and its units
-        '''
         return self._time
     @property
     def iter(self):
-        '''
-        Returns
-        -------
-        int
-            The iteration number
-        '''
         return self._iter
     @property
     def name(self):
-        '''
-        Returns
-        -------
-        str
-            The name of the data
-        '''
         return self._name
     @property
     def type(self):
-        '''
-        Returns
-        -------
-        str
-            The type of data
-        '''
         return self._type
 
 class OsirisGridFile(OsirisData):
-    '''
-    Class to read the grid data from an OSIRIS HDF5 file.
-    
-    Input:
-    -----
-        - filename: the path to the HDF5 file
-        
-    Attributes:
+    """
+    Handles structured grid data from OSIRIS HDF5 simulations, including electromagnetic fields.
+
+    Parameters
     ----------
-        - filename - the path to the HDF5 file
-            str
-        - file - the HDF5 file
-            h5py.File
-        - verbose - if True, the class will print messages
-            bool
-        - dt - the time step
-            float
-        - dim - the number of dimensions
-            int
-        - time - the time and its units
-            list [time, units]
-            list [float, str]
-        - iter - the iteration number
-            int
-        - name - the name of the data
-            str
-        - type - the type of data
-            str
-        - grid - the grid data ((x1.min, x1.max), (x2.min, x2.max), (x3.min, x3.max))
-            numpy.ndarray
-        - nx - the number of grid points (nx1, nx2, nx3)
-            numpy.ndarray
-        - dx - the grid spacing (dx1, dx2, dx3)
-            numpy.ndarray
-        - axis - the axis data [(name_x1, units_x1, long_name_x1, type_x1), ...]
-            list of dictionaries
-        - data: the data (numpy array) with shape (nx1, nx2, nx3) (Transpose to use `plt.imshow`)
-            numpy.ndarray
-        - units - the units of the data
-            str
-        - label - the label of the data (LaTeX formatted)
-        
-    '''
+    filename : str
+        Path to OSIRIS HDF5 grid file (.h5 extension)
+
+    Attributes
+    ----------
+    grid : np.ndarray
+        Grid boundaries as ((x1_min, x1_max), (x2_min, x2_max), ...)
+    nx : tuple
+        Number of grid points per dimension (nx1, nx2, nx3)
+    dx : np.ndarray
+        Grid spacing per dimension (dx1, dx2, dx3)
+    x : list[np.ndarray]
+        Spatial coordinates arrays for each dimension
+    axis : list[dict]
+        Axis metadata with keys:
+        - 'name': Axis identifier (e.g., 'x1')
+        - 'units': Physical units (LaTeX formatted)
+        - 'long_name': Descriptive name (LaTeX formatted)
+        - 'type': Axis type (e.g., 'SPATIAL')
+        - 'plot_label': Combined label for plotting
+    data : np.ndarray
+        Raw field data array (shape depends on simulation dimensions)
+    units : str
+        Field units (LaTeX formatted)
+    label : str
+        Field label/name (LaTeX formatted, e.g., r'$E_x$')
+    FFTdata : np.ndarray
+        Fourier-transformed data (available after calling FFT())
+    """
+
     def __init__(self, filename):
         super().__init__(filename)
             
@@ -244,105 +203,6 @@ class OsirisGridFile(OsirisData):
     def _get_variable_key(self, f: h5py.File) -> str:
         return next(k for k in f.keys() if k not in {'AXIS', 'SIMULATION'})
     
-    # Getters
-    @property
-    def grid(self):
-        '''
-        Returns
-        -------
-        numpy.ndarray
-            The grid data ((x1.min, x1.max), (x2.min, x2.max), (x3.min, x3.max
-        '''
-        return self._grid
-    @property
-    def nx(self):
-        '''
-        Returns
-        -------
-        numpy.ndarray
-            The number of grid points (nx1, nx2, nx3)
-        '''
-        return self._nx
-    @property
-    def dx(self):
-        '''
-        Returns
-        -------
-        numpy.ndarray
-            The grid spacing (dx1, dx2, dx3)
-        '''
-        return self._dx
-    @property
-    def x(self):
-        '''
-        Returns
-        -------
-        numpy.ndarray
-            The grid points in each axis
-        '''
-        return self._x
-    @property
-    def axis(self):
-        '''
-        Returns
-        -------
-        list of dictionaries
-            The axis data [(name_x1, units_x1, long_name_x1, type_x1), ...]
-        '''
-        return self._axis   
-    @property
-    def data(self):
-        '''
-        Returns
-        -------
-        numpy.ndarray
-            The data (numpy array) with shape (nx1, nx2, nx3) (Transpose to use `plt.imshow`)
-        '''
-        return self._data
-    @property
-    def units(self):
-        '''
-        Returns
-        -------
-        str
-            The units of the data (LaTeX formatted)
-        '''
-        return self._units
-    @property
-    def label(self):
-        '''
-        Returns
-        -------
-        str
-            The label of the data (LaTeX formatted)
-        '''
-        return self._label
-    @property
-    def FFTdata(self):
-        '''
-        Returns
-        -------
-        numpy.ndarray
-            The FFT of the data
-        '''
-        if self._FFTdata is None:
-            raise ValueError('The FFT of the data has not been computed yet. Compute it using the FFT method.')
-        return self._FFTdata
-    # Setters
-    @data.setter
-    def data(self, data):
-        '''
-        Set the data attribute
-        '''
-        self._data = data
-
-    def __str__(self):
-        # write me a template to print with the name, label, units, time, iter, grid, nx, dx, axis, dt, dim in a logical way
-        return rf'{self.name}' + f'\n' + rf'Time: [{self.time[0]} {self.time[1]}], dt = {self.dt}' + f'\n' + f'Iteration: {self.iter}' + f'\n' + f'Grid: {self.grid}' + f'\n' + f'dx: {self.dx}' + f'\n' + f'Dimensions: {self.dim}D'
-    
-
-    def __array__(self):
-        return np.asarray(self.data)
     
 
     def _yeeToCellCorner1d(self, boundary):
@@ -435,6 +295,48 @@ class OsirisGridFile(OsirisData):
         datafft = np.fft.fftn(self.data, axes=axis)
         self._FFTdata = np.fft.fftshift(datafft, axes=axis)
 
+    # Getters
+    @property
+    def grid(self):
+        return self._grid
+    @property
+    def nx(self):
+        return self._nx
+    @property
+    def dx(self):
+        return self._dx
+    @property
+    def x(self):
+        return self._x
+    @property
+    def axis(self):
+        return self._axis   
+    @property
+    def data(self):
+        return self._data
+    @property
+    def units(self):
+        return self._units
+    @property
+    def label(self):
+        return self._label
+    @property
+    def FFTdata(self):
+        if self._FFTdata is None:
+            raise ValueError('The FFT of the data has not been computed yet. Compute it using the FFT method.')
+        return self._FFTdata
+    # Setters
+    @data.setter
+    def data(self, data):
+        self._data = data
+
+    def __str__(self):
+        # write me a template to print with the name, label, units, time, iter, grid, nx, dx, axis, dt, dim in a logical way
+        return rf'{self.name}' + f'\n' + rf'Time: [{self.time[0]} {self.time[1]}], dt = {self.dt}' + f'\n' + f'Iteration: {self.iter}' + f'\n' + f'Grid: {self.grid}' + f'\n' + f'dx: {self.dx}' + f'\n' + f'Dimensions: {self.dim}D'
+    
+
+    def __array__(self):
+        return np.asarray(self.data)
 
 
 class OsirisRawFile(OsirisData):
