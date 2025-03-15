@@ -1,43 +1,89 @@
 API Reference
 =============
 
-Core Modules
-------------
+Core Data Handling
+------------------
 
-data_readers Module
+Data Readers Module
 ~~~~~~~~~~~~~~~~~~~
 .. automodule:: osiris_utils.data_readers
    :members: open1D, open2D, open3D, read_osiris_file
    :show-inheritance:
+   :noindex:
 
-data Module (Structures)
-~~~~~~~~~~~~~~~~~~~~~~~~
+   Functions for reading OSIRIS data files in 1D, 2D, and 3D formats.
+
+Data Structures Module
+~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: osiris_utils.data
    :members: 
+       OsirisData, 
+       OsirisGridFile,
+       OsirisRawFile,
+       OsirisHIST
    :special-members: __init__
-   :inherited-members:
-   :undoc-members:
+   :exclude-members: 
+       - FFTdata
+       - yeeToCellCorner
+       - FFT
+   :noindex:
 
-Mean Field Theory Module (Structures)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-.. automodule:: osiris_utils.mean_field_theory
-   :members: 
-   :special-members: __init__
-   :inherited-members:
-   :undoc-members:
+   Base classes for handling OSIRIS data structures and grid files.
 
-GUI Module
-----------
+   **Inherited Members** (from OsirisData):
+   :members: dim, dt, iter, name, time, type, verbose
+
+Mean Field Theory Module
+~~~~~~~~~~~~~~~~~~~~~~~~
+.. autoclass:: osiris_utils.mean_field_theory.MeanFieldTheory
+   :members: average, delta, derivative
+   :inherited-members:
+   :noindex:
+
+   Tools for calculating mean field quantities from simulation data.
+
+Visualization & GUI
+-------------------
+
+GUI Component
+~~~~~~~~~~~~~
 .. autoclass:: osiris_utils.gui.LAVA
    :members:
    :undoc-members:
    :show-inheritance:
-   :inherited-members:
+   :noindex:
 
-   .. automethod:: __init__
+   Graphical user interface components for data visualization.
 
-Utilities Module
-----------------
+Visualization Utilities
+~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: osiris_utils.utils
+   :members: animate_2D
+   :noindex:
+
+   .. autofunction:: animate_2D
+
+   Function for creating 2D animations from simulation data.
+
+Physics & Analysis
+------------------
+
+Physical Calculations
+~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: osiris_utils.utils
+   :members: courant2D, transverse_average
+   :noindex:
+
+   .. autofunction:: courant2D
+   .. autofunction:: transverse_average
+
+   Core physics calculations and analysis routines.
+
+Data Utilities
+--------------
+
+Data I/O & Processing
+~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: osiris_utils.utils
    :members: 
        time_estimation,
@@ -45,27 +91,10 @@ Utilities Module
        integrate,
        save_data,
        read_data
-   :exclude-members: 
-       - animate_2D
-       - courant2D
-       - transverse_average
-   :show-inheritance:
+   :noindex:
 
-Visualization Functions
------------------------
-animate_2D
-~~~~~~~~~~
-.. autofunction:: osiris_utils.utils.animate_2D
+   .. autofunction:: integrate
+   .. autofunction:: save_data
+   .. autofunction:: read_data
 
-Physics Calculations
---------------------
-courant2D
-~~~~~~~~~
-.. autofunction:: osiris_utils.utils.courant2D
-
-Data Processing
----------------
-
-transverse_average
-~~~~~~~~~~~~~~~~~~
-.. autofunction:: osiris_utils.utils.transverse_average
+   Essential utilities for data processing and file operations.
