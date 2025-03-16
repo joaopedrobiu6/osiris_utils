@@ -1,18 +1,6 @@
 API Reference
 =============
 
-Core Data Handling
-------------------
-
-Data Readers Module
-~~~~~~~~~~~~~~~~~~~
-.. automodule:: osiris_utils.data_readers
-   :members: open1D, open2D, open3D, read_osiris_file
-   :show-inheritance:
-   :noindex:
-
-   Functions for reading OSIRIS data files in 1D, 2D, and 3D formats.
-
 Core Data Structures
 --------------------
 
