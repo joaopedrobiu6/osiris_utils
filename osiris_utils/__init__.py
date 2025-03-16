@@ -3,4 +3,5 @@ from .utils import (time_estimation, filesize_estimation, transverse_average, in
 from .data_readers import open1D, open2D, open3D, read_osiris_file
 from .gui import LAVA_Qt, LAVA
 from .data import OsirisGridFile, OsirisRawFile, OsirisData, OsirisHIST
+from .data_jax import OsirisDataJAX, OsirisGridFileJAX, OsirisRawFileJAX, OsirisHISTJAX
 from .mean_field_theory import MeanFieldTheory
