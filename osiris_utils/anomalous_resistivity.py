@@ -12,7 +12,6 @@ import tqdm as tqdm
 class AnomalousResistivity:
     def __init__(self, quantity_folder, velocity_folder, quantity_iter, dump):
         
-        
         # Load the quantities
         iter = quantity_iter
         vt_minus = dump*iter - 1
