@@ -192,7 +192,7 @@ class AnomalousResistivity:
         return self.momentum_bar, self.eta_xx2_xy1
     
     def ElectricFields(self):
-        return self.E1, self.E_vlasov
+        return self.E1.data, self.E_vlasov
     
     def SaveDatabase(self, filename):
         dataframe = pd.DataFrame({'T11_bar': np.squeeze(self.T11_bar), 'T12_bar': np.squeeze(self.T12_bar), 'ne_bar': np.squeeze(self.ne_bar),
@@ -208,84 +208,90 @@ class AnomalousResistivity:
         dx = self.ne.dx[0]
         return x, dx
 
-def Omega_K(E_filename, eta_filename, quantities_folder, velocity_folder, range_iter, dump):
-    
-    def load_and_create_file(filename, func="ElectricFields"):
-        # print loading data
+def DispersionRelation(quantities_folder, velocity_folder, filename, range_iter, v_the, dump):
+    E1 = OsirisGridFile(quantities_folder + f'FLD/e1/e1-000001.h5')
+
+    def load_and_create_file(quantities_folder, velocity_folder, filename, range_iter, dump):
+        full_path = filename + ".npy"
         print(f"Loading data for {filename}...")
+        
         try:
-            data = np.loadtxt(filename + ".txt")
-        except:
+            # Attempt to load existing file
+            data = np.load(full_path, allow_pickle=True)  # Add allow_pickle if needed
+            print(f"Data loaded from {full_path}")
+
+            # Validate loaded data
+            if data.size == 0:
+                raise ValueError("Loaded data is empty. Regenerating...")
+            
+        except FileNotFoundError:
+            # Generate data if file not found
+            print(f"{full_path} not found. Generating data...")
             data_list = []
             for i in tqdm.trange(range_iter[0], range_iter[1], desc="Computing " + filename):
-                if func == "ElectricFields":
-                    data_list.append(transverse_average(AnomalousResistivity(quantities_folder, velocity_folder, i, dump).ElectricFields()[1]))
-                elif func == "Momentum":
-                    data_list.append(AnomalousResistivity(quantities_folder, velocity_folder, i, dump).Momentum()[1])
-            data = np.nan_to_num(data_list)
-        data = np.array(data)
-
-        if np.isnan(data).any():
+                aux = AnomalousResistivity(quantities_folder, velocity_folder, i, dump).ElectricFields()[1]
+                aux = np.nan_to_num(aux)
+                data_list.append(aux)
+            data = np.array(data_list)
             data = np.nan_to_num(data)
+            
+            # Save the generated data
+            np.save(filename, data)
+            print(f"Data saved to {full_path}")
+
+        except Exception as e:
+            # Handle other errors (e.g., corrupted file, permissions)
+            print(f"Error loading {full_path}: {str(e)}. Regenerating data...")
+            data_list = []
+            for i in tqdm.trange(range_iter[0], range_iter[1], desc="Computing " + filename):
+                aux = AnomalousResistivity(quantities_folder, velocity_folder, i, dump).ElectricFields()[1]
+                aux = np.nan_to_num(aux)
+                data_list.append(aux)
+            data = np.array(data_list)
+            data = np.nan_to_num(data)
+            np.save(filename, data)
+            print(f"Data regenerated and saved to {full_path}")
+
+        # Final cleanup and validation
+        data = np.nan_to_num(data)
         if np.isinf(data).any():
-            data = np.nan_to_num(data)
-        if not os.path.isfile(filename + ".txt"):
-            np.savetxt(filename + ".txt", data)
-            print(f"Data saved as {filename}.txt...")
-        return data
+            data = np.nan_to_num(data, nan=0, posinf=0, neginf=0)
         
+        return data
+            
 
-    def omegak(data):
-        print("Computing the FFT of the data...")
-        E1 = OsirisGridFile(quantities_folder + f'FLD/e1/e1-000001.h5')
-        data_han = data * np.hanning(data.shape[0])[:, np.newaxis]
+    def omegak(dataset):
+        hanning_window = np.kaiser(dataset.shape[0], beta = 20).reshape(-1, 1, 1)
+        data_hanned = hanning_window * dataset
 
-        sp = np.abs(np.fft.fft2(data_han))**2
-        sp = np.fft.fftshift( sp )
+        data_fft = np.abs(np.fft.fftn(data_hanned, axes=(0, 1, 2)))**2
+        data_fft = np.fft.fftshift(data_fft, axes=(0, 1, 2))
 
-        k_max = np.pi / E1.dx[0]
+        kx_max = np.pi / E1.dx[0]
+        ky_max = np.pi / E1.dx[1]
         omega_max = np.pi / E1.dt
-
-        return k_max, omega_max, sp
+        return data_fft, kx_max, ky_max, omega_max
     
-    def plot_dispersion_relation(k_max, omega_max, magnitude, normalized=True, filename="DispersionRelation.png"):
-        print("Plotting the dispersion relation...")
-        print("Shape of the magnitude: ", magnitude.shape)
-        if normalized:
-            magnitude = magnitude/magnitude.max()
 
-        v_the = 0.001
-        k = np.linspace(-k_max, k_max, num = magnitude.shape[1])
+    def plot_dispersion_relation(data_fft, kx_max, omega_max, v_the, filename):
+        k = np.linspace(-kx_max, kx_max, num = data_fft.shape[1])
         w=np.sqrt(1 + 3 * v_the**2 * k**2)
 
         fig, ax = plt.subplots(figsize=(12, 6), tight_layout=True)
-        im = ax.imshow( magnitude, origin = 'lower', extent = ( -k_max, k_max, -omega_max, omega_max ),
-           aspect = 'auto', cmap = 'gray')#, norm = LogNorm())
+        im = ax.imshow( data_fft[:, :, len(data_fft[0, 0, :])//2], origin = 'lower', extent = ( -kx_max, kx_max, -omega_max, omega_max ), aspect = 'auto', cmap = 'gray')#, norm = colors.LogNorm())
         cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label(r'$|A(k, \omega)|^2$')
-        # ax.plot(k, w, label=r'$\omega(k) = \sqrt{\omega_p^2 + 3v_{th}^2 k^2}$')
-        ax.set_title(r'$|A(k, \omega)|^2$')
-        ax.set_xlabel(r'$k$')
+        cbar.set_label(r'$|E(k_x, \omega)|^2$')
+        ax.plot(k, w, label=r'$\omega(k) = \sqrt{\omega_p^2 + 3v_{th}^2 k^2}$')
+        ax.set_title(r'$|E(k_x, \omega)|^2$')
+        ax.set_xlabel(r'$k_x$')
         ax.set_ylabel(r'$\omega$')
-        ax.set_xlim(0, k_max)
+        ax.set_xlim(0, kx_max)
         ax.set_ylim(0, omega_max)
-        # ax.legend()
+        ax.legend()
+        plt.savefig(filename + ".png", bbox_inches='tight', dpi=300)
+    
+    dataset = load_and_create_file(quantities_folder, velocity_folder, filename, range_iter, dump)
+    data_fft, kx_max, ky_max, omega_max = omegak(dataset)
+    plot_dispersion_relation(data_fft, kx_max, omega_max, v_the, filename)
 
-        return fig, ax
-
-    E = load_and_create_file(E_filename, "ElectricFields")
-    AR = load_and_create_file(eta_filename, "Momentum")
-
-    E_omegak = omegak(E)
-    AR_omegak = omegak(AR)
-
-    fig_e, ax_e = plot_dispersion_relation(*E_omegak, normalized=False)
-    fig_ar, ax_ar = plot_dispersion_relation(*AR_omegak, normalized=False)
-
-    fig_e.savefig(E_filename + ".png")
-    fig_ar.savefig(eta_filename + ".png")
-
-    print("Done!")
-    return E_omegak, AR_omegak
-
-    # For labels and infos:
+    print(f"Dispersion relation saved as {filename}.png...")
