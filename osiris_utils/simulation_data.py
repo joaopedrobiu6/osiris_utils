@@ -12,6 +12,7 @@ import os
 from .data import OsirisGridFile, OsirisRawFile, OsirisHIST
 import tqdm
 import itertools
+import multiprocessing as mp
 
 class OsirisSimulation:
     def __init__(self, simulation_folder):
@@ -58,9 +59,22 @@ class OsirisSimulation:
     
     def load_all(self, centered=False):
         self._current_centered = centered
+        size = len(sorted(os.listdir(self._path)))
+        self._data = np.stack([self[i] for i in tqdm.tqdm(range(size), desc="Loading data")])
+
+    def load_all_parallel(self, centered=False, processes=None):
+        self._current_centered = centered
         files = sorted(os.listdir(self._path))
         size = len(files)
-        self._data = np.stack([self[i] for i in tqdm.tqdm(range(size), desc="Loading data")])
+        
+        if processes is None:
+            processes = mp.cpu_count()
+            print(f"Using {processes} CPUs for parallel loading")
+        
+        with mp.Pool(processes=processes) as pool:
+            data = list(tqdm.tqdm(pool.imap(self.__getitem__, range(size)), total=size, desc="Loading data"))
+        
+        self._data = np.stack(data)
     
     def load(self, index, centered=False):
         self._current_centered = centered
