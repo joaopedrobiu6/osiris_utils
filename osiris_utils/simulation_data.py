@@ -91,28 +91,28 @@ class OsirisSimulation:
     def derivative(self, point, type, axis=None):
         if point == "all":
             if type == "t":
-                self._deriv_t = np.gradient(self.data, self.dt, axis=0)
+                self._deriv_t = np.gradient(self.data, self.dt, axis=0, edge_order=2)
             elif type == "x1":
                 if self._dim == 1:
-                    self._deriv_x = np.gradient(self.data, self.dx, axis=1)
+                    self._deriv_x1 = np.gradient(self.data, self.dx, axis=1, edge_order=2)
                 else:
-                    self._deriv_x = np.gradient(self.data, self.dx[0], axis=1)
+                    self._deriv_x1 = np.gradient(self.data, self.dx[0], axis=1, edge_order=2)
             elif type == "x2":
-                self._deriv_y = np.gradient(self.data, self.dx[0], axis=2)
+                self._deriv_x1 = np.gradient(self.data, self.dx[0], axis=2, edge_order=2)
             elif type == "x3":
-                self._deriv_z = np.gradient(self.data, self.dx[0], axis=3)
+                self._deriv_x2 = np.gradient(self.data, self.dx[0], axis=3, edge_order=2)
             elif type == "xx":
                 if len(axis) != 2:
                     raise ValueError("Axis must be a tuple with two elements.")
-                self._deriv_xx = np.gradient(np.gradient(self.data, self.dx, axis=axis[0]), self.dx, axis=axis[1])
+                self._deriv_xx = np.gradient(np.gradient(self.data, self.dx, axis=axis[0], edge_order=2), self.dx, axis=axis[1], edge_order=2)
             elif type == "xt":
                 if not isinstance(axis, int):
                     raise ValueError("Axis must be an integer.")
-                self._deriv_xt = np.gradient(np.gradient(self.data, self.dt, axis=0), self.dx, axis=axis)
+                self._deriv_xt = np.gradient(np.gradient(self.data, self.dt, axis=0, edge_order=2), self.dx, axis=axis, edge_order=2)
             elif type == "tx":
                 if not isinstance(axis, int):
                     raise ValueError("Axis must be an integer.")
-                self._deriv_tx = np.gradient(np.gradient(self.data, self.dx, axis=axis), self.dt, axis=axis)
+                self._deriv_tx = np.gradient(np.gradient(self.data, self.dx, axis=axis, edge_order=2), self.dt, axis=axis, edge_order=2)
             else:
                 raise ValueError("Invalid type.")
         else:
@@ -126,8 +126,9 @@ class OsirisSimulation:
                 elif type == "t":
                     if point == 0:
                         return (-3 * self[point] + 4 * self[point + 1] - self[point + 2]) / (2 * self._dt)
-                    elif self[point + 1] is None:
-                        return (3 * self[point] - 4 * self[point - 1] + self[point - 2]) / (2 * self._dt)
+                    # derivate at last point not implemented yet
+                    # elif self[point + 1] is None:
+                    #     return (3 * self[point] - 4 * self[point - 1] + self[point - 2]) / (2 * self._dt)
                     else:
                         return (self[point + 1] - self[point - 1]) / (2 * self._dt)
                 else:
