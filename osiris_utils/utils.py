@@ -2,7 +2,6 @@ import numpy as np
 import h5py  
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from .data_readers import *
 import scipy 
 import pandas as pd
 

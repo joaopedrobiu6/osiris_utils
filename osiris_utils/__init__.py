@@ -4,3 +4,4 @@ from .gui import LAVA_Qt, LAVA
 from .data import OsirisGridFile, OsirisRawFile, OsirisData, OsirisHIST
 from .mean_field_theory import MeanFieldTheory
 from .anomalous_resistivity import AnomalousResistivity, DispersionRelation
+from .simulation_data import OsirisSimulation
