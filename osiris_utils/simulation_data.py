@@ -48,6 +48,7 @@ class OsirisSimulation:
         self._axis = dump1.axis
         self._units = dump1.units
         self._name = dump1.name
+        self._dim = dump1.dim
         self._ndump = dump1.iter
     
     def _data_generator(self, index):
@@ -86,6 +87,54 @@ class OsirisSimulation:
     def __iter__(self):
         for i in itertools.count():
             yield next(self._data_generator(i))
+
+    def derivative(self, point, type, axis=None):
+        if point == "all":
+            if type == "t":
+                self._deriv_t = np.gradient(self.data, self.dt, axis=0)
+            elif type == "x1":
+                if self._dim == 1:
+                    self._deriv_x = np.gradient(self.data, self.dx, axis=1)
+                else:
+                    self._deriv_x = np.gradient(self.data, self.dx[0], axis=1)
+            elif type == "x2":
+                self._deriv_y = np.gradient(self.data, self.dx[0], axis=2)
+            elif type == "x3":
+                self._deriv_z = np.gradient(self.data, self.dx[0], axis=3)
+            elif type == "xx":
+                if len(axis) != 2:
+                    raise ValueError("Axis must be a tuple with two elements.")
+                self._deriv_xx = np.gradient(np.gradient(self.data, self.dx, axis=axis[0]), self.dx, axis=axis[1])
+            elif type == "xt":
+                if not isinstance(axis, int):
+                    raise ValueError("Axis must be an integer.")
+                self._deriv_xt = np.gradient(np.gradient(self.data, self.dt, axis=0), self.dx, axis=axis)
+            elif type == "tx":
+                if not isinstance(axis, int):
+                    raise ValueError("Axis must be an integer.")
+                self._deriv_tx = np.gradient(np.gradient(self.data, self.dx, axis=axis), self.dt, axis=axis)
+            else:
+                raise ValueError("Invalid type.")
+        else:
+            try:
+                if type == "x1":
+                    return np.gradient(self[point], self._dx[0], axis=0)
+                
+                elif type == "x2":
+                    return np.gradient(self[point], self._dx[1], axis=1)
+                    
+                elif type == "t":
+                    if point == 0:
+                        return (-3 * self[point] + 4 * self[point + 1] - self[point + 2]) / (2 * self._dt)
+                    elif self[point + 1] is None:
+                        return (3 * self[point] - 4 * self[point - 1] + self[point - 2]) / (2 * self._dt)
+                    else:
+                        return (self[point + 1] - self[point - 1]) / (2 * self._dt)
+                else:
+                    raise ValueError("Invalid derivative type. Use 'spatial' or 'temporal'.")
+                    
+            except Exception as e:
+                raise ValueError(f"Error computing derivative at point {point}: {str(e)}")
     
     # Getters
     @property
@@ -129,6 +178,10 @@ class OsirisSimulation:
     @property
     def name(self):
         return self._name
+    
+    @property
+    def dim(self):
+        return self._dim
     
     @property
     def path(self):
