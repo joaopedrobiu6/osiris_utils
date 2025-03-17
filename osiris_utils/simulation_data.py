@@ -11,6 +11,7 @@ import numpy as np
 import os
 from .data import OsirisGridFile, OsirisRawFile, OsirisHIST
 import tqdm
+import itertools
 
 class OsirisSimulation:
     def __init__(self, simulation_folder):
@@ -20,101 +21,63 @@ class OsirisSimulation:
     
     def get_moment(self, species, moment):
         self._path = f"{self._simulation_folder}/MS/UDIST/{species}/{moment}/"
-        self._get_data_from_folder(self._path, centered=False)
+        self._file_template = os.listdir(self._path)[0][:-9]
+        self._load_attributes(self._file_template)
     
     def get_field(self, field, centered=False):
         if centered:
             self._path = f"{self._simulation_folder}/MS/FLD/{field}/"
         self._path = f"{self._simulation_folder}/MS/FLD/{field}/"
-        self._get_data_from_folder(self._path, centered)
+        self._file_template = os.listdir(self._path)[0][:-9]
+        self._load_attributes(self._file_template)
         
     def get_density(self, species, quantity):
         self._path = f"{self._simulation_folder}/MS/DENSITY/{species}/{quantity}/"
-        self._get_data_from_folder(self._path, centered=False)
+        self._file_template = os.listdir(self._path)[0][:-9]
+        self._load_attributes(self._file_template)
 
-    # def _get_data_from_folder(self, path, centered=False):
-    #     files = os.listdir(path)
-    #     iters = len(files)
-    #     iter = []
-
-    #     fname = files[0][:-9]
-
-    #     data = []
-    #     for i in tqdm.trange(iters, desc="Loading data"):
-    #         if centered:
-    #             aux = OsirisGridFile(f"{path}{fname}{i:06d}.h5")
-    #             aux.yeeToCellCorner(boundary="periodic")
-    #             data.append(aux)
-    #         else:
-    #             data.append(OsirisGridFile(f"{path}{fname}{i:06d}.h5"))
-
-    #     self._dx = data[0].dx
-    #     self._nx = data[0].nx
-    #     self._x = data[0].x
-    #     self._dt = data[0].dt
-    #     self._grid = data[0].grid
-    #     self._axis = data[0].axis
-    #     self._units = data[0].units
-    #     self._name = data[0].name
-        
-    #     if centered:
-    #         self._data = np.array([d.data_centered for d in data])
-    #     else:
-    #         self._data = np.array([d.data for d in data])
-
-    #     iter = np.array([d.iter for d in data])
-    #     self._time = iter * self._dt
+    def _load_attributes(self, file_template):
+        path_file1 = os.path.join(self._path, file_template + "000001.h5")
+        dump1 = OsirisGridFile(path_file1)
+        self._dx = dump1.dx
+        self._nx = dump1.nx
+        self._x = dump1.x
+        self._dt = dump1.dt
+        self._grid = dump1.grid
+        self._axis = dump1.axis
+        self._units = dump1.units
+        self._name = dump1.name
+        self._ndump = dump1.iter
     
-    def _get_data_from_folder(self, path, centered=False):
-        files = sorted(
-            [f for f in os.listdir(path) if f.endswith('.h5')],
-            key=lambda x: int(x[-9:-3])  # Extracts 6-digit number from filename
-        )
-        if not files:
-            raise ValueError("No valid .h5 files found in directory")
-
-        data_list = []
-        iterations = []
-        first_data = None
-        get_data = lambda d: d.data_centered if centered else d.data 
-
-        for filename in tqdm.tqdm(files, desc="Loading data"):
-            filepath = os.path.join(path, filename)
-            data_object = OsirisGridFile(filepath)
-            
-            if centered:
+    def _data_generator(self, index):
+            file = os.path.join(self._path, self._file_template + f"{index:06d}.h5")
+            data_object = OsirisGridFile(file)
+            if self._current_centered:
                 data_object.yeeToCellCorner(boundary="periodic")
-            
-            data_list.append(get_data(data_object))
-            iterations.append(data_object.iter)
+            yield data_object.data_centered if self._current_centered else data_object.data
+    
+    def load_all(self, centered=False):
+        self._current_centered = centered
+        files = sorted(os.listdir(self._path))
+        size = len(files)
+        self._data = np.stack([self[i] for i in tqdm.tqdm(range(size), desc="Loading data")])
+    
+    def load(self, index, centered=False):
+        self._current_centered = centered
+        self._data = next(self._data_generator(index))
 
-            if first_data is None:
-                first_data = data_object
-                self._dx = first_data.dx
-                self._nx = first_data.nx
-                self._x = first_data.x
-                self._dt = first_data.dt
-                self._grid = first_data.grid
-                self._axis = first_data.axis
-                self._units = first_data.units
-                self._name = first_data.name
-
-        self._data = np.array(data_list)
-        self._time = np.array(iterations) * self._dt
-        
-    def derivative(self, type):
-        if type == "t":
-            self._data_t = np.gradient(self._data, self._dt, axis=0)
-        if type == "x1":
-            self._data_x1 = np.gradient(self._data, self._dx[0], axis=1)
-        if type == "x2":
-            self._data_x2 = np.gradient(self._data, self._dx[1], axis=2)
-        if type == "x3":
-            self._data_x3 = np.gradient(self._data, self._dx[2], axis=3)
+    def __getitem__(self, index):
+        return next(self._data_generator(index))
+    
+    def __iter__(self):
+        for i in itertools.count():
+            yield next(self._data_generator(i))
     
     # Getters
     @property
     def data(self):
+        if self._data is None:
+            raise ValueError("Data not loaded into memory. Use get_* method with load_all=True or access via generator/index.")
         return self._data
     
     @property
@@ -152,18 +115,6 @@ class OsirisSimulation:
     @property
     def name(self):
         return self._name
-    
-    @property
-    def deriv_t(self):
-        return self._data_t
-    
-    @property
-    def deriv_x1(self):
-        return self._data_x1
-    
-    @property
-    def deriv_x2(self):
-        return self._data_x2
     
     @property
     def path(self):
