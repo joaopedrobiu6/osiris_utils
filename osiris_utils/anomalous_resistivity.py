@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 import numpy as np
 from .utils import *
-from .data import *
+from .data.data import *
 import pandas as pd
 import pyarrow.parquet as pq
 import pyarrow as pa
@@ -228,7 +228,7 @@ def DispersionRelation(quantities_folder, velocity_folder, filename, range_iter,
             print(f"{full_path} not found. Generating data...")
             data_list = []
             for i in tqdm.trange(range_iter[0], range_iter[1], desc="Computing " + filename):
-                aux = AnomalousResistivity(quantities_folder, velocity_folder, i, dump).ElectricFields()[1]
+                aux = AnomalousResistivity(quantities_folder, velocity_folder, i, dump).ElectricFields()[0]
                 aux = np.nan_to_num(aux)
                 data_list.append(aux)
             data = np.array(data_list)
@@ -243,7 +243,7 @@ def DispersionRelation(quantities_folder, velocity_folder, filename, range_iter,
             print(f"Error loading {full_path}: {str(e)}. Regenerating data...")
             data_list = []
             for i in tqdm.trange(range_iter[0], range_iter[1], desc="Computing " + filename):
-                aux = AnomalousResistivity(quantities_folder, velocity_folder, i, dump).ElectricFields()[1]
+                aux = AnomalousResistivity(quantities_folder, velocity_folder, i, dump).ElectricFields()[0]
                 aux = np.nan_to_num(aux)
                 data_list.append(aux)
             data = np.array(data_list)
