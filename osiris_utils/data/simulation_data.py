@@ -15,25 +15,56 @@ import itertools
 import multiprocessing as mp
 
 class OsirisSimulation:
-    def __init__(self, simulation_folder):
-        self._simulation_folder = simulation_folder
-        if not os.path.isdir(simulation_folder):
-            raise FileNotFoundError(f"Simulation folder {simulation_folder} not found.")
+    def __init__(self, simulation_folder=None):
+
+        self._dx = None
+        self._nx = None
+        self._x = None
+        self._dt = None
+        self._grid = None
+        self._axis = None
+        self._units = None
+        self._name = None
+        self._dim = None
+        self._ndump = None
+
+        if simulation_folder:
+            self._simulation_folder = simulation_folder
+            if not os.path.isdir(simulation_folder):
+                raise FileNotFoundError(f"Simulation folder {simulation_folder} not found.")
+        else:
+            self._simulation_folder = None
     
     def get_moment(self, species, moment):
+        if self._simulation_folder is None:
+            raise ValueError("Simulation folder not set. If you're using CustomOsirisSimulation, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/UDIST/{species}/{moment}/"
         self._file_template = os.listdir(self._path)[0][:-9]
         self._load_attributes(self._file_template)
     
     def get_field(self, field, centered=False):
+        self._current_centered = False
+        if self._simulation_folder is None:
+            raise ValueError("Simulation folder not set. If you're using CustomOsirisSimulation, this method is not available.")
         if centered:
+            self._current_centered = True
             self._path = f"{self._simulation_folder}/MS/FLD/{field}/"
         self._path = f"{self._simulation_folder}/MS/FLD/{field}/"
         self._file_template = os.listdir(self._path)[0][:-9]
         self._load_attributes(self._file_template)
         
     def get_density(self, species, quantity):
+        if self._simulation_folder is None:
+            raise ValueError("Simulation folder not set. If you're using CustomOsirisSimulation, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/DENSITY/{species}/{quantity}/"
+        self._file_template = os.listdir(self._path)[0][:-9]
+        self._load_attributes(self._file_template)
+
+    def get_phase_space(self, species, type):
+        self._current_centered = False
+        if self._simulation_folder is None:
+            raise ValueError("Simulation folder not set. If you're using CustomOsirisSimulation, this method is not available.")
+        self._path = f"{self._simulation_folder}/MS/PHA/{type}/{species}/"
         self._file_template = os.listdir(self._path)[0][:-9]
         self._load_attributes(self._file_template)
 
@@ -52,18 +83,24 @@ class OsirisSimulation:
         self._ndump = dump1.iter
     
     def _data_generator(self, index):
-            file = os.path.join(self._path, self._file_template + f"{index:06d}.h5")
-            data_object = OsirisGridFile(file)
-            if self._current_centered:
-                data_object.yeeToCellCorner(boundary="periodic")
-            yield data_object.data_centered if self._current_centered else data_object.data
+        if self._simulation_folder is None:
+            raise ValueError("Simulation folder not set. If you're using CustomOsirisSimulation, this method is not available.")
+        file = os.path.join(self._path, self._file_template + f"{index:06d}.h5")
+        data_object = OsirisGridFile(file)
+        if self._current_centered:
+            data_object.yeeToCellCorner(boundary="periodic")
+        yield data_object.data_centered if self._current_centered else data_object.data
     
     def load_all(self, centered=False):
+        if self._simulation_folder is None:
+            raise ValueError("Simulation folder not set. If you're using CustomOsirisSimulation, this method is not available.")
         self._current_centered = centered
         size = len(sorted(os.listdir(self._path)))
         self._data = np.stack([self[i] for i in tqdm.tqdm(range(size), desc="Loading data")])
 
     def load_all_parallel(self, centered=False, processes=None):
+        if self._simulation_folder is None:
+            raise ValueError("Simulation folder not set. If you're using CustomOsirisSimulation, this method is not available.")
         self._current_centered = centered
         files = sorted(os.listdir(self._path))
         size = len(files)
@@ -151,10 +188,6 @@ class OsirisSimulation:
         return self._data
     
     @property
-    def time(self):
-        return self._time
-    
-    @property
     def dx(self):
         return self._dx
     
@@ -225,5 +258,45 @@ class OsirisSimulation:
     @property
     def deriv_tx(self):
         return self._deriv_tx
+    
+    @dx.setter
+    def dx(self, value):
+        self._dx = value
+    
+    @nx.setter
+    def nx(self, value):
+        self._nx = value
 
+    @x.setter
+    def x(self, value):
+        self._x = value
+
+    @dt.setter
+    def dt(self, value):
+        self._dt = value
+
+    @grid.setter
+    def grid(self, value):
+        self._grid = value
+
+    @axis.setter
+    def axis(self, value):
+        self._axis = value
+
+    @units.setter
+    def units(self, value):
+        self._units = value
+
+    @name.setter
+    def name(self, value):
+        self._name = value
+
+    @dim.setter
+    def dim(self, value):
+        self._dim = value
+
+    @ndump.setter
+    def ndump(self, value):
+        self._ndump = value
+ 
         
