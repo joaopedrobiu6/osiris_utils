@@ -1,8 +1,8 @@
 import numpy as np
-from .data import OsirisGridFile
+from ..data.data import OsirisGridFile
 
         
-class MeanFieldTheory(OsirisGridFile):
+class MFT_Single(OsirisGridFile):
     '''
     Class to handle the mean field theory on data. Inherits from OsirisGridFile.
     
