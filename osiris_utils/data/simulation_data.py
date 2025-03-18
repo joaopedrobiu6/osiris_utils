@@ -186,7 +186,7 @@ class OsirisSimulation:
         if self._data is None:
             raise ValueError("Data not loaded into memory. Use get_* method with load_all=True or access via generator/index.")
         return self._data
-    
+
     @property
     def dx(self):
         return self._dx
@@ -299,4 +299,6 @@ class OsirisSimulation:
     def ndump(self, value):
         self._ndump = value
  
-        
+    @data.setter
+    def data(self, value):
+        self._data = value       

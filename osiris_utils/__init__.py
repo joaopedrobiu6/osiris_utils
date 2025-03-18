@@ -6,3 +6,5 @@ from .postprocessing.mean_field_theory_single import MFT_Single
 from .data.simulation_data import OsirisSimulation
 
 from .postprocessing.fft import FastFourierTransform
+from .data.create_object import CustomOsirisSimulation
+from .postprocessing.mean_field_theory import MeanFieldTheory
