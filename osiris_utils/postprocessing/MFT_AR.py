@@ -1,35 +1,66 @@
+from osiris_utils.data.create_object import CustomOsirisSimulation
 from ..data.simulation_data import OsirisSimulation
 import numpy as np
 
 class AR():
-    def __init__(self, folder1, folder2 = None):
+    def __init__(self, folder1, folder2 = None, t = None):
         self._folder1 = folder1
         self._folder2 = folder2
 
-    def _load_data(self, t):
+    def _load_data(self):
         self._E1 = OsirisSimulation(self._folder1)
         self._E1.get_field("e1")
+        self._E1.load_all()
         self._B2 = OsirisSimulation(self._folder1)
         self._B2.get_field("b2")
+        self._B2.load_all()
         self._B3 = OsirisSimulation(self._folder1)
         self._B3.get_field("b3")
+        self._B3.load_all()
         self._V1 = OsirisSimulation(self._folder1)
-        self._V1.get_field("vfl1")
+        self._V1.get_moment("vfl1")
+        self._V1.load_all()
         self._V2 = OsirisSimulation(self._folder1)
-        self._V2.get_field("vfl2")
+        self._V2.get_moment("vfl2")
+        self._V2.load_all()
         self._V3 = OsirisSimulation(self._folder1)
-        self._V3.get_field("vfl3")
+        self._V3.get_moment("vfl3")
+        self._V3.load_all()
         self._ne = OsirisSimulation(self._folder1)
         self._ne.get_density("charge")
+        self._ne.load_all()
+        self._ne.data = -self._ne.data
         self._T11 = OsirisSimulation(self._folder1)
-        self._T11.get_field("T11")
+        self._T11.get_moment("T11")
+        self._T11.load_all()
         self._T12 = OsirisSimulation(self._folder1)
-        self._T12.get_field("T12")
+        self._T12.get_moment("T12")
+        self._T12.load_all()
         if self._folder2 is not None:
             self._V1_b = OsirisSimulation(self._folder2)
             self._V1_b.get_field("vfl1")
+            self._V1_b.load_all()
             self._V1_a = OsirisSimulation(self._folder2)
             self._V1_a.get_field("vfl1")
+            self._V1_a.load_all()
+
+        self._nT11 = CustomOsirisSimulation()
+        self._nT11.set_data(self._ne.data * self._T11.data, self._T11.nx, self._T11.dx, self._T11.dt, self._T11.grid, self._T11.dim, self._T11.axis, name = "n_e T_{11}")
+
+        self._nT12 = CustomOsirisSimulation()
+        self._nT12.set_data(self._ne.data * self._T12.data, self._T12.nx, self._T12.dx, self._T12.dt, self._T12.grid, self._T12.dim, self._T12.axis, name = "n_e T_{12}")
+
+    def _compute_derivatives(self):
+        self._V1.derivative("all", "t")
+        self._V1.derivative("all", "x1")
+        self._nT11.derivative("all", "x1")
+        self._nT12.derivative("all", "x2")
+
+
+    def _ohm_law(self):
+        self._ohmlaw = - self._V1.deriv_t - self._V1.deriv_x1 * self._V1.data - (1/self._ne.data) * (self._nT11.deriv_x1 + self._nT12.deriv_x2) - (self._V2.data * self._B3.data - self._V3.data * self._B2.data)
+    
+
 
 
 """

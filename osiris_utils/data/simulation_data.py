@@ -27,7 +27,8 @@ class OsirisSimulation:
         self._name = None
         self._dim = None
         self._ndump = None
-
+        self._current_centered = False
+        
         if simulation_folder:
             self._simulation_folder = simulation_folder
             if not os.path.isdir(simulation_folder):

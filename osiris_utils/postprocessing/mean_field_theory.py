@@ -8,19 +8,20 @@ class MeanFieldTheory():
     def __init__(self, OsirisSimulation, axis, t = None):
         self.sim = OsirisSimulation
         self.axis = axis
+        self._t = t
         self._compute_mean_field()
 
     def _compute_mean_field(self):
-        if not hasattr(self.sim, 'data') and t = None:
+        if not hasattr(self.sim, 'data') and self._t is None:
             print("No data to compute the mean field. Loading all data.")
             self.sim.load_all()
-        elif t is not None:
-            self._data = self.sim[t]
-            self._mean_field = np.mean(self._data, axis=AXIS[self.axis])
-            self._fluctuations = self._data - np.expand_dims(self._mean_field, axis=AXIS[self.axis])
+        elif self._t is not None:
+            self._mft_data = self.sim[self._t]
+            self._mean_field = np.mean(self._mft_data, axis=AXIS[self.axis])
+            self._fluctuations = self._mft_data - np.expand_dims(self._mean_field, axis=AXIS[self.axis])
         else:
             self._mean_field = np.mean(self.sim.data, axis=AXIS_WITH_TIME[self.axis])
-            self._fluctuations = self.sim.data - np.expand_dims(self._mean_field, XIS_WITH_TIME[self.axis])
+            self._fluctuations = self.sim.data - np.expand_dims(self._mean_field, AXIS_WITH_TIME[self.axis])
 
     
     @property
