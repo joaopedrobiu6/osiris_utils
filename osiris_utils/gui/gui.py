@@ -8,8 +8,8 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 import numpy as np
-from .data import OsirisGridFile  # Update import as needed
-from .utils import integrate, transverse_average  # Update import as needed
+from ..data.data import OsirisGridFile  # Update import as needed
+from ..utils import integrate, transverse_average  # Update import as needed
 
 class LAVA_Qt(QMainWindow):
     def __init__(self):
