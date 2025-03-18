@@ -43,9 +43,11 @@ class OsirisSimulation:
         self._load_attributes(self._file_template)
     
     def get_field(self, field, centered=False):
+        self._current_centered = False
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomOsirisSimulation, this method is not available.")
         if centered:
+            self._current_centered = True
             self._path = f"{self._simulation_folder}/MS/FLD/{field}/"
         self._path = f"{self._simulation_folder}/MS/FLD/{field}/"
         self._file_template = os.listdir(self._path)[0][:-9]
@@ -55,6 +57,14 @@ class OsirisSimulation:
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomOsirisSimulation, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/DENSITY/{species}/{quantity}/"
+        self._file_template = os.listdir(self._path)[0][:-9]
+        self._load_attributes(self._file_template)
+
+    def get_phase_space(self, species, type):
+        self._current_centered = False
+        if self._simulation_folder is None:
+            raise ValueError("Simulation folder not set. If you're using CustomOsirisSimulation, this method is not available.")
+        self._path = f"{self._simulation_folder}/MS/PHA/{type}/{species}/"
         self._file_template = os.listdir(self._path)[0][:-9]
         self._load_attributes(self._file_template)
 
@@ -73,13 +83,13 @@ class OsirisSimulation:
         self._ndump = dump1.iter
     
     def _data_generator(self, index):
-            if self._simulation_folder is None:
-                raise ValueError("Simulation folder not set. If you're using CustomOsirisSimulation, this method is not available.")
-            file = os.path.join(self._path, self._file_template + f"{index:06d}.h5")
-            data_object = OsirisGridFile(file)
-            if self._current_centered:
-                data_object.yeeToCellCorner(boundary="periodic")
-            yield data_object.data_centered if self._current_centered else data_object.data
+        if self._simulation_folder is None:
+            raise ValueError("Simulation folder not set. If you're using CustomOsirisSimulation, this method is not available.")
+        file = os.path.join(self._path, self._file_template + f"{index:06d}.h5")
+        data_object = OsirisGridFile(file)
+        if self._current_centered:
+            data_object.yeeToCellCorner(boundary="periodic")
+        yield data_object.data_centered if self._current_centered else data_object.data
     
     def load_all(self, centered=False):
         if self._simulation_folder is None:
