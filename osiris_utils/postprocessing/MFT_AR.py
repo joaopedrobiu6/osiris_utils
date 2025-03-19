@@ -1,54 +1,62 @@
-from osiris_utils.data.create_object import CustomOsirisSimulation
-from ..data.simulation_data import OsirisSimulation
+from osiris_utils.data.create_object import CustomDiagnostic
+from osiris_utils.data.diagnostic import Diagnostic
+from osiris_utils.postprocessing.mean_field_theory import MeanFieldTheory as mft
+from osiris_utils.utils import transverse_average
 import numpy as np
 
 class AR():
-    def __init__(self, folder1, folder2 = None, t = None):
+    def __init__(self, folder1, folder2 = None, index = None, species = None):
         self._folder1 = folder1
         self._folder2 = folder2
 
+        self._load_data()
+
     def _load_data(self):
-        self._E1 = OsirisSimulation(self._folder1)
+        self._E1 = Diagnostic(self._folder1)
         self._E1.get_field("e1")
         self._E1.load_all()
-        self._B2 = OsirisSimulation(self._folder1)
+        self._B2 = Diagnostic(self._folder1)
         self._B2.get_field("b2")
         self._B2.load_all()
-        self._B3 = OsirisSimulation(self._folder1)
+        self._B3 = Diagnostic(self._folder1)
         self._B3.get_field("b3")
         self._B3.load_all()
-        self._V1 = OsirisSimulation(self._folder1)
-        self._V1.get_moment("vfl1")
+        self._V1 = Diagnostic(self._folder1)
+        self._V1.get_moment("electrons", "vfl1")
         self._V1.load_all()
-        self._V2 = OsirisSimulation(self._folder1)
-        self._V2.get_moment("vfl2")
+        self._V2 = Diagnostic(self._folder1)
+        self._V2.get_moment("electrons", "vfl2")
         self._V2.load_all()
-        self._V3 = OsirisSimulation(self._folder1)
-        self._V3.get_moment("vfl3")
+        self._V3 = Diagnostic(self._folder1)
+        self._V3.get_moment("electrons", "vfl3")
         self._V3.load_all()
-        self._ne = OsirisSimulation(self._folder1)
-        self._ne.get_density("charge")
+        self._ne = Diagnostic(self._folder1)
+        self._ne.get_density("electrons", "charge")
         self._ne.load_all()
         self._ne.data = -self._ne.data
-        self._T11 = OsirisSimulation(self._folder1)
-        self._T11.get_moment("T11")
+        self._T11 = Diagnostic(self._folder1)
+        self._T11.get_moment("electrons", "T11")
         self._T11.load_all()
-        self._T12 = OsirisSimulation(self._folder1)
-        self._T12.get_moment("T12")
+        self._T12 = Diagnostic(self._folder1)
+        self._T12.get_moment("electrons", "T12")
         self._T12.load_all()
         if self._folder2 is not None:
-            self._V1_b = OsirisSimulation(self._folder2)
-            self._V1_b.get_field("vfl1")
+            self._V1_b = Diagnostic(self._folder2)
+            self._V1_b.get_moment("electrons", "vfl1")
             self._V1_b.load_all()
-            self._V1_a = OsirisSimulation(self._folder2)
-            self._V1_a.get_field("vfl1")
+            self._V1_a = Diagnostic(self._folder2)
+            self._V1_a.get_moment("electrons", "vfl1")
             self._V1_a.load_all()
 
-        self._nT11 = CustomOsirisSimulation()
+        self._nT11 = CustomDiagnostic()
         self._nT11.set_data(self._ne.data * self._T11.data, self._T11.nx, self._T11.dx, self._T11.dt, self._T11.grid, self._T11.dim, self._T11.axis, name = "n_e T_{11}")
 
-        self._nT12 = CustomOsirisSimulation()
+        self._nT12 = CustomDiagnostic()
         self._nT12.set_data(self._ne.data * self._T12.data, self._T12.nx, self._T12.dx, self._T12.dt, self._T12.grid, self._T12.dim, self._T12.axis, name = "n_e T_{12}")
+
+        self._compute_derivatives()
+        self._ohm_law()
+        self._MeanFieldExpansion(axis = "x2")
 
     def _compute_derivatives(self):
         self._V1.derivative("all", "t")
@@ -58,41 +66,53 @@ class AR():
 
 
     def _ohm_law(self):
-        self._ohmlaw = - self._V1.deriv_t - self._V1.deriv_x1 * self._V1.data - (1/self._ne.data) * (self._nT11.deriv_x1 + self._nT12.deriv_x2) - (self._V2.data * self._B3.data - self._V3.data * self._B2.data)
-    
+        # This is the Electric field from the Vlasov equation
+        ohm_law = - self._V1.deriv_t - self._V1.deriv_x1 * self._V1.data - (1/self._ne.data) * (self._nT11.deriv_x1 + self._nT12.deriv_x2) - (self._V2.data * self._B3.data - self._V3.data * self._B2.data)
+        self._Evlasov = CustomDiagnostic()
+        self._Evlasov.set_data(ohm_law, self._V1.nx, self._V1.dx, self._V1.dt, self._V1.grid, self._V1.dim, self._V1.axis, name = "E_{Vlasov}")
 
+    def _MeanFieldExpansion(self, axis):
+        self._Ev_MFT = mft(self._Evlasov, axis=axis)
+        self._B2_MFT = mft(self._B2, axis=axis)
+        self._B3_MFT = mft(self._B3, axis=axis)
+        self._E1_MFT = mft(self._E1, axis=axis)
+        self._V1_MFT = mft(self._V1, axis=axis)
+        self._V2_MFT = mft(self._V2, axis=axis)
+        self._V3_MFT = mft(self._V3, axis=axis)
+        self._ne_MFT = mft(self._ne, axis=axis)
+        self._T11_MFT = mft(self._T11, axis=axis)
+        self._T12_MFT = mft(self._T12, axis=axis)
+        self._nT11_MFT = mft(self._nT11, axis=axis)
+        self._nT12_MFT = mft(self._nT12, axis=axis)
+        if self._folder2 is not None:
+            self._V1_b_MFT = mft(self._V1_b, axis=axis)
+            self._V1_a_MFT = mft(self._V1_a, axis=axis)
 
+    def MomEq_for_AvgQuant(self):
+        self._MomEq = self._Ev_MFT.mean_field + np.gradient(self._V1_MFT.mean_field, self._V1_MFT.sim.dx[0], axis=0) + self._V1_MFT.mean_field * np.gradient(self._V1_MFT.mean_field, self._V1_MFT.sim.dx[0], axis=0) + (1/self._ne_MFT.mean_field) * (np.gradient(self._nT11_MFT.mean_field, self._T11_MFT.sim.dx[0], axis=0) + np.gradient(self._nT12_MFT.mean_field, self._T12_MFT.sim.dx[1], axis=1)) + (self._V2_MFT.mean_field * self._B3_MFT.mean_field - self._V3_MFT.mean_field * self._B2_MFT.mean_field)
 
-"""
-self.E1 = OsirisGridFile(quantity_folder + f'FLD/e1/e1-{iter:06}.h5')
-self.B2 = OsirisGridFile(quantity_folder + f'FLD/b2/b2-{iter:06}.h5')
-self.B3 = OsirisGridFile(quantity_folder + f'FLD/b3/b3-{iter:06}.h5')
+    def AnomalousResistivity(self):
+        self.term1 = transverse_average(self._V1_MFT.fluctuations * np.gradient(self._V1_MFT.fluctuations, self._V1_MFT.sim.dx[0], axis=0))                          # -
+        self.term2 = transverse_average(self._V2_MFT.fluctuations * self._B3_MFT.fluctuations)                                                                       # -
+        self.term3 = transverse_average(self._V3_MFT.fluctuations * self._B2_MFT.fluctuations)                                                                       # -
 
-self.V1 = OsirisGridFile(quantity_folder + f'UDIST/electrons/vfl1/vfl1-electrons-{iter:06}.h5')
-self.V2 = OsirisGridFile(quantity_folder + f'UDIST/electrons/vfl2/vfl2-electrons-{iter:06}.h5')
-self.V3 = OsirisGridFile(quantity_folder + f'UDIST/electrons/vfl3/vfl3-electrons-{iter:06}.h5')
+        self.commom_terms = - self.term1 - self.term2 + self.term3
 
-self.V1_b = OsirisGridFile(velocity_folder + f"vfl1-electrons-{vt_minus:06}.h5")
-self.V1_a = OsirisGridFile(velocity_folder + f"vfl1-electrons-{vt_plus:06}.h5")
+        # Thermal pressure gradient term xx 
+        # Model XX1
+        self.xx1_term1 = transverse_average((np.gradient(self._ne_MFT.mean_field*self._T11_MFT.mean_field, self._T11.sim.dx[0], axis=0)/self._ne.data)*(self._ne_MFT.delta/self._ne_MFT.mean_field))               # +
+        self.xx1_term2 = transverse_average(np.gradient(self._ne_MFT.mean_field*self._T11_MFT.delta, self._T11_MFT.sim.dx[0], axis=0)/self._ne.data)                                           # -
+        self.xx1_term3 = transverse_average(np.gradient(self._ne_MFT.delta*self._T11_MFT.mean_field, self._T11_MFT.sim.dx[0], axis=0)/self._ne.data)                                           # -
+        self.xx1_term4 = transverse_average(np.gradient(self._ne_MFT.delta*self._T11_MFT.delta, self._T11_MFT.sim.dx[0], axis=0)/self._ne.data)                                         # -
 
-self.ne = OsirisGridFile(quantity_folder + f'DENSITY/electrons/charge/charge-electrons-{iter:06}.h5')
-self.ne.data = -self.ne.data
+        self.xx1_full = self.xx1_term1 - self.xx1_term2 - self.xx1_term3 - self.xx1_term4
 
-self.T11 = OsirisGridFile(quantity_folder + f'UDIST/electrons/T11/T11-electrons-{iter:06}.h5')
-self.T12 = OsirisGridFile(quantity_folder + f'UDIST/electrons/T12/T12-electrons-{iter:06}.h5')
-self.P11 = OsirisGridFile(quantity_folder + f'UDIST/electrons/P11/P11-electrons-{iter:06}.h5')
-self.P11.data = self.P11.data - self.ne.data*self.V1.data*self.V1.data
+        # Thermal pressure gradient term xy
+        # Model XY1
+        self.xy1_term1 = transverse_average(np.gradient(self._ne_MFT.mean_field*self._T12_MFT.delta, self._T12_MFT.sim.dx[1], axis=1)/self._ne.data)                                           # -
+        self.xy1_term2 = transverse_average(np.gradient(self._ne_MFT.delta*self._T12_MFT.mean_field, self._T12_MFT.sim.dx[1], axis=1)/self._ne.data)                                           # -
+        self.xy1_term3 = transverse_average(np.gradient(self._ne_MFT.delta*self._T12_MFT.delta, self._T12_MFT.sim.dx[1], axis=1)/self._ne.data)                                         # -
+        
+        self.xy1_full = - self.xy1_term1 - self.xy1_term2 - self.xy1_term3
 
-# Compute components of the mometum equation
-self.dV1dt = (self.V1_a.data - self.V1_b.data)/(2*self.V1_a.dt)
-self.V1_dV1dx = self.V1.data * np.gradient(self.V1.data, self.V1.dx[0], axis=0)
-
-self.dT11nedx = np.gradient(self.T11.data*self.ne.data, self.T11.dx[0], axis=0)
-self.dT12nedy = np.gradient(self.T12.data*self.ne.data, self.T12.dx[1], axis=1)
-
-self.V2B3 = self.V2.data * self.B3.data
-self.V3B2 = self.V3.data * self.B2.data  
-
-self.E_vlasov = - self.dV1dt - self.V1_dV1dx - (1/self.ne.data)*(self.dT11nedx + self.dT12nedy) - (self.V2B3 - self.V3B2)
-
-"""
+        self._eta = self.commom_terms + self.xx1_full + self.xy1_full

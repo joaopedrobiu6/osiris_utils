@@ -1,5 +1,5 @@
 import numpy as np
-from ..data.simulation_data import OsirisSimulation
+from ..data.diagnostic import Diagnostic
 from tqdm import tqdm
 
 class FastFourierTransform:
@@ -8,13 +8,13 @@ class FastFourierTransform:
 
     Parameters
     ----------
-    OsirisSimulation : OsirisSimulation
+    Diagnostic : Diagnostic
         The simulation object.
     axis : int
         The axis to compute the FFT.
     """
-    def __init__(self, OsirisSimulation, axis):
-        self.sim = OsirisSimulation
+    def __init__(self, Diagnostic, axis):
+        self.sim = Diagnostic
         self._compute_fft(axis=axis)
 
     def _compute_fft(self, axis):
@@ -33,6 +33,8 @@ class FastFourierTransform:
 
         self._kmax = np.pi / self.sim.dx
         self._omega_max = np.pi / self.sim.dt
+
+    # adaptar para que possa fazer so para um time step
 
     @property
     def fft(self):
