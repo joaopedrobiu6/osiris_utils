@@ -35,7 +35,7 @@ class OsirisData():
     """
 
     def __init__(self, filename):
-        self._filename = filename
+        self._filename = str(filename)
         # self._file = None
 
         self._verbose = False
