@@ -9,7 +9,7 @@ This would be awsome to compute time derivatives.
 
 import numpy as np
 import os
-from .data import OsirisGridFile, OsirisRawFile, OsirisHIST
+from .data import OsirisGridFile
 import tqdm
 import itertools
 import multiprocessing as mp
@@ -215,7 +215,8 @@ class Diagnostic:
         
         result._name = self._name + " + " + str(other)
 
-        if self._all_loaded and other._all_loaded:
+        if self._all_loaded:
+            other.load_all()
             result._data = self._data + other._data
             result._all_loaded = True
         else:
@@ -228,6 +229,7 @@ class Diagnostic:
             result._data_generator = lambda index: gen_diag_add(original_generator(index), other_generator(index))
 
         return result
+
 
     def __sub__(self, other):
         # Scalar subtraction
@@ -265,7 +267,8 @@ class Diagnostic:
         
         result._name = self._name + " - " + str(other)
 
-        if self._all_loaded and other._all_loaded:
+        if self._all_loaded:
+            other.load_all()
             result._data = self._data - other._data
             result._all_loaded = True
         else:
@@ -315,7 +318,8 @@ class Diagnostic:
         
         result._name = self._name + " * " + str(other) 
 
-        if self._all_loaded and other._all_loaded:
+        if self._all_loaded:
+            other.load_all()
             result._data = self._data * other._data
             result._all_loaded = True
         else:
@@ -365,7 +369,8 @@ class Diagnostic:
         
         result._name = self._name + " / " + str(other)
 
-        if self._all_loaded and other._all_loaded:
+        if self._all_loaded:
+            other.load_all()
             result._data = self._data / other._data
             result._all_loaded = True
         else:
@@ -448,6 +453,10 @@ class Diagnostic:
     @property
     def ndump(self):
         return self._ndump
+    
+    @property
+    def all_loaded(self):
+        return self._all_loaded
     
     def time(self, index):
         return [index * self._dt * self._ndump, r"$1 / \omega_p$"]
