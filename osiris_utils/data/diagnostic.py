@@ -6,9 +6,9 @@ Took some inspiration from Diogo and Madox's work.
 
 This would be awsome to compute time derivatives. 
 """
-
 import numpy as np
 import os
+
 from .data import OsirisGridFile
 import tqdm
 import itertools
@@ -308,30 +308,31 @@ class Diagnostic:
             return result
 
         # Handle diagnostic multiplication
-        if not isinstance(other, Diagnostic):
-            raise TypeError("Can only multiply Diagnostic objects or scalars.")
-        
-        result = Diagnostic(self._species)
+        elif isinstance(other, Diagnostic):
+            result = Diagnostic(self._species)
 
-        for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-            setattr(result, attr, getattr(self, attr))
-        
-        result._name = self._name + " * " + str(other) 
-
-        if self._all_loaded:
-            other.load_all()
-            result._data = self._data * other._data
-            result._all_loaded = True
-        else:
-            def gen_diag_mul(original_gen1, original_gen2):
-                for val1, val2 in zip(original_gen1, original_gen2):
-                    yield val1 * val2
+            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+                setattr(result, attr, getattr(self, attr))
             
-            original_generator = self._data_generator
-            other_generator = other._data_generator
-            result._data_generator = lambda index: gen_diag_mul(original_generator(index), other_generator(index))
+            result._name = self._name + " * " + str(other) 
 
-        return result
+            if self._all_loaded:
+                other.load_all()
+                result._data = self._data * other._data
+                result._all_loaded = True
+            else:
+                def gen_diag_mul(original_gen1, original_gen2):
+                    for val1, val2 in zip(original_gen1, original_gen2):
+                        yield val1 * val2
+                
+                original_generator = self._data_generator
+                other_generator = other._data_generator
+                result._data_generator = lambda index: gen_diag_mul(original_generator(index), other_generator(index))
+
+            return result
+        
+        elif other.__class__.__name__ == "Derivative_Auxiliar":
+            return other * self
     
     def __truediv__(self, other):
         # Scalar division

@@ -1,4 +1,3 @@
-from ..data.diagnostic import Diagnostic
 from ..utils import *
 from ..data.simulation import Simulation
 
@@ -166,7 +165,7 @@ class Derivative_Auxiliar:
 
             return result
 
-        elif isinstance(other, Diagnostic):
+        elif other.__class__.__name__ == "Diagnostic":
             result = Derivative_Auxiliar(self._diag*other, self._type, self._axis)
             result._name = self._name + " + " + other._name
 
@@ -239,7 +238,7 @@ class Derivative_Auxiliar:
 
             return result
         
-        elif isinstance(other, Diagnostic):
+        elif other.__class__.__name__ == "Diagnostic":
             result = Derivative_Auxiliar(self._diag*other, self._type, self._axis)
             result._name = self._name + " - " + other._name
 
@@ -313,7 +312,7 @@ class Derivative_Auxiliar:
 
             return result
         
-        elif isinstance(other, Diagnostic):
+        elif other.__class__.__name__ == "Diagnostic":
             result = Derivative_Auxiliar(self._diag*other, self._type, self._axis)
             result._name = self._name + " * " + other._name
 
@@ -386,7 +385,7 @@ class Derivative_Auxiliar:
 
             return result
         
-        elif isinstance(other, Diagnostic):
+        elif other.__class__.__name__ == "Diagnostic":
             result = Derivative_Auxiliar(self._diag*other, self._type, self._axis)
             result._name = self._name + " / " + other._name
 
