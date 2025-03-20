@@ -31,7 +31,7 @@ class Derivative:
 
     def __getitem__(self, key):
         if key not in self._derivatives_computed:
-            self._derivatives_computed[key] = Derivative_Auxiliar(self._simulation[key], self._type, self._axis)
+            self._derivatives_computed[key] = Derivative_Diagnostic(self._simulation[key], self._type, self._axis)
         return self._derivatives_computed[key]
     
     def delete_all(self):
@@ -43,7 +43,7 @@ class Derivative:
         else:
             print(f"Derivative {key} not found in simulation")
     
-class Derivative_Auxiliar:
+class Derivative_Diagnostic:
     """
     Auxiliar class to compute the derivative of a diagnostic, for it to be similar in behavior to a Diagnostic object.
 
@@ -150,8 +150,8 @@ class Derivative_Auxiliar:
         
     def __add__(self, other):
         if isinstance(other, (int, float, np.ndarray)):
-            # Create a new Derivative_Auxiliar instance
-            result = Derivative_Auxiliar(self._diag, self._type, self._axis)
+            # Create a new Derivative_Diagnostic instance
+            result = Derivative_Diagnostic(self._diag, self._type, self._axis)
             
             # Copy all necessary attributes
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
@@ -174,8 +174,8 @@ class Derivative_Auxiliar:
 
             return result
         
-        elif isinstance(other, Derivative_Auxiliar):
-            result = Derivative_Auxiliar(self._diag*other._diag, self._type, self._axis)
+        elif isinstance(other, Derivative_Diagnostic):
+            result = Derivative_Diagnostic(self._diag*other._diag, self._type, self._axis)
             result._name = self._name + " + " + other._name
 
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
@@ -197,7 +197,7 @@ class Derivative_Auxiliar:
             return result
 
         elif other.__class__.__name__ == "Diagnostic":
-            result = Derivative_Auxiliar(self._diag*other, self._type, self._axis)
+            result = Derivative_Diagnostic(self._diag*other, self._type, self._axis)
             result._name = self._name + " + " + other._name
 
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
@@ -223,8 +223,8 @@ class Derivative_Auxiliar:
         
     def __sub__(self, other):
         if isinstance(other, (int, float, np.ndarray)):
-            # Create a new Derivative_Auxiliar instance
-            result = Derivative_Auxiliar(self._diag, self._type, self._axis)
+            # Create a new Derivative_Diagnostic instance
+            result = Derivative_Diagnostic(self._diag, self._type, self._axis)
             
             # Copy all necessary attributes
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
@@ -247,8 +247,8 @@ class Derivative_Auxiliar:
 
             return result
         
-        elif isinstance(other, Derivative_Auxiliar):
-            result = Derivative_Auxiliar(self._diag*other._diag, self._type, self._axis)
+        elif isinstance(other, Derivative_Diagnostic):
+            result = Derivative_Diagnostic(self._diag*other._diag, self._type, self._axis)
             result._name = self._name + " - " + other._name
 
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
@@ -270,7 +270,7 @@ class Derivative_Auxiliar:
             return result
         
         elif other.__class__.__name__ == "Diagnostic":
-            result = Derivative_Auxiliar(self._diag*other, self._type, self._axis)
+            result = Derivative_Diagnostic(self._diag*other, self._type, self._axis)
             result._name = self._name + " - " + other._name
 
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
@@ -297,8 +297,8 @@ class Derivative_Auxiliar:
         
     def __mul__(self, other):
         if isinstance(other, (int, float, np.ndarray)):
-            # Create a new Derivative_Auxiliar instance
-            result = Derivative_Auxiliar(self._diag, self._type, self._axis)
+            # Create a new Derivative_Diagnostic instance
+            result = Derivative_Diagnostic(self._diag, self._type, self._axis)
             
             # Copy all necessary attributes
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
@@ -321,8 +321,8 @@ class Derivative_Auxiliar:
 
             return result
         
-        elif isinstance(other, Derivative_Auxiliar):
-            result = Derivative_Auxiliar(self._diag*other._diag, self._type, self._axis)
+        elif isinstance(other, Derivative_Diagnostic):
+            result = Derivative_Diagnostic(self._diag*other._diag, self._type, self._axis)
             result._name = self._name + " * " + other._name
 
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
@@ -344,7 +344,7 @@ class Derivative_Auxiliar:
             return result
         
         elif other.__class__.__name__ == "Diagnostic":
-            result = Derivative_Auxiliar(self._diag*other, self._type, self._axis)
+            result = Derivative_Diagnostic(self._diag*other, self._type, self._axis)
             result._name = self._name + " * " + other._name
 
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
@@ -370,8 +370,8 @@ class Derivative_Auxiliar:
         
     def __truediv__(self, other):
         if isinstance(other, (int, float, np.ndarray)):
-            # Create a new Derivative_Auxiliar instance
-            result = Derivative_Auxiliar(self._diag, self._type, self._axis)
+            # Create a new Derivative_Diagnostic instance
+            result = Derivative_Diagnostic(self._diag, self._type, self._axis)
             
             # Copy all necessary attributes
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
@@ -394,8 +394,8 @@ class Derivative_Auxiliar:
 
             return result
         
-        elif isinstance(other, Derivative_Auxiliar):
-            result = Derivative_Auxiliar(self._diag*other._diag, self._type, self._axis)
+        elif isinstance(other, Derivative_Diagnostic):
+            result = Derivative_Diagnostic(self._diag*other._diag, self._type, self._axis)
             result._name = self._name + " / " + other._name
 
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
@@ -417,7 +417,7 @@ class Derivative_Auxiliar:
             return result
         
         elif other.__class__.__name__ == "Diagnostic":
-            result = Derivative_Auxiliar(self._diag*other, self._type, self._axis)
+            result = Derivative_Diagnostic(self._diag*other, self._type, self._axis)
             result._name = self._name + " / " + other._name
 
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:

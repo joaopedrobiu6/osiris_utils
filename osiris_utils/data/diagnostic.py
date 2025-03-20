@@ -215,30 +215,31 @@ class Diagnostic:
             return result
 
         # Handle diagnostic addition
-        if not isinstance(other, Diagnostic):
-            raise TypeError("Can only add Diagnostic objects or scalars.")
-        
-        result = Diagnostic(self._species)
+        elif isinstance(other, Diagnostic):
+            result = Diagnostic(self._species)
 
-        for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-            setattr(result, attr, getattr(self, attr))
-        
-        result._name = self._name + " + " + str(other)
-
-        if self._all_loaded:
-            other.load_all()
-            result._data = self._data + other._data
-            result._all_loaded = True
-        else:
-            def gen_diag_add(original_gen1, original_gen2):
-                for val1, val2 in zip(original_gen1, original_gen2):
-                    yield val1 + val2
+            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+                setattr(result, attr, getattr(self, attr))
             
-            original_generator = self._data_generator
-            other_generator = other._data_generator
-            result._data_generator = lambda index: gen_diag_add(original_generator(index), other_generator(index))
+            result._name = self._name + " + " + str(other)
 
-        return result
+            if self._all_loaded:
+                other.load_all()
+                result._data = self._data + other._data
+                result._all_loaded = True
+            else:
+                def gen_diag_add(original_gen1, original_gen2):
+                    for val1, val2 in zip(original_gen1, original_gen2):
+                        yield val1 + val2
+                
+                original_generator = self._data_generator
+                other_generator = other._data_generator
+                result._data_generator = lambda index: gen_diag_add(original_generator(index), other_generator(index))
+
+            return result
+        
+        elif other.__class__.__name__ == "Derivative_Diagnostic":
+            return other + self
 
 
     def __sub__(self, other):
@@ -267,30 +268,33 @@ class Diagnostic:
             return result
 
         # Handle diagnostic subtraction
-        if not isinstance(other, Diagnostic):
-            raise TypeError("Can only subtract Diagnostic objects or scalars.")
-        
-        result = Diagnostic(self._species)
-
-        for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-            setattr(result, attr, getattr(self, attr))
-        
-        result._name = self._name + " - " + str(other)
-
-        if self._all_loaded:
-            other.load_all()
-            result._data = self._data - other._data
-            result._all_loaded = True
-        else:
-            def gen_diag_sub(original_gen1, original_gen2):
-                for val1, val2 in zip(original_gen1, original_gen2):
-                    yield val1 - val2
+        elif isinstance(other, Diagnostic):
+                
             
-            original_generator = self._data_generator
-            other_generator = other._data_generator
-            result._data_generator = lambda index: gen_diag_sub(original_generator(index), other_generator(index))
+            result = Diagnostic(self._species)
 
-        return result
+            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+                setattr(result, attr, getattr(self, attr))
+            
+            result._name = self._name + " - " + str(other)
+
+            if self._all_loaded:
+                other.load_all()
+                result._data = self._data - other._data
+                result._all_loaded = True
+            else:
+                def gen_diag_sub(original_gen1, original_gen2):
+                    for val1, val2 in zip(original_gen1, original_gen2):
+                        yield val1 - val2
+                
+                original_generator = self._data_generator
+                other_generator = other._data_generator
+                result._data_generator = lambda index: gen_diag_sub(original_generator(index), other_generator(index))
+
+            return result
+        
+        elif other.__class__.__name__ == "Derivative_Diagnostic":
+            return other - self
     
     def __mul__(self, other):
         # Scalar multiplication
@@ -341,7 +345,7 @@ class Diagnostic:
 
             return result
         
-        elif other.__class__.__name__ == "Derivative_Auxiliar":
+        elif other.__class__.__name__ == "Derivative_Diagnostic":
             return other * self
     
     def __truediv__(self, other):
@@ -370,30 +374,33 @@ class Diagnostic:
             return result
 
         # Handle diagnostic division
-        if not isinstance(other, Diagnostic):
-            raise TypeError("Can only divide Diagnostic objects or scalars.")
-        
-        result = Diagnostic(self._species)
-
-        for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-            setattr(result, attr, getattr(self, attr))
-        
-        result._name = self._name + " / " + str(other)
-
-        if self._all_loaded:
-            other.load_all()
-            result._data = self._data / other._data
-            result._all_loaded = True
-        else:
-            def gen_diag_div(original_gen1, original_gen2):
-                for val1, val2 in zip(original_gen1, original_gen2):
-                    yield val1 / val2
+        elif isinstance(other, Diagnostic):
+                
             
-            original_generator = self._data_generator
-            other_generator = other._data_generator
-            result._data_generator = lambda index: gen_diag_div(original_generator(index), other_generator(index))
+            result = Diagnostic(self._species)
 
-        return result
+            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+                setattr(result, attr, getattr(self, attr))
+            
+            result._name = self._name + " / " + str(other)
+
+            if self._all_loaded:
+                other.load_all()
+                result._data = self._data / other._data
+                result._all_loaded = True
+            else:
+                def gen_diag_div(original_gen1, original_gen2):
+                    for val1, val2 in zip(original_gen1, original_gen2):
+                        yield val1 / val2
+                
+                original_generator = self._data_generator
+                other_generator = other._data_generator
+                result._data_generator = lambda index: gen_diag_div(original_generator(index), other_generator(index))
+
+            return result
+        
+        elif other.__class__.__name__ == "Derivative_Diagnostic":
+            return other / self
     
     def __pow__(self, other):
        raise NotImplementedError("Power operation not implemented for Diagnostic objects.")
