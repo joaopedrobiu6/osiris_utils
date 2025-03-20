@@ -1,7 +1,9 @@
 from ..utils import *
 from ..data.simulation import Simulation
+from .postprocess import PostProcess
+from ..data.diagnostic import Diagnostic
 
-class Derivative:
+class Derivative(PostProcess):
     """
     Class to compute the derivative of a diagnostic.
 
@@ -21,7 +23,9 @@ class Derivative:
     axis : int or tuple
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
     """
+
     def __init__(self, simulation, type, axis=None):
+        super().__init__(f"Derivative({type})")
         if not isinstance(simulation, Simulation):
             raise ValueError("Simulation must be a Simulation object.")
         self._simulation = simulation
@@ -43,9 +47,15 @@ class Derivative:
         else:
             print(f"Derivative {key} not found in simulation")
     
-class Derivative_Diagnostic:
+    def process(self, diagnostic):
+        """Apply derivative to a diagnostic"""
+        return Derivative_Diagnostic(diagnostic, self._type, self._axis)
+
+    
+class Derivative_Diagnostic(Diagnostic):
     """
     Auxiliar class to compute the derivative of a diagnostic, for it to be similar in behavior to a Diagnostic object.
+    Inherits directly from Diagnostic to ensure all operation overloads work properly.
 
     Parameters
     ----------
@@ -57,16 +67,26 @@ class Derivative_Diagnostic:
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types
     """
     def __init__(self, diagnostic, type, axis=None):
+        # Initialize using parent's __init__ with the same species
+        if hasattr(diagnostic, '_species'):
+            super().__init__(diagnostic._species, diagnostic._simulation_folder if hasattr(diagnostic, '_simulation_folder') else None)
+        else:
+            super().__init__(None)
+            
+        self._name = f"D[{diagnostic._name}, {type}]"
         self._diag = diagnostic
         self._type = type
-        self._axis = axis
-        self._data = None    
-        self.load_metadata()    
-
+        self._axis = axis if axis is not None else diagnostic._axis
+        self._data = None
         self._all_loaded = False
+        
+        # Copy all relevant attributes from diagnostic
+        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter']:
+            if hasattr(diagnostic, attr):
+                setattr(self, attr, getattr(diagnostic, attr))
 
-    
     def load_metadata(self):
+        """Copy metadata from original diagnostic to ensure consistency"""
         self._name = "D[" + self._diag._name + ", " + self._type + "]"
         self._dt = self._diag._dt
         self._dx = self._diag._dx
@@ -79,11 +99,12 @@ class Derivative_Diagnostic:
         self._maxiter = self._diag._maxiter
 
     def load_all(self):
+        """Load all data and compute the derivative"""
         if self._data is not None:
             print("Using cached derivative")
             return self._data
         
-        if not hasattr(self._diag, 'data') or self._diag._data is None:
+        if not hasattr(self._diag, '_data') or self._diag._data is None:
             self._diag.load_all()
 
         if self._type == "t":
@@ -104,25 +125,30 @@ class Derivative_Diagnostic:
         elif self._type == "xx":
             if len(self._axis) != 2:
                 raise ValueError("Axis must be a tuple with two elements.")
-            result = np.gradient(np.gradient(self._diag._data, self._diag._dx[self._axis[0]-1], axis=self._axis[0], edge_order=2), self._diag._dx[self._axis[1]-1], axis=self._axis[1], edge_order=2)
+            result = np.gradient(np.gradient(self._diag._data, self._diag._dx[self._axis[0]-1], axis=self._axis[0], edge_order=2), 
+                                self._diag._dx[self._axis[1]-1], axis=self._axis[1], edge_order=2)
             
         elif self._type == "xt":
             if not isinstance(self._axis, int):
                 raise ValueError("Axis must be an integer.")
-            result = np.gradient(np.gradient(self._diag._data, self._diag._dt, axis=0, edge_order=2), self._diag._dx[self._axis-1], axis=self._axis[0], edge_order=2)
+            result = np.gradient(np.gradient(self._diag._data, self._diag._dt, axis=0, edge_order=2), 
+                                self._diag._dx[self._axis-1], axis=self._axis[0], edge_order=2)
             
         elif self._type == "tx":
             if not isinstance(self._axis, int):
                 raise ValueError("Axis must be an integer.")
-            result = np.gradient(np.gradient(self._diag._data, self._diag._dx[self._axis-1], axis=self._axis, edge_order=2), self._diag._dt, axis=0, edge_order=2)
+            result = np.gradient(np.gradient(self._diag._data, self._diag._dx[self._axis-1], axis=self._axis, edge_order=2), 
+                                self._diag._dt, axis=0, edge_order=2)
         else:
-            raise ValueError("Invalid self._type.")
+            raise ValueError("Invalid derivative type.")
         
         # Store the result in the cache
         self._all_loaded = True
         self._data = result
+        return self._data
 
     def _data_generator(self, index):
+        """Generate data for a specific index on-demand"""
         if self._type == "x1":
             if self._dim == 1:
                 yield np.gradient(self._diag[index], self._diag._dx, axis=0, edge_order=2)
@@ -143,388 +169,13 @@ class Derivative_Diagnostic:
             else:
                 yield (self._diag[index + 1] - self._diag[index - 1]) / (2 * self._diag._dt * self._diag._ndump)
         else:
-            raise ValueError("Invalid derivative type. Use 'x1', 'x2' or 't'.")
+            raise ValueError("Invalid derivative type. Use 'x1', 'x2', 'x3' or 't'.")
 
     def __getitem__(self, index):
+        """Get data at a specific index"""
+        # If all data is loaded, return from cache
+        if self._all_loaded and self._data is not None:
+            return self._data[index]
+        
+        # Otherwise compute on-demand
         return next(self._data_generator(index))
-        
-    def __add__(self, other):
-        if isinstance(other, (int, float, np.ndarray)):
-            # Create a new Derivative_Diagnostic instance
-            result = Derivative_Diagnostic(self._diag, self._type, self._axis)
-            
-            # Copy all necessary attributes
-            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
-
-            # Update the name to reflect the operation
-            result._name = self._name + " + " + str(other) if isinstance(other, (int, float)) else self._name + " + np.ndarray"
-            
-            if self._all_loaded:
-                result._data = self._data + other
-                result._all_loaded = True
-            else:
-                def gen_scalar_add(original_gen, scalar):
-                    for i in original_gen:
-                        yield i + scalar
-
-                original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_add(original_generator(index), other)
-
-            return result
-        
-        elif isinstance(other, Derivative_Diagnostic):
-            result = Derivative_Diagnostic(self._diag*other._diag, self._type, self._axis)
-            result._name = self._name + " + " + other._name
-
-            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-                setattr(result, attr, getattr(self, attr))
-
-            if self._all_loaded:
-                other.load_all()
-                result._data = self._data + other._data
-                result._all_loaded = True
-            else:
-                def gen_derivative_add(original_gen, other_gen):
-                    for i, j in zip(original_gen, other_gen):
-                        yield i + j
-
-                original_generator = self._data_generator
-                other_generator = other._data_generator
-                result._data_generator = lambda index: gen_derivative_add(original_generator(index), other_generator(index))
-
-            return result
-
-        elif other.__class__.__name__ == "Diagnostic":
-            return other + self
-            # result = Derivative_Diagnostic(self._diag*other, self._type, self._axis)
-            # result._name = self._name + " + " + other._name
-
-            # for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-            #     setattr(result, attr, getattr(self, attr))
-
-            # if self._all_loaded:
-            #     other.load_all()
-            #     result._data = self._data + other._data
-            #     result._all_loaded = True
-            # else:
-            #     def gen_derivative_add(original_gen, other_gen):
-            #         for i, j in zip(original_gen, other_gen):
-            #             yield i + j
-
-            #     original_generator = self._data_generator
-            #     other_generator = other._data_generator
-            #     result._data_generator = lambda index: gen_derivative_add(original_generator(index), other_generator(index))
-
-            # return result
-        
-        else:
-            raise ValueError("Invalid type for addition operation.")
-        
-    def __sub__(self, other):
-        if isinstance(other, (int, float, np.ndarray)):
-            # Create a new Derivative_Diagnostic instance
-            result = Derivative_Diagnostic(self._diag, self._type, self._axis)
-            
-            # Copy all necessary attributes
-            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
-
-            # Update the name to reflect the operation
-            result._name = self._name + " - " + str(other) if isinstance(other, (int, float)) else self._name + " - np.ndarray"
-            
-            if self._all_loaded:
-                result._data = self._data - other
-                result._all_loaded = True
-            else:
-                def gen_scalar_sub(original_gen, scalar):
-                    for i in original_gen:
-                        yield i - scalar
-
-                original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_sub(original_generator(index), other)
-
-            return result
-        
-        elif isinstance(other, Derivative_Diagnostic):
-            result = Derivative_Diagnostic(self._diag*other._diag, self._type, self._axis)
-            result._name = self._name + " - " + other._name
-
-            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-                setattr(result, attr, getattr(self, attr))  
-
-            if self._all_loaded:
-                other.load_all()
-                result._data = self._data - other._data
-                result._all_loaded = True
-            else:
-                def gen_derivative_sub(original_gen, other_gen):
-                    for i, j in zip(original_gen, other_gen):
-                        yield i - j 
-
-                original_generator = self._data_generator
-                other_generator = other._data_generator
-                result._data_generator = lambda index: gen_derivative_sub(original_generator(index), other_generator(index))
-
-            return result
-        
-        elif other.__class__.__name__ == "Diagnostic":
-            # return self - other
-            result = Derivative_Diagnostic(self._diag*other, self._type, self._axis)
-            result._name = self._name + " - " + other._name
-
-            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-                setattr(result, attr, getattr(self, attr))
-
-            if self._all_loaded:
-                other.load_all()
-                result._data = self._data - other._data
-                result._all_loaded = True
-            else:
-                def gen_derivative_sub(original_gen, other_gen):
-                    for i, j in zip(original_gen, other_gen):
-                        yield i - j
-
-
-                original_generator = self._data_generator
-                other_generator = other._data_generator
-                result._data_generator = lambda index: gen_derivative_sub(original_generator(index), other_generator(index))
-
-            return result
-        
-        else:
-            raise ValueError("Invalid type for subtraction operation.")
-        
-    def __mul__(self, other):
-        if isinstance(other, (int, float, np.ndarray)):
-            # Create a new Derivative_Diagnostic instance
-            result = Derivative_Diagnostic(self._diag, self._type, self._axis)
-            
-            # Copy all necessary attributes
-            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
-
-            # Update the name to reflect the operation
-            result._name = self._name + " * " + str(other) if isinstance(other, (int, float)) else self._name + " * np.ndarray"
-            
-            if self._all_loaded:
-                result._data = self._data * other
-                result._all_loaded = True
-            else:
-                def gen_scalar_mul(original_gen, scalar):
-                    for i in original_gen:
-                        yield i * scalar
-
-                original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_mul(original_generator(index), other)
-
-            return result
-        
-        elif isinstance(other, Derivative_Diagnostic):
-            result = Derivative_Diagnostic(self._diag*other._diag, self._type, self._axis)
-            result._name = self._name + " * " + other._name
-
-            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-                setattr(result, attr, getattr(self, attr))
-
-            if self._all_loaded:
-                other.load_all()
-                result._data = self._data * other._data
-                result._all_loaded = True
-            else:
-                def gen_derivative_mul(original_gen, other_gen):
-                    for i, j in zip(original_gen, other_gen):
-                        yield i * j
-
-                original_generator = self._data_generator
-                other_generator = other._data_generator
-                result._data_generator = lambda index: gen_derivative_mul(original_generator(index), other_generator(index))
-
-            return result
-        
-        elif other.__class__.__name__ == "Diagnostic":
-            return other * self
-            # result = Derivative_Diagnostic(self._diag*other, self._type, self._axis)
-            # result._name = self._name + " * " + other._name
-
-            # for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-            #     setattr(result, attr, getattr(self, attr))
-
-            # if self._all_loaded:
-            #     other.load_all()
-            #     result._data = self._data * other._data
-            #     result._all_loaded = True
-            # else:
-            #     def gen_derivative_mul(original_gen, other_gen):
-            #         for i, j in zip(original_gen, other_gen):
-            #             yield i * j     
-
-            #     original_generator = self._data_generator
-            #     other_generator = other._data_generator
-            #     result._data_generator = lambda index: gen_derivative_mul(original_generator(index), other_generator(index))
-
-            # return result
-        
-        else:
-            raise ValueError("Invalid type for multiplication operation.")
-        
-    def __truediv__(self, other):
-        if isinstance(other, (int, float, np.ndarray)):
-            # Create a new Derivative_Diagnostic instance
-            result = Derivative_Diagnostic(self._diag, self._type, self._axis)
-            
-            # Copy all necessary attributes
-            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
-
-            # Update the name to reflect the operation
-            result._name = self._name + " / " + str(other) if isinstance(other, (int, float)) else self._name + " / np.ndarray"
-            
-            if self._all_loaded:
-                result._data = self._data / other
-                result._all_loaded = True
-            else:
-                def gen_scalar_div(original_gen, scalar):
-                    for i in original_gen:
-                        yield i / scalar
-
-                original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_div(original_generator(index), other)
-
-            return result
-        
-        elif isinstance(other, Derivative_Diagnostic):
-            result = Derivative_Diagnostic(self._diag*other._diag, self._type, self._axis)
-            result._name = self._name + " / " + other._name
-
-            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-                setattr(result, attr, getattr(self, attr))
-
-            if self._all_loaded:
-                other.load_all()
-                result._data = self._data / other._data
-                result._all_loaded = True
-            else:
-                def gen_derivative_div(original_gen, other_gen):
-                    for i, j in zip(original_gen, other_gen):
-                        yield i / j
-
-                original_generator = self._data_generator
-                other_generator = other._data_generator
-                result._data_generator = lambda index: gen_derivative_div(original_generator(index), other_generator(index))
-
-            return result
-        
-        elif other.__class__.__name__ == "Diagnostic":
-            result = Derivative_Diagnostic(self._diag*other, self._type, self._axis)
-            result._name = self._name + " / " + other._name
-
-            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-                setattr(result, attr, getattr(self, attr))
-
-            if self._all_loaded:
-                other.load_all()
-                result._data = self._data / other._data
-                result._all_loaded = True
-            else:
-                def gen_derivative_div(original_gen, other_gen):
-                    for i, j in zip(original_gen, other_gen):
-                        yield i / j 
-
-                original_generator = self._data_generator
-                other_generator = other._data_generator
-                result._data_generator = lambda index: gen_derivative_div(original_generator(index), other_generator(index))
-
-            return result
-        
-        else:
-            raise ValueError("Invalid type for division operation.")
-        
-    def __pow__(self, other):
-        raise NotImplementedError("Power operation not implemented yet.")
-    
-    def __radd__(self, other):
-        return self + other
-    
-    def __rsub__(self, other):
-        return self - other
-    
-    def __rmul__(self, other):
-        return self * other
-    
-    def __rtruediv__(self, other):
-        if isinstance(other, (int, float, np.ndarray)):
-            # Create a new Derivative_Diagnostic instance
-            result = Derivative_Diagnostic(self._diag, self._type, self._axis)
-            
-            # Copy all necessary attributes
-            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
-
-            # Update the name to reflect the operation
-            result._name = str(other) if isinstance(other, (int, float)) else self._name + " / np.ndarray" + " / " + self._name
-            
-            if self._all_loaded:
-                result._data = other / self._data
-                result._all_loaded = True
-            else:
-                def gen_scalar_div(original_gen, scalar):
-                    for i in original_gen:
-                        yield scalar / i
-
-                original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_div(original_generator(index), other)
-
-            return result
-        
-        elif isinstance(other, Derivative_Diagnostic):
-            result = Derivative_Diagnostic(self._diag*other._diag, self._type, self._axis)
-            result._name = self._name + " / " + other._name
-
-            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-                setattr(result, attr, getattr(self, attr))
-
-            if self._all_loaded:
-                other.load_all()
-                result._data = other._data / self._data
-                result._all_loaded = True
-            else:
-                def gen_derivative_div(original_gen, other_gen):
-                    for i, j in zip(original_gen, other_gen):
-                        yield j / i
-
-                original_generator = self._data_generator
-                other_generator = other._data_generator
-                result._data_generator = lambda index: gen_derivative_div(original_generator(index), other_generator(index))
-
-            return result
-        
-        elif other.__class__.__name__ == "Diagnostic":
-            result = Derivative_Diagnostic(self._diag*other, self._type, self._axis)
-            result._name = other._name + " / " + self._name
-
-            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-                setattr(result, attr, getattr(self, attr))
-
-            if self._all_loaded:
-                other.load_all()
-                result._data = other._data / self._data
-                result._all_loaded = True
-            else:
-                def gen_derivative_div(original_gen, other_gen):
-                    for i, j in zip(original_gen, other_gen):
-                        yield j / i 
-
-                original_generator = self._data_generator
-                other_generator = other._data_generator
-                result._data_generator = lambda index: gen_derivative_div(original_generator(index), other_generator(index))
-
-            return result
-        
-        else:
-            raise ValueError("Invalid type for division operation.")
