@@ -49,6 +49,16 @@ OSIRIS_PHA = ["p1x1", "p1x2", "p1x3", "p2x1", "p2x2", "p2x3", "p3x1", "p3x2", "p
 
 
 class Diagnostic:
+    """
+    Class to handle the diagnostics of a simulation. This is mainly used by Simulation class to handle the diagnostics.
+
+    Parameters
+    ----------
+    species : str
+        The species to handle the diagnostics.
+    simulation_folder : str
+        The path to the simulation folder. This is the path to the folder where the input deck is located.
+    """
     def __init__(self, species, simulation_folder=None):
         self._species = species
 

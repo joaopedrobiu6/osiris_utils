@@ -4,6 +4,25 @@ import functools
 
 
 class Simulation:
+    '''
+    Class to handle the simulation data. It is a wrapper for the Diagnostic class.'
+    
+    Parameters
+    ----------
+    species : str
+        The species to analyze.
+    simulation_folder : str
+        The simulation folder.
+    
+    Attributes
+    ----------
+    species : str
+        The species to analyze.
+    simulation_folder : str
+        The simulation folder.
+    diagnostics : dict
+        Dictionary to store diagnostics for each quantity when `load_all` method is used.
+    '''
     def __init__(self, species, simulation_folder = None):
         self._species = species
         self._simulation_folder = simulation_folder

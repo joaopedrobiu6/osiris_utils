@@ -2,6 +2,25 @@ from ..utils import *
 from ..data.simulation import Simulation
 
 class Derivative:
+    """
+    Class to compute the derivative of a diagnostic.
+
+    Parameters
+    ----------
+    simulation : Simulation
+        The simulation object.
+    type : str
+        The type of derivative to compute. Options are:
+        - 't' for time derivative.
+        - 'x1' for first spatial derivative.
+        - 'x2' for second spatial derivative.
+        - 'x3' for third spatial derivative.
+        - 'xx' for second spatial derivative in two axis.
+        - 'xt' for mixed derivative in time and one spatial axis.
+        - 'tx' for mixed derivative in one spatial axis and time.
+    axis : int or tuple
+        The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
+    """
     def __init__(self, simulation, type, axis=None):
         if not isinstance(simulation, Simulation):
             raise ValueError("Simulation must be a Simulation object.")
@@ -25,6 +44,18 @@ class Derivative:
             print(f"Derivative {key} not found in simulation")
     
 class Derivative_Auxiliar:
+    """
+    Auxiliar class to compute the derivative of a diagnostic, for it to be similar in behavior to a Diagnostic object.
+
+    Parameters
+    ----------
+    diagnostic : Diagnostic
+        The diagnostic object.
+    type : str
+        The type of derivative to compute. Options are: 't', 'x1', 'x2', 'x3', 'xx', 'xt' and 'tx'.
+    axis : int or tuple
+        The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types
+    """
     def __init__(self, diagnostic, type, axis=None):
         self._diag = diagnostic
         self._type = type
