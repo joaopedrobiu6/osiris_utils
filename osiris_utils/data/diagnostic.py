@@ -15,15 +15,7 @@ import itertools
 import multiprocessing as mp
 
 OSIRIS_DENSITY = "n"
-OSIRIS_SPECIE_REPORTS = [
-    "charge",
-    "q1",
-    "q2",
-    "q3",
-    "j1",
-    "j2",
-    "j3",
-]
+OSIRIS_SPECIE_REPORTS = ["charge", "q1", "q2", "q3", "j1", "j2", "j3"]
 OSIRIS_SPECIE_REP_UDIST = [
     "vfl1",
     "vfl2",
