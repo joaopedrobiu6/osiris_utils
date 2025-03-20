@@ -81,6 +81,7 @@ class Diagnostic:
         else:
             self._simulation_folder = None
 
+        self._maxiter = len(os.listdir(simulation_folder))
         self._all_loaded = False
     
     def get_quantity(self, quantity):
@@ -239,8 +240,27 @@ class Diagnostic:
             return result
         
         elif other.__class__.__name__ == "Derivative_Diagnostic":
-            return other + self
+            result = Diagnostic(self._species)
 
+            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+                setattr(result, attr, getattr(self, attr))
+
+            result._name = self._name + " + " + str(other)
+
+            if self._all_loaded:
+                other.load_all()
+                result._data = self._data + other._data
+                result._all_loaded = True
+            else:
+                def gen_diag_add(original_gen1, original_gen2):
+                    for val1, val2 in zip(original_gen1, original_gen2):
+                        yield val1 + val2
+
+                original_generator = self._data_generator
+                other_generator = other._data_generator
+                result._data_generator = lambda index: gen_diag_add(original_generator(index), other_generator(index))
+
+            return result
 
     def __sub__(self, other):
         # Scalar subtraction
@@ -294,7 +314,27 @@ class Diagnostic:
             return result
         
         elif other.__class__.__name__ == "Derivative_Diagnostic":
-            return other - self
+            result = Diagnostic(self._species)
+
+            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+                setattr(result, attr, getattr(self, attr))
+
+            result._name = self._name + " - " + str(other)
+
+            if self._all_loaded:
+                other.load_all()
+                result._data = self._data - other._data
+                result._all_loaded = True
+            else:
+                def gen_diag_sub(original_gen1, original_gen2):
+                    for val1, val2 in zip(original_gen1, original_gen2):
+                        yield val1 - val2
+
+                original_generator = self._data_generator
+                other_generator = other._data_generator
+                result._data_generator = lambda index: gen_diag_sub(original_generator(index), other_generator(index))
+
+            return result
     
     def __mul__(self, other):
         # Scalar multiplication
@@ -346,7 +386,27 @@ class Diagnostic:
             return result
         
         elif other.__class__.__name__ == "Derivative_Diagnostic":
-            return other * self
+            result = Diagnostic(self._species)
+            
+            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+                setattr(result, attr, getattr(self, attr))
+
+            result._name = self._name + " * " + str(other)
+
+            if self._all_loaded:
+                other.load_all()
+                result._data = self._data * other._data
+                result._all_loaded = True
+            else:
+                def gen_diag_mul(original_gen1, original_gen2):
+                    for val1, val2 in zip(original_gen1, original_gen2):
+                        yield val1 * val2
+                
+                original_generator = self._data_generator
+                other_generator = other._data_generator
+                result._data_generator = lambda index: gen_diag_mul(original_generator(index), other_generator(index))
+
+            return result
     
     def __truediv__(self, other):
         # Scalar division
@@ -400,7 +460,27 @@ class Diagnostic:
             return result
         
         elif other.__class__.__name__ == "Derivative_Diagnostic":
-            return other / self
+            result = Diagnostic(self._species)
+            
+            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+                setattr(result, attr, getattr(self, attr))
+
+            result._name = self._name + " / " + str(other)
+
+            if self._all_loaded:
+                other.load_all()
+                result._data = self._data / other._data
+                result._all_loaded = True
+            else:
+                def gen_diag_div(original_gen1, original_gen2):
+                    for val1, val2 in zip(original_gen1, original_gen2):
+                        yield val1 / val2
+                
+                original_generator = self._data_generator
+                other_generator = other._data_generator
+                result._data_generator = lambda index: gen_diag_div(original_generator(index), other_generator(index))
+
+            return result
     
     def __pow__(self, other):
        raise NotImplementedError("Power operation not implemented for Diagnostic objects.")
@@ -415,8 +495,77 @@ class Diagnostic:
         return self * other
     
     def __rtruediv__(self, other):
-        return self / other
-    
+        # Scalar divided by diagnostic
+        if isinstance(other, (int, float, np.ndarray)):
+            result = Diagnostic(self._species)
+        
+            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+                setattr(result, attr, getattr(self, attr))
+
+            result._name = str(other) + " / " + self._name if isinstance(other, (int, float)) else "np.ndarray / " + self._name
+            
+            # If data already loaded, divide directly
+            if self._all_loaded:
+                result._data = other / self._data
+                result._all_loaded = True
+            else:
+                def gen_scalar_rdiv(scalar, original_gen):
+                    for val in original_gen:
+                        yield scalar / val
+                
+                # Override the data generator
+                original_generator = self._data_generator
+                result._data_generator = lambda index: gen_scalar_rdiv(other, original_generator(index))
+                
+            return result
+        
+        elif isinstance(other, Diagnostic):
+            
+            result = Diagnostic(self._species)
+
+            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+                setattr(result, attr, getattr(self, attr))
+            
+            result._name =  str(other) + " / " + self._name
+
+            if self._all_loaded:
+                other.load_all()
+                result._data =  other._data / self._data
+                result._all_loaded = True
+            else:
+                def gen_diag_div(original_gen1, original_gen2):
+                    for val1, val2 in zip(original_gen1, original_gen2):
+                        yield  val2 / val1
+                
+                original_generator = self._data_generator
+                other_generator = other._data_generator
+                result._data_generator = lambda index: gen_diag_div(original_generator(index), other_generator(index))
+
+            return result
+        
+        elif other.__class__.__name__ == "Derivative_Diagnostic":
+            result = Diagnostic(self._species)
+            
+            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+                setattr(result, attr, getattr(self, attr))
+
+            result._name =  str(other) + " / " + self._name
+
+            if self._all_loaded:
+                other.load_all()
+                result._data =  other._data / self._data
+                result._all_loaded = True
+            else:
+                def gen_diag_div(original_gen1, original_gen2):
+                    for val1, val2 in zip(original_gen1, original_gen2):
+                        yield  val2 / val1
+                
+                original_generator = self._data_generator
+                other_generator = other._data_generator
+                result._data_generator = lambda index: gen_diag_div(original_generator(index), other_generator(index))
+
+            return result
+
     # Getters
     @property
     def data(self):

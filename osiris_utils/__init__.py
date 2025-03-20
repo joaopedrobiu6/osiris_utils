@@ -14,3 +14,5 @@ from .postprocessing.derivative import Derivative, Derivative_Diagnostic
 
 
 # parent postprocessing class to standardize the outputs to files (h5 or npy)
+
+# true div not working because of rtruediv - division is not commutative

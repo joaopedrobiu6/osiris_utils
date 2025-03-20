@@ -76,6 +76,7 @@ class Derivative_Diagnostic:
         self._x = self._diag._x
         self._grid = self._diag._grid
         self._dim = self._diag._dim
+        self._maxiter = self._diag._maxiter
 
     def load_all(self):
         if self._data is not None:
@@ -137,9 +138,8 @@ class Derivative_Diagnostic:
         elif self._type == "t":
             if index == 0:
                 yield (-3 * self._diag[index] + 4 * self._diag[index + 1] - self._diag[index + 2]) / (2 * self._diag._dt * self._diag._ndump)
-            # derivate at last point not implemented yet
-            # elif self[point + 1] is None:
-            #     return (3 * self[point] - 4 * self[point - 1] + self[point - 2]) / (2 * self._dt)
+            elif index == self._diag._maxiter - 1:
+                yield (3 * self._diag[index] - 4 * self._diag[index - 1] + self._diag[index - 2]) / (2 * self._diag._dt * self._diag._ndump)
             else:
                 yield (self._diag[index + 1] - self._diag[index - 1]) / (2 * self._diag._dt * self._diag._ndump)
         else:
@@ -197,26 +197,27 @@ class Derivative_Diagnostic:
             return result
 
         elif other.__class__.__name__ == "Diagnostic":
-            result = Derivative_Diagnostic(self._diag*other, self._type, self._axis)
-            result._name = self._name + " + " + other._name
+            return other + self
+            # result = Derivative_Diagnostic(self._diag*other, self._type, self._axis)
+            # result._name = self._name + " + " + other._name
 
-            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-                setattr(result, attr, getattr(self, attr))
+            # for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+            #     setattr(result, attr, getattr(self, attr))
 
-            if self._all_loaded:
-                other.load_all()
-                result._data = self._data + other._data
-                result._all_loaded = True
-            else:
-                def gen_derivative_add(original_gen, other_gen):
-                    for i, j in zip(original_gen, other_gen):
-                        yield i + j
+            # if self._all_loaded:
+            #     other.load_all()
+            #     result._data = self._data + other._data
+            #     result._all_loaded = True
+            # else:
+            #     def gen_derivative_add(original_gen, other_gen):
+            #         for i, j in zip(original_gen, other_gen):
+            #             yield i + j
 
-                original_generator = self._data_generator
-                other_generator = other._data_generator
-                result._data_generator = lambda index: gen_derivative_add(original_generator(index), other_generator(index))
+            #     original_generator = self._data_generator
+            #     other_generator = other._data_generator
+            #     result._data_generator = lambda index: gen_derivative_add(original_generator(index), other_generator(index))
 
-            return result
+            # return result
         
         else:
             raise ValueError("Invalid type for addition operation.")
@@ -270,6 +271,7 @@ class Derivative_Diagnostic:
             return result
         
         elif other.__class__.__name__ == "Diagnostic":
+            # return self - other
             result = Derivative_Diagnostic(self._diag*other, self._type, self._axis)
             result._name = self._name + " - " + other._name
 
@@ -344,26 +346,27 @@ class Derivative_Diagnostic:
             return result
         
         elif other.__class__.__name__ == "Diagnostic":
-            result = Derivative_Diagnostic(self._diag*other, self._type, self._axis)
-            result._name = self._name + " * " + other._name
+            return other * self
+            # result = Derivative_Diagnostic(self._diag*other, self._type, self._axis)
+            # result._name = self._name + " * " + other._name
 
-            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
-                setattr(result, attr, getattr(self, attr))
+            # for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+            #     setattr(result, attr, getattr(self, attr))
 
-            if self._all_loaded:
-                other.load_all()
-                result._data = self._data * other._data
-                result._all_loaded = True
-            else:
-                def gen_derivative_mul(original_gen, other_gen):
-                    for i, j in zip(original_gen, other_gen):
-                        yield i * j     
+            # if self._all_loaded:
+            #     other.load_all()
+            #     result._data = self._data * other._data
+            #     result._all_loaded = True
+            # else:
+            #     def gen_derivative_mul(original_gen, other_gen):
+            #         for i, j in zip(original_gen, other_gen):
+            #             yield i * j     
 
-                original_generator = self._data_generator
-                other_generator = other._data_generator
-                result._data_generator = lambda index: gen_derivative_mul(original_generator(index), other_generator(index))
+            #     original_generator = self._data_generator
+            #     other_generator = other._data_generator
+            #     result._data_generator = lambda index: gen_derivative_mul(original_generator(index), other_generator(index))
 
-            return result
+            # return result
         
         else:
             raise ValueError("Invalid type for multiplication operation.")
@@ -454,4 +457,74 @@ class Derivative_Diagnostic:
         return self * other
     
     def __rtruediv__(self, other):
-        return self / other
+        if isinstance(other, (int, float, np.ndarray)):
+            # Create a new Derivative_Diagnostic instance
+            result = Derivative_Diagnostic(self._diag, self._type, self._axis)
+            
+            # Copy all necessary attributes
+            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+                if hasattr(self, attr):
+                    setattr(result, attr, getattr(self, attr))
+
+            # Update the name to reflect the operation
+            result._name = str(other) if isinstance(other, (int, float)) else self._name + " / np.ndarray" + " / " + self._name
+            
+            if self._all_loaded:
+                result._data = other / self._data
+                result._all_loaded = True
+            else:
+                def gen_scalar_div(original_gen, scalar):
+                    for i in original_gen:
+                        yield scalar / i
+
+                original_generator = self._data_generator
+                result._data_generator = lambda index: gen_scalar_div(original_generator(index), other)
+
+            return result
+        
+        elif isinstance(other, Derivative_Diagnostic):
+            result = Derivative_Diagnostic(self._diag*other._diag, self._type, self._axis)
+            result._name = self._name + " / " + other._name
+
+            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+                setattr(result, attr, getattr(self, attr))
+
+            if self._all_loaded:
+                other.load_all()
+                result._data = other._data / self._data
+                result._all_loaded = True
+            else:
+                def gen_derivative_div(original_gen, other_gen):
+                    for i, j in zip(original_gen, other_gen):
+                        yield j / i
+
+                original_generator = self._data_generator
+                other_generator = other._data_generator
+                result._data_generator = lambda index: gen_derivative_div(original_generator(index), other_generator(index))
+
+            return result
+        
+        elif other.__class__.__name__ == "Diagnostic":
+            result = Derivative_Diagnostic(self._diag*other, self._type, self._axis)
+            result._name = other._name + " / " + self._name
+
+            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump']:
+                setattr(result, attr, getattr(self, attr))
+
+            if self._all_loaded:
+                other.load_all()
+                result._data = other._data / self._data
+                result._all_loaded = True
+            else:
+                def gen_derivative_div(original_gen, other_gen):
+                    for i, j in zip(original_gen, other_gen):
+                        yield j / i 
+
+                original_generator = self._data_generator
+                other_generator = other._data_generator
+                result._data_generator = lambda index: gen_derivative_div(original_generator(index), other_generator(index))
+
+            return result
+        
+        else:
+            raise ValueError("Invalid type for division operation.")
