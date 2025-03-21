@@ -587,7 +587,7 @@ FFT_Diagnostic Class
    
    **FFT Properties:**
    
-   * Power spectra (|FFT|**2**) are returned
+   * Power spectra are returned
    * Data is properly shifted to place zero frequency at the center
    * Hanning windows are applied to reduce spectral leakage
 
@@ -605,7 +605,7 @@ The FFT implementation includes several important features:
    * Single-axis FFTs use `np.fft.fft`
    * Multi-dimensional FFTs use `np.fft.fftn`
    * Results are properly shifted with `np.fft.fftshift`
-   * Power spectra (|FFT|**2**) are returned
+   * Power spectra are returned
 
 3. **Memory Management**:
    * Single-dimension spatial FFTs can be computed on-demand for individual timesteps
