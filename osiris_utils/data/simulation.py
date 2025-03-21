@@ -1,6 +1,5 @@
 from ..data.diagnostic import *
 from ..utils import *
-import functools
 
 
 class Simulation:

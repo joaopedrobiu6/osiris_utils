@@ -11,7 +11,7 @@ from .postprocessing.mean_field_theory import MeanFieldTheory_Diagnostic
 
 from .data.simulation import Simulation
 from .postprocessing.derivative import Derivative, Derivative_Diagnostic
-
+from .postprocessing.postprocess import PostProcess
 
 # parent postprocessing class to standardize the outputs to files (h5 or npy)
 

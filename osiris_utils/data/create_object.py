@@ -1,6 +1,4 @@
 from .diagnostic import Diagnostic
-from .data import *
-import numpy as np
 
 class CustomDiagnostic(Diagnostic):
     """
