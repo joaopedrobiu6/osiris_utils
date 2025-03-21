@@ -610,12 +610,7 @@ class Diagnostic:
         else:
             data = self[idx]
 
-        # Create grid points
-        x = self._x[0]
-        y = self._x[1]
-        z = self._x[2]
-
-        X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
+        X, Y, Z = np.meshgrid(self._x[0], self._x[1], self._x[2], indexing="ij")
 
         # Flatten arrays for scatter plot
         X_flat, Y_flat, Z_flat, = X.ravel(), Y.ravel(), Z.ravel()
@@ -654,10 +649,10 @@ class Diagnostic:
         sc = ax.scatter(X_cut, Y_cut, Z_cut, c=data_cut, cmap=cmap, norm=norm, alpha=1)
 
         # Set limits to maintain full background
-        ax.set_xlim([self.grid[0][0], self.grid[0][1]])
-        ax.set_ylim([self.grid[1][0], self.grid[1][1]])
-        ax.set_zlim([self.grid[2][0], self.grid[2][1]])
-
+        ax.set_xlim(*self._grid[0])
+        ax.set_ylim(*self._grid[1])
+        ax.set_zlim(*self._grid[2])
+        
         # Colorbar
         cbar = plt.colorbar(sc, ax=ax, shrink=0.6)
 
