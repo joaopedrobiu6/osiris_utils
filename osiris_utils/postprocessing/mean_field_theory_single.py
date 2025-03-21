@@ -1,7 +1,7 @@
 import numpy as np
 from ..data.data import OsirisGridFile
 
-        
+# Deprecated
 class MFT_Single(OsirisGridFile):
     '''
     Class to handle the mean field theory on data. Inherits from OsirisGridFile.
