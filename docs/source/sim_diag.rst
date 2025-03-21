@@ -483,7 +483,7 @@ Spectral Analysis with Fast Fourier Transform
 The `FastFourierTransform_Simulation` module provides tools for performing spectral analysis on simulation diagnostics using the Fast Fourier Transform (FFT).
 
 FastFourierTransform_Simulation Class
---------------------------
+-------------------------------------
 
 .. autoclass:: osiris_utils.postprocessing.fft.FastFourierTransform_Simulation
    :members:
@@ -654,12 +654,12 @@ For large datasets, consider these performance optimizations:
 
 
 Mean Field Theory Analysis
-=============================
+==========================
 
 The Mean Field Theory (MFT) module provides tools for decomposing simulation data into average (mean) and fluctuation components, a fundamental approach in plasma physics analysis.
 
 MeanFieldTheory_Simulation Class
----------------------
+--------------------------------
 
 .. autoclass:: osiris_utils.postprocessing.mft.MeanFieldTheory_Simulation
    :members:
