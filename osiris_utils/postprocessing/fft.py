@@ -95,8 +95,13 @@ class FFT_Diagnostic(Diagnostic):
         for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter']:
             if hasattr(diagnostic, attr):
                 setattr(self, attr, getattr(diagnostic, attr))
+        
+        print(self._dt)
 
-        self._kmax = np.pi / np.array([self._dx[ax-1] for ax in self._fft_axis if ax != 0])
+        if isinstance(self._dx, (int, float)):
+            self._kmax = np.pi / (self._dx) 
+        else:
+            self._kmax = np.pi / np.array([self._dx[ax-1] for ax in self._fft_axis if ax != 0])
     
     def load_all(self):
         if self._data is not None:

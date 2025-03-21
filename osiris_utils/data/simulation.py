@@ -67,7 +67,7 @@ class Simulation:
             return self._diagnostics[key]
         
         # Create a temporary diagnostic for this quantity
-        diag = Diagnostic(self._species, self._simulation_folder)
+        diag = Diagnostic(simulation_folder=self._simulation_folder, species=self._species)
         diag.get_quantity(key)
         
         original_load_all = diag.load_all

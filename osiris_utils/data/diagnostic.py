@@ -137,8 +137,8 @@ class Diagnostic:
     >>> sim[0]
     array with the data for the first timestep
     """
-    def __init__(self, species, simulation_folder=None):
-        self._species = species
+    def __init__(self, simulation_folder=None, species=None):
+        self._species = species if species else None
 
         self._dx = None
         self._nx = None
@@ -287,6 +287,14 @@ class Diagnostic:
         self._all_loaded = True
         return self._data
     
+    def unload(self):
+        """
+        Unload data from memory. This is useful to free memory when the data is not needed anymore.
+        """
+        print("Unloading data from memory.")
+        self._data = None
+        self._all_loaded = False
+
     def load(self, index):
         """
         Load data for a given index into memory. Not recommended. Use load_all for all data or access via generator or index for better performance.
