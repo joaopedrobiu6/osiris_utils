@@ -87,7 +87,6 @@ class Derivative_Diagnostic(Diagnostic):
 
     def load_metadata(self):
         """Copy metadata from original diagnostic to ensure consistency"""
-        self._name = "D[" + self._diag._name + ", " + self._type + "]"
         self._dt = self._diag._dt
         self._dx = self._diag._dx
         self._ndump = self._diag._ndump
@@ -173,7 +172,6 @@ class Derivative_Diagnostic(Diagnostic):
 
     def __getitem__(self, index):
         """Get data at a specific index"""
-        # If all data is loaded, return from cache
         if self._all_loaded and self._data is not None:
             return self._data[index]
         

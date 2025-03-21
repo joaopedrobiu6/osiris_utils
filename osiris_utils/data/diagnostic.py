@@ -138,15 +138,6 @@ class Diagnostic:
         file = os.path.join(self._path, self._file_template + f"{index:06d}.h5")
         data_object = OsirisGridFile(file)
         yield data_object.data
-    
-    # def load_all(self, centered=False):
-    #     print("Loading all data. This may take a while.")
-    #     if self._simulation_folder is None:
-    #         raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
-    #     self._current_centered = centered
-    #     size = len(sorted(os.listdir(self._path)))
-    #     self._data = np.stack([self[i] for i in tqdm.tqdm(range(size), desc="Loading data")])
-    #     self._all_loaded = True
 
     def load_all(self):
         # If data is already loaded, don't do anything
@@ -171,10 +162,11 @@ class Diagnostic:
                         size = 100
                         print(f"Warning: Could not determine timestep count, using {size}.")
                 
-                # Load data for all timesteps using the generator
+                # Load data for all timesteps using the generator - this may take a while
                 self._data = np.stack([self[i] for i in tqdm.tqdm(range(size), desc="Loading data")])
                 self._all_loaded = True
                 return self._data
+            
             except Exception as e:
                 raise ValueError(f"Could not load derived diagnostic data: {str(e)}")
         
@@ -202,7 +194,7 @@ class Diagnostic:
             return next(self._data_generator(index))
         
         # If we get here, we don't know how to get data for this index
-        raise ValueError("Cannot retrieve data for this diagnostic at index {index}. No data loaded and no generator available.")   
+        raise ValueError(f"Cannot retrieve data for this diagnostic at index {index}. No data loaded and no generator available.")   
     
     def __iter__(self):
         # If this is a file-based diagnostic
@@ -234,7 +226,6 @@ class Diagnostic:
             raise ValueError("Cannot iterate over this diagnostic. No data loaded and no generator available.")
 
     def __add__(self, other):
-        # Scalar addition
         if isinstance(other, (int, float, np.ndarray)):
             result = Diagnostic(self._species)
         
@@ -249,7 +240,6 @@ class Diagnostic:
 
             result._name = self._name + " + " + str(other) if isinstance(other, (int, float)) else self._name + " + np.ndarray"
             
-            # If data already loaded, add directly
             if self._all_loaded:
                 result._data = self._data + other
                 result._all_loaded = True
@@ -258,13 +248,11 @@ class Diagnostic:
                     for val in original_gen:
                         yield val + scalar
                 
-                # Override the data generator
                 original_generator = self._data_generator
                 result._data_generator = lambda index: gen_scalar_add(original_generator(index), other)
                 
             return result
 
-        # Handle diagnostic addition
         elif isinstance(other, Diagnostic):
             result = Diagnostic(self._species)
 
@@ -272,7 +260,6 @@ class Diagnostic:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
         
-            # Make sure _maxiter is set even for derived diagnostics
             if not hasattr(result, '_maxiter') or result._maxiter is None:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
@@ -296,7 +283,6 @@ class Diagnostic:
     
 
     def __sub__(self, other):
-        # Scalar subtraction
         if isinstance(other, (int, float, np.ndarray)):
             result = Diagnostic(self._species)
         
@@ -304,14 +290,12 @@ class Diagnostic:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
         
-            # Make sure _maxiter is set even for derived diagnostics
             if not hasattr(result, '_maxiter') or result._maxiter is None:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
 
             result._name = self._name + " - " + str(other) if isinstance(other, (int, float)) else self._name + " - np.ndarray"
             
-            # If data already loaded, add directly
             if self._all_loaded:
                 result._data = self._data - other
                 result._all_loaded = True
@@ -320,13 +304,11 @@ class Diagnostic:
                     for val in original_gen:
                         yield val - scalar
                 
-                # Override the data generator
                 original_generator = self._data_generator
                 result._data_generator = lambda index: gen_scalar_sub(original_generator(index), other)
                 
             return result
 
-        # Handle diagnostic subtraction
         elif isinstance(other, Diagnostic):
                 
             
@@ -336,7 +318,6 @@ class Diagnostic:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
         
-            # Make sure _maxiter is set even for derived diagnostics
             if not hasattr(result, '_maxiter') or result._maxiter is None:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
@@ -359,7 +340,6 @@ class Diagnostic:
             return result
     
     def __mul__(self, other):
-        # Scalar multiplication
         if isinstance(other, (int, float, np.ndarray)):
             result = Diagnostic(self._species)
         
@@ -367,14 +347,12 @@ class Diagnostic:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
         
-            # Make sure _maxiter is set even for derived diagnostics
             if not hasattr(result, '_maxiter') or result._maxiter is None:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
 
             result._name = self._name + " * " + str(other) if isinstance(other, (int, float)) else self._name + " * np.ndarray"
             
-            # If data already loaded, add directly
             if self._all_loaded:
                 result._data = self._data * other
                 result._all_loaded = True
@@ -383,13 +361,11 @@ class Diagnostic:
                     for val in original_gen:
                         yield val * scalar
                 
-                # Override the data generator
                 original_generator = self._data_generator
                 result._data_generator = lambda index: gen_scalar_mul(original_generator(index), other)
                 
             return result
 
-        # Handle diagnostic multiplication
         elif isinstance(other, Diagnostic):
             result = Diagnostic(self._species)
 
@@ -397,7 +373,6 @@ class Diagnostic:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
         
-            # Make sure _maxiter is set even for derived diagnostics
             if not hasattr(result, '_maxiter') or result._maxiter is None:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
@@ -420,7 +395,6 @@ class Diagnostic:
             return result
     
     def __truediv__(self, other):
-        # Scalar division
         if isinstance(other, (int, float, np.ndarray)):
             result = Diagnostic(self._species)
         
@@ -428,14 +402,12 @@ class Diagnostic:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
         
-            # Make sure _maxiter is set even for derived diagnostics
             if not hasattr(result, '_maxiter') or result._maxiter is None:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
 
             result._name = self._name + " / " + str(other) if isinstance(other, (int, float)) else self._name + " / np.ndarray"
             
-            # If data already loaded, add directly
             if self._all_loaded:
                 result._data = self._data / other
                 result._all_loaded = True
@@ -444,23 +416,19 @@ class Diagnostic:
                     for val in original_gen:
                         yield val / scalar
                 
-                # Override the data generator
                 original_generator = self._data_generator
                 result._data_generator = lambda index: gen_scalar_div(original_generator(index), other)
                 
             return result
 
-        # Handle diagnostic division
         elif isinstance(other, Diagnostic):
                 
-            
             result = Diagnostic(self._species)
 
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump', '_maxiter']:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
         
-            # Make sure _maxiter is set even for derived diagnostics
             if not hasattr(result, '_maxiter') or result._maxiter is None:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
@@ -488,14 +456,13 @@ class Diagnostic:
     def __radd__(self, other):
         return self + other
     
-    def __rsub__(self, other):
+    def __rsub__(self, other): # I don't know if this is correct because I'm not sure if the order of the subtraction is correct
         return self - other
     
     def __rmul__(self, other):
         return self * other
     
-    def __rtruediv__(self, other):
-        # Scalar divided by diagnostic
+    def __rtruediv__(self, other): # division is not commutative
         if isinstance(other, (int, float, np.ndarray)):
             result = Diagnostic(self._species)
         
@@ -503,14 +470,12 @@ class Diagnostic:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
         
-            # Make sure _maxiter is set even for derived diagnostics
             if not hasattr(result, '_maxiter') or result._maxiter is None:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
 
             result._name = str(other) + " / " + self._name if isinstance(other, (int, float)) else "np.ndarray / " + self._name
             
-            # If data already loaded, divide directly
             if self._all_loaded:
                 result._data = other / self._data
                 result._all_loaded = True
@@ -519,7 +484,6 @@ class Diagnostic:
                     for val in original_gen:
                         yield scalar / val
                 
-                # Override the data generator
                 original_generator = self._data_generator
                 result._data_generator = lambda index: gen_scalar_rdiv(other, original_generator(index))
                 
@@ -533,7 +497,6 @@ class Diagnostic:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
         
-            # Make sure _maxiter is set even for derived diagnostics
             if not hasattr(result, '_maxiter') or result._maxiter is None:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter

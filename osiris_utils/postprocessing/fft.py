@@ -1,53 +1,187 @@
-import numpy as np
+from ..utils import *
+from ..data.simulation import Simulation
+from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
-from tqdm import tqdm
+import numpy as np
+import tqdm as tqdm
 
-class FastFourierTransform:
+
+class FastFourierTransform(PostProcess):
     """
     Class to handle the Fast Fourier Transform on data.
-
+    
     Parameters
     ----------
-    Diagnostic : Diagnostic
+    
+    simulation : Simulation
         The simulation object.
     axis : int
         The axis to compute the FFT.
     """
-    def __init__(self, Diagnostic, axis):
-        self.sim = Diagnostic
-        self._compute_fft(axis=axis)
+    def __init__(self, simulation, fft_axis):
+        super().__init__("FFT")
+        if not isinstance(simulation, Simulation):
+            raise ValueError("Simulation must be a Simulation object.")
+        self._simulation = simulation
+        self._fft_axis = fft_axis
+        self._fft_computed = {}
 
-    def _compute_fft(self, axis):
-        if not hasattr(self.sim, 'data') or self.sim.data is None:
-            print("No data to compute the FFT. Loading all data.")
-            self.sim.load_all()
+    def __getitem__(self, key):
+        if key not in self._fft_computed:
+            self._fft_computed[key] = FFT_Diagnostic(self._simulation[key], self._fft_axis)
+        return self._fft_computed[key]
+    
+    def delete_all(self):
+        self._fft_computed = {}
 
-        hanning_window = np.hanning(self.sim.data.shape[0]).reshape(-1, 1, 1)
-        data_hanned = hanning_window * self.sim.data
+    def delete(self, key):
+        if key in self._fft_computed:
+            del self._fft_computed[key]
+        else:
+            print(f"FFT {key} not found in simulation")
 
-        with tqdm(total=1, desc="FFT calculation") as pbar:
-            data_fft = np.abs(np.fft.fftn(data_hanned, axes=axis))**2
-            pbar.update(0.5)
-            self._data_fft = np.fft.fftshift(data_fft, axes=axis)
-            pbar.update(0.5)
+    def process(self, diagnostic):
+        """Apply FFT to a diagnostic"""
+        return FFT_Diagnostic(diagnostic, self._fft_axis)
+    
 
-        self._kmax = np.pi / self.sim.dx
-        self._omega_max = np.pi / self.sim.dt
+class FFT_Diagnostic(Diagnostic):
+    """
+    Auxiliar class to compute the FFT of a diagnostic, for it to be similar in behavior to a Diagnostic object.
+    Inherits directly from Diagnostic to ensure all operation overloads work properly.
 
-    # adaptar para que possa fazer so para um time step
+    Parameters
+    ---------- 
+    diagnostic : Diagnostic
+        The diagnostic to compute the FFT.
+    axis : int
+        The axis to compute the FFT.
+    """
+    def __init__(self, diagnostic, fft_axis):
+        if hasattr(diagnostic, '_species'):
+            super().__init__(diagnostic._species, diagnostic._simulation_folder if hasattr(diagnostic, '_simulation_folder') else None)
+        else:
+            super().__init__(None)
 
-    @property
-    def fft(self):
-        return self._data_fft
+        self._name = f"FFT[{diagnostic._name}, {fft_axis}]"
+        self._diag = diagnostic
+        self._fft_axis = fft_axis
+        self._data = None
+        self._all_loaded = False
+        
+        # Copy all relevant attributes from diagnostic
+        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter']:
+            if hasattr(diagnostic, attr):
+                setattr(self, attr, getattr(diagnostic, attr))
+
+        self._kmax = np.pi / np.array([self._dx[ax-1] for ax in self._fft_axis if ax != 0])
+    
+    def load_all(self):
+        if self._data is not None:
+            print("Using cached derivative")
+            return self._data
+        
+        if not hasattr(self._diag, '_data') or self._diag._data is None:
+            self._diag.load_all()
+            self._diag._data = np.nan_to_num(self._diag._data)
+
+       # Apply appropriate windows based on which axes we're transforming
+        if isinstance(self._fft_axis, (list, tuple)):
+            # Multiple axes FFT
+            result = self._diag._data.copy()
+            
+            for axis in self._fft_axis:
+                if axis == 0:  # Time axis
+                    window = np.hanning(result.shape[0]).reshape(-1, *([1] * (result.ndim - 1)))
+                    result = result * window
+                else:  # Spatial axis
+                    window = self._get_window(result.shape[axis], axis)
+                    result = self._apply_window(result, window, axis)
+                    
+            with tqdm.tqdm(total=1, desc="FFT calculation") as pbar:
+                data_fft = np.fft.fftn(result, axes=self._fft_axis)
+                pbar.update(0.5)
+                result = np.fft.fftshift(data_fft, axes=self._fft_axis)
+                pbar.update(0.5)
+        
+        else:
+            if self._fft_axis == 0:
+                hanning_window = np.hanning(self._diag._data.shape[0]).reshape(-1, *([1] * (self._diag._data.ndim - 1)))
+                data_windowed = hanning_window * self._diag._data
+            else: 
+                window = self._get_window(self._diag._data.shape[self._fft_axis], self._fft_axis)
+                data_windowed = self._apply_window(self._diag._data, window, self._fft_axis)
+            
+            with tqdm.tqdm(total=1, desc="FFT calculation") as pbar:
+                data_fft = np.fft.fft(data_windowed, axis=self._fft_axis)
+                pbar.update(0.5)
+                result = np.fft.fftshift(data_fft, axes=self._fft_axis)
+                pbar.update(0.5)
+
+        self.omega_max = np.pi / self._dt / self._ndump
+
+        self._all_loaded = True
+        self._data = np.abs(result)**2
+        return self._data
+    
+    def _data_generator(self, index):
+        # Get the data for this index
+        original_data = self._diag[index]
+        
+        if self._fft_axis == 0:
+            raise ValueError("Cannot generate FFT along time axis for a single timestep. Use load_all() instead.")
+        
+        # For spatial FFT, we can apply a spatial window if desired
+        if isinstance(self._fft_axis, (list, tuple)):
+            result = original_data
+            for axis in self._fft_axis:
+                if axis != 0:  # Skip time axis
+                    # Apply window along this spatial dimension
+                    window = self._get_window(original_data.shape[axis-1], axis-1)
+                    result = self._apply_window(result, window, axis-1)
+                    
+            # Compute FFT
+            result_fft = np.fft.fftn(result, axes=[ax-1 for ax in self._fft_axis if ax != 0])
+            result_fft = np.fft.fftshift(result_fft, axes=[ax-1 for ax in self._fft_axis if ax != 0])
+            
+        else:
+            if self._fft_axis > 0:  # Spatial axis
+                window = self._get_window(original_data.shape[self._fft_axis-1], self._fft_axis-1)
+                windowed_data = self._apply_window(original_data, window, self._fft_axis-1)
+                
+                result_fft = np.fft.fft(windowed_data, axis=self._fft_axis-1)
+                result_fft = np.fft.fftshift(result_fft, axes=self._fft_axis-1)
+        
+        yield np.abs(result_fft)**2
+        
+    def _get_window(self, length, axis):
+        return np.hanning(length)
+
+    def _apply_window(self, data, window, axis):
+        ndim = data.ndim
+        window_shape = [1] * ndim
+        window_shape[axis] = len(window)
+        
+        reshaped_window = window.reshape(window_shape)
+        
+        return data * reshaped_window
+
+    def __getitem__(self, index):
+        if self._all_loaded and self._data is not None:
+            return self._data[index]
+        return next(self._data_generator(index))
+    
+    def omega(self):
+        """
+        Get the angular frequency array for the FFT.
+        """
+        if not self._all_loaded:
+            raise ValueError("Load the data first using load_all() method.")
+        
+        omega = np.fft.fftfreq(self._data.shape[self._fft_axis], d=self._dx[self._fft_axis-1])
+        omega = np.fft.fftshift(omega)
+        return omega
     
     @property
     def kmax(self):
         return self._kmax
-    
-    @property
-    def omega_max(self):
-        return self._omega_max
-    
-
-
-        
