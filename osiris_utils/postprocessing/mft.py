@@ -4,6 +4,24 @@ from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
 
 class MeanFieldTheory(PostProcess):
+    """
+    Class to compute the mean field theory of a diagnostic. Works as a wrapper for the MFT_Diagnostic class.
+    Inherits from PostProcess to ensure all operation overloads work properly.
+
+    Parameters
+    ----------
+    simulation : Simulation
+        The simulation object.
+    mft_axis : int
+        The axis to compute the mean field theory.
+
+    Example
+    -------
+    >>> sim = Simulation('electrons', 'path/to/simulation')
+    >>> mft = MeanFieldTheory(sim, 1)
+    >>> mft_e1 = mft['e1']
+    """
+
     def __init__(self, simulation, mft_axis=None):
         super().__init__(f"MeanFieldTheory({mft_axis})")
         if not isinstance(simulation, Simulation):
@@ -33,7 +51,7 @@ class MeanFieldTheory(PostProcess):
 class MFT_Diagnostic(Diagnostic):
     """
     Class to compute mean field theory of a diagnostic.
-    Acts as a container for average and fluctuation components.
+    Acts as a container for the average and fluctuation components.
 
     Parameters
     ----------
@@ -41,7 +59,16 @@ class MFT_Diagnostic(Diagnostic):
         The diagnostic object.
     mft_axis : int
         The axis to compute mean field theory along.
+
+    Example
+    -------
+    >>> sim = Simulation('electrons', 'path/to/simulation')
+    >>> diag = sim['e1']
+    >>> mft = MFT_Diagnostic(diag, 1)
+    >>> avg = mft['avg']
+    >>> delta = mft['delta']
     """
+
     def __init__(self, diagnostic, mft_axis):
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, '_species'):
@@ -111,7 +138,22 @@ class MFT_Diagnostic(Diagnostic):
 class MFT_Diagnostic_Average(Diagnostic):
     """
     Class to compute the average component of mean field theory.
+    Inherits from Diagnostic to ensure all operation overloads work properly.
+
+    Parameters
+    ----------
+    diagnostic : Diagnostic
+        The diagnostic object.
+    mft_axis : int
+        The axis to compute the mean field theory.
+
+    Example
+    -------
+    >>> sim = Simulation('electrons', 'path/to/simulation')
+    >>> diag = sim['e1']
+    >>> avg = MFT_Diagnostic_Average(diag, 1)
     """
+
     def __init__(self, diagnostic, mft_axis):
         # Initialize with the same species as the diagnostic
         if hasattr(diagnostic, '_species'):
@@ -173,7 +215,22 @@ class MFT_Diagnostic_Average(Diagnostic):
 class MFT_Diagnostic_Fluctuations(Diagnostic):
     """
     Class to compute the fluctuation component of mean field theory.
+    Inherits from Diagnostic to ensure all operation overloads work properly.
+
+    Parameters
+    ----------
+    diagnostic : Diagnostic
+        The diagnostic object.
+    mft_axis : int
+        The axis to compute the mean field theory.
+
+    Example
+    -------
+    >>> sim = Simulation('electrons', 'path/to/simulation')
+    >>> diag = sim['e1']
+    >>> delta = MFT_Diagnostic_Fluctuations(diag, 1)
     """
+    
     def __init__(self, diagnostic, mft_axis):
         # Initialize with the same species as the diagnostic
         if hasattr(diagnostic, '_species'):

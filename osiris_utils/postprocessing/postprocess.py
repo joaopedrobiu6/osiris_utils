@@ -9,7 +9,10 @@ class PostProcess(Diagnostic):
     ----------
     name : str
         Name of the post-processing operation.
+    species : str
+        The species to analyze.
     """
+    
     def __init__(self, name, species=None):
         # Initialize with the same interface as Diagnostic
         super().__init__(species)

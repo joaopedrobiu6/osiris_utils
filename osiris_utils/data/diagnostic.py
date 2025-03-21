@@ -39,11 +39,17 @@ OSIRIS_SPECIE_REP_UDIST = [
 ]
 OSIRIS_FLD = ["e1", "e2", "e3", "b1", "b2", "b3"]
 OSIRIS_PHA = ["p1x1", "p1x2", "p1x3", "p2x1", "p2x2", "p2x3", "p3x1", "p3x2", "p3x3", "gammax1", "gammax2", "gammax3"] # there may be more that I don't know
+OSIRIS_ALL = OSIRIS_SPECIE_REPORTS + OSIRIS_SPECIE_REP_UDIST + OSIRIS_FLD + OSIRIS_PHA
+
+def which_quantities():
+    print("Available quantities:")
+    print(OSIRIS_ALL)
 
 
 class Diagnostic:
     """
-    Class to handle the diagnostics of a simulation. This is mainly used by Simulation class to handle the diagnostics.
+    Class to handle diagnostics. This is the "base" class of the code. Diagnostics can be loaded from OSIRIS output files, but are also created when performing operations with other diagnostics.
+    Post-processed quantities are also considered diagnostics. This way, we can perform operations with them as well.
 
     Parameters
     ----------
@@ -51,6 +57,85 @@ class Diagnostic:
         The species to handle the diagnostics.
     simulation_folder : str
         The path to the simulation folder. This is the path to the folder where the input deck is located.
+
+    Attributes
+    ----------
+    species : str
+        The species to handle the diagnostics.
+    dx : np.ndarray(float) or float
+        The grid spacing in each direction. If the dimension is 1, this is a float. If the dimension is 2 or 3, this is a np.ndarray.
+    nx : np.ndarray(int) or int
+        The number of grid points in each direction. If the dimension is 1, this is a int. If the dimension is 2 or 3, this is a np.ndarray.
+    x : np.ndarray
+        The grid points.
+    dt : float
+        The time step.
+    grid : np.ndarray
+        The grid boundaries.
+    axis : dict
+        The axis information. Each key is a direction and the value is a dictionary with the keys "name", "long_name", "units" and "plot_label".
+    units : str
+        The units of the diagnostic. This info may not be available for all diagnostics, ie, diagnostics resulting from operations and postprocessing.
+    name : str
+        The name of the diagnostic. This info may not be available for all diagnostics, ie, diagnostics resulting from operations and postprocessing.
+    label : str
+        The label of the diagnostic. This info may not be available for all diagnostics, ie, diagnostics resulting from operations and postprocessing.
+    dim : int
+        The dimension of the diagnostic.
+    ndump : int
+        The number of steps between dumps.
+    maxiter : int
+        The maximum number of iterations.
+    tunits : str
+        The time units.
+    path : str
+        The path to the diagnostic.
+    simulation_folder : str
+        The path to the simulation folder.
+    all_loaded : bool
+        If the data is already loaded into memory. This is useful to avoid loading the data multiple times.
+    data : np.ndarray
+        The diagnostic data. This is created only when the data is loaded into memory.
+
+    Methods
+    -------
+    get_quantity(quantity)
+        Get the data for a given quantity.
+    load_all()
+        Load all data into memory.
+    load(index)
+        Load data for a given index.
+    __getitem__(index)
+        Get data for a given index. Does not load the data into memory.
+    __iter__()
+        Iterate over the data. Does not load the data into memory.
+    __add__(other)
+        Add two diagnostics.
+    __sub__(other)
+        Subtract two diagnostics.
+    __mul__(other)
+        Multiply two diagnostics.
+    __truediv__(other)
+        Divide two diagnostics.
+    __pow__(other)
+        Power of a diagnostic.
+    plot_3d(idx, scale_type="default", boundaries=None)
+        Plot a 3D scatter plot of the diagnostic data.
+    time(index)
+        Get the time for a given index.
+
+    Examples
+    --------
+    >>> sim = Simulation("electrons", "path/to/simulation")
+    >>> sim.get_quantity("charge")
+    >>> sim.load_all()
+    >>> print(sim.data.shape)
+    (100, 100, 100)
+
+    >>> sim = Simulation("electrons", "path/to/simulation")
+    >>> sim.get_quantity("charge")
+    >>> sim[0]
+    array with the data for the first timestep
     """
     def __init__(self, species, simulation_folder=None):
         self._species = species
@@ -79,6 +164,16 @@ class Diagnostic:
         self._all_loaded = False
     
     def get_quantity(self, quantity):
+        """
+        Get the data for a given quantity.
+
+        Parameters
+        ----------
+        quantity : str
+            The quantity to get the data.
+        """
+        if quantity not in OSIRIS_ALL:
+            raise ValueError(f"Invalid quantity {quantity}. Use which_quantities() to see the available quantities.")
         if quantity in OSIRIS_SPECIE_REP_UDIST:
             self._get_moment(self._species, quantity)
         elif quantity in OSIRIS_SPECIE_REPORTS:
@@ -147,6 +242,14 @@ class Diagnostic:
         yield data_object.data
 
     def load_all(self):
+        """
+        Load all data into memory (all iterations).
+
+        Returns
+        -------
+        data : np.ndarray
+            The data for all iterations. Also stored in the attribute data.
+        """
         # If data is already loaded, don't do anything
         if self._all_loaded and self._data is not None:
             print("Data already loaded.")
@@ -185,6 +288,9 @@ class Diagnostic:
         return self._data
     
     def load(self, index):
+        """
+        Load data for a given index into memory. Not recommended. Use load_all for all data or access via generator or index for better performance.
+        """
         self._data = next(self._data_generator(index))
 
     def __getitem__(self, index):
@@ -652,7 +758,7 @@ class Diagnostic:
         ax.set_xlim(*self._grid[0])
         ax.set_ylim(*self._grid[1])
         ax.set_zlim(*self._grid[2])
-        
+
         # Colorbar
         cbar = plt.colorbar(sc, ax=ax, shrink=0.6)
 

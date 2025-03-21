@@ -5,7 +5,8 @@ from ..data.diagnostic import Diagnostic
 
 class Derivative(PostProcess):
     """
-    Class to compute the derivative of a diagnostic.
+    Class to compute the derivative of a diagnostic. Works as a wrapper for the Derivative_Diagnostic class.
+    Inherits from PostProcess to ensure all operation overloads work properly.
 
     Parameters
     ----------
@@ -22,6 +23,12 @@ class Derivative(PostProcess):
         - 'tx' for mixed derivative in one spatial axis and time.
     axis : int or tuple
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
+
+    Example
+    -------
+    >>> sim = Simulation('electrons', 'path/to/simulation')
+    >>> derivative = Derivative(sim, 'x1')
+    >>> deriv_e1_wrt_x1 = derivative['e1']
     """
 
     def __init__(self, simulation, type, axis=None):
@@ -65,7 +72,21 @@ class Derivative_Diagnostic(Diagnostic):
         The type of derivative to compute. Options are: 't', 'x1', 'x2', 'x3', 'xx', 'xt' and 'tx'.
     axis : int or tuple
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types
+
+    Methods
+    -------
+    load_all()
+        Load all the data and compute the derivative.
+    __getitem__(index)
+        Get data at a specific index.
+
+    Example
+    -------
+    >>> sim = Simulation('electrons', 'path/to/simulation')
+    >>> diag = sim['e1']
+    >>> derivative = Derivative_Diagnostic(diag, 'x1')
     """
+
     def __init__(self, diagnostic, type, axis=None):
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, '_species'):
