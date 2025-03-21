@@ -330,7 +330,7 @@ Derivative Post-Processing
 The `Derivative_Simulation` module provides tools for computing various types of derivatives from simulation diagnostics.
 
 Derivative_Simulation Class
-----------------
+---------------------------
 
 .. autoclass:: osiris_utils.postprocessing.derivative.Derivative_Simulation
    :members:
