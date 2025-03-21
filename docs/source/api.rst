@@ -4,14 +4,14 @@ API Reference
 This document provides a complete reference to the osiris_utils package API.
 
 Core Data Structures
--------------------
+--------------------
 
 The package provides several classes for handling different types of OSIRIS data.
 
 OsirisData
 ~~~~~~~~~~
 
-.. autoclass:: osiris_utils.data.OsirisData
+.. autoclass:: osiris_utils.data.data.OsirisData
    :members: dt, dim, time, iter, name, type, verbose
    :special-members: __init__
    :noindex:
@@ -29,9 +29,9 @@ OsirisData
    * ``verbose`` - Verbosity flag for logging
 
 Grid-Based Data
-~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~
 
-.. autoclass:: osiris_utils.data.OsirisGridFile
+.. autoclass:: osiris_utils.data.data.OsirisGridFile
    :members: grid, nx, dx, x, axis, data, units, label
    :inherited-members:
 
@@ -49,9 +49,9 @@ Grid-Based Data
    * ``label`` - Data labels for visualization
 
 Particle Data
-~~~~~~~~~~~~
+~~~~~~~~~~~~~
 
-.. autoclass:: osiris_utils.data.OsirisRawFile
+.. autoclass:: osiris_utils.data.data.OsirisRawFile
    :members: data, axis
    :inherited-members: grid, nx, dx, x, axis, data, units, label
 
@@ -63,40 +63,24 @@ Particle Data
    * ``axis`` - Coordinate labels
    * Inherits grid-related attributes from OsirisData
 
-Time Series Data
-~~~~~~~~~~~~~~~
+HIST Data
+~~~~~~~~~
 
-.. autoclass:: osiris_utils.data.OsirisHIST
+.. autoclass:: osiris_utils.data.data.OsirisHIST
    :members: df
    :inherited-members: grid, nx, dx, x, axis, data, units, label
 
-   Processes HIST file time series data from OSIRIS diagnostics.
+   Processes HIST file from OSIRIS diagnostics.
    
    **Key Attributes:**
    
-   * ``df`` - DataFrame containing the time series data
-
-Mean Field Theory
-~~~~~~~~~~~~~~~~
-
-.. autoclass:: osiris_utils.mean_field_theory.MeanFieldTheory
-   :members: average, delta, derivative
-   :inherited-members: grid, nx, dx, x, axis, data, units, label
-   :noindex:
-
-   Tools for calculating mean field quantities from simulation data.
-   
-   **Key Methods:**
-   
-   * ``average()`` - Calculate spatial averages
-   * ``delta()`` - Calculate deviations from averages
-   * ``derivative()`` - Calculate spatial derivatives
+   * ``df`` - DataFrame containing the data
 
 Visualization & GUI
-------------------
+-------------------
 
 Interactive Visualization
-~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. autoclass:: osiris_utils.gui.LAVA
    :members:
@@ -108,7 +92,7 @@ Interactive Visualization
    visualization capabilities for OSIRIS data.
 
 Animation Tools
-~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~
 
 .. automodule:: osiris_utils.utils
    :members: animate_2D
@@ -119,10 +103,10 @@ Animation Tools
    * ``animate_2D`` - Creates animations from 2D field data
 
 Physics & Analysis
------------------
+------------------
 
 Numerical Methods
-~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~
 
 .. automodule:: osiris_utils.utils
    :members: courant2D, transverse_average
@@ -134,10 +118,10 @@ Numerical Methods
    * ``transverse_average`` - Compute averages along transverse directions
 
 Data Utilities
--------------
+-------------- 
 
 File Operations
-~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~
 
 .. automodule:: osiris_utils.utils
    :members: 

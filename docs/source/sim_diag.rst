@@ -1,10 +1,10 @@
 Simulation Interface
-==================
+====================
 
 The `Simulation` class provides a high-level interface for handling OSIRIS simulation data and accessing various diagnostics.
 
 Simulation Class
---------------
+----------------
 
 .. autoclass:: osiris_utils.data.simulation.Simulation
    :members:
@@ -64,9 +64,9 @@ Simulation Class
        sim.delete_all_diagnostics()
 
 Integration with Diagnostics
---------------------------
+----------------------------
 
-The Simulation class works seamlessly with the :doc:`diagnostic` system:
+The Simulation class works seamlessly with the :ref:`diagnostic-system` system:
 
 1. When you request a diagnostic with ``sim[quantity_name]``, it creates a Diagnostic object
 2. The first time you load data with ``.load_all()`` or indexing, the diagnostic is cached
@@ -76,13 +76,15 @@ The Simulation class works seamlessly with the :doc:`diagnostic` system:
 
 This approach allows for efficient workflow when analyzing large simulations with multiple fields and timesteps.
 
+.. _diagnostic-system:
+
 Diagnostic System
-===============
+=================
 
 The `Diagnostic` class is the foundation of osiris_utils data handling, providing access to OSIRIS simulation output files and support for derived quantities.
 
 Diagnostic Base Class
--------------------
+---------------------
 
 .. autoclass:: osiris_utils.data.diagnostic.Diagnostic
    :members:
@@ -146,7 +148,7 @@ Diagnostic Base Class
        timestep_10 = e_magnitude[10]
 
 Available Diagnostic Quantities in OSIRIS
------------------------------
+-----------------------------------------
 
 The following diagnostic quantities are available for OSIRIS simulations:
 
@@ -179,7 +181,7 @@ To see all available quantities:
     which_quantities()
 
 Memory-Efficient Processing
--------------------------
+---------------------------
 
 The `Diagnostic` class provides several ways to work with large datasets without loading everything into memory:
 
@@ -190,14 +192,14 @@ The `Diagnostic` class provides several ways to work with large datasets without
 This lazy evaluation system allows you to work with large simulations that would otherwise exceed available memory.
 
 Visualization Methods
-------------------
+---------------------
 
 The `Diagnostic` class provides visualization methods for quick inspection of 3D data:
 
 * ``plot_3d()`` - Creates 3D scatter plots of 3D field data
 
 Derived Diagnostics
-------------------
+-------------------
 
 One of the most powerful features of the Diagnostic system is that new diagnostics can be created through operations on existing ones. These derived diagnostics maintain all the benefits of the base class:
 
@@ -240,12 +242,12 @@ When creating diagnostics through operations, metadata is intelligently propagat
 Operations can be chained to create complex derivations:
 
 Post-Processing Framework
-========================
+=========================
 
 The `osiris_utils` package provides a framework for post-processing OSIRIS simulation data through the `PostProcess` class.
 
 PostProcess Base Class
----------------------
+----------------------
 
 .. autoclass:: osiris_utils.postprocessing.postprocess.PostProcess
    :members:
@@ -287,7 +289,7 @@ PostProcess Base Class
        result.plot()
 
 Creating Custom Post-Processors
-------------------------------
+-------------------------------
 
 To create your own post-processing operation, subclass `PostProcess` and implement the `process` method:
 
@@ -313,7 +315,7 @@ To create your own post-processing operation, subclass `PostProcess` and impleme
             return result
 
 Integration with OSIRIS Diagnostics
-----------------------------------
+-----------------------------------
 
 Post-processors are designed to work seamlessly with the OSIRIS diagnostic system:
 
@@ -324,12 +326,12 @@ Post-processors are designed to work seamlessly with the OSIRIS diagnostic syste
 See the :doc:`analysis` page for specific post-processing implementations available in the package.
 
 Derivative Post-Processing
-========================
+==========================
 
 The `Derivative` module provides tools for computing various types of derivatives from simulation diagnostics.
 
 Derivative Class
---------------
+----------------
 
 .. autoclass:: osiris_utils.postprocessing.derivative.Derivative
    :members:
@@ -344,13 +346,13 @@ Derivative Class
    
    **Derivative Types:**
    
-   * ``t`` - Time derivative (∂/∂t)
-   * ``x1`` - First spatial derivative (∂/∂x₁)
-   * ``x2`` - Second spatial derivative (∂/∂x₂) 
-   * ``x3`` - Third spatial derivative (∂/∂x₃)
-   * ``xx`` - Second-order spatial derivative (∂²/∂xᵢ∂xⱼ)
-   * ``xt`` - Mixed space-time derivative (∂²/∂x∂t)
-   * ``tx`` - Mixed time-space derivative (∂²/∂t∂x)
+   * ``t`` - Time derivative (d/dt)
+   * ``x1`` - First spatial derivative (d/dx1)
+   * ``x2`` - Second spatial derivative (d/dx2) 
+   * ``x3`` - Third spatial derivative (d/dx3)
+   * ``xx`` - Second-order spatial derivative (d2/dxidxj)
+   * ``xt`` - Mixed space-time derivative (d2/dxdt)
+   * ``tx`` - Mixed time-space derivative (d2/dtdx)
    
    **Usage Examples:**
    
@@ -390,7 +392,7 @@ Derivative Class
        de1_dt = derivative.process(e1_field)
 
 Derivative_Diagnostic Class
-------------------------
+---------------------------
 
 .. autoclass:: osiris_utils.postprocessing.derivative.Derivative_Diagnostic
    :members:
@@ -412,7 +414,7 @@ Derivative_Diagnostic Class
    * Full compatibility with other diagnostics - can be used in further operations
 
 Implementation Details
--------------------
+----------------------
 
 The derivative calculation uses NumPy's gradient function with appropriate handling of boundary conditions:
 
@@ -431,7 +433,7 @@ The derivative calculation uses NumPy's gradient function with appropriate handl
    * Requires specification of derivative axes
 
 Performance Considerations
------------------------
+--------------------------
 
 When working with large simulations, consider these performance tips:
 
@@ -448,7 +450,7 @@ When working with large simulations, consider these performance tips:
    * Initial access may be slower, but subsequent access is fast
 
 Use Cases
---------
+---------
 
 Common applications of the Derivative post-processor include:
 
@@ -467,7 +469,7 @@ Common applications of the Derivative post-processor include:
    * Mixed space-time derivatives for wave analysis
 
 Example: Computing Curl of B
---------------------------
+----------------------------
 
 This example shows how to compute the z-component of curl(B):
 
@@ -493,12 +495,12 @@ This example shows how to compute the z-component of curl(B):
     curl_B_z = dB2_dx1 - dB1_dx2
 
 Spectral Analysis with Fast Fourier Transform
-===========================================
+=============================================
 
 The `FastFourierTransform` module provides tools for performing spectral analysis on simulation diagnostics using the Fast Fourier Transform (FFT).
 
 FastFourierTransform Class
-------------------------
+--------------------------
 
 .. autoclass:: osiris_utils.postprocessing.fft.FastFourierTransform
    :members:
@@ -564,7 +566,7 @@ FastFourierTransform Class
        b3_spectrum = fft.process(b3_field)
 
 FFT_Diagnostic Class
-------------------
+--------------------
 
 .. autoclass:: osiris_utils.postprocessing.fft.FFT_Diagnostic
    :members:
@@ -586,12 +588,12 @@ FFT_Diagnostic Class
    
    **FFT Properties:**
    
-   * FFT results are returned as power spectra (|FFT|²)
+   * FFT results are returned as power spectra (|FFT|**2**)
    * Data is properly shifted to place zero frequency at the center
    * Hanning windows are applied to reduce spectral leakage
 
 Implementation Details
--------------------
+----------------------
 
 The FFT implementation includes several important features:
 
@@ -612,7 +614,7 @@ The FFT implementation includes several important features:
    * Progress bars are displayed for long-running computations
 
 Common Applications
------------------
+-------------------
 
 The FFT post-processor is valuable for many plasma physics analyses:
 
@@ -634,7 +636,7 @@ The FFT post-processor is valuable for many plasma physics analyses:
    * Identify grid-scale artifacts
 
 Example: Computing a Dispersion Relation
---------------------------------------
+----------------------------------------
 
 This example shows how to compute and visualize a dispersion relation:
 
@@ -683,7 +685,7 @@ This example shows how to compute and visualize a dispersion relation:
     plt.show()
 
 Performance Considerations
------------------------
+--------------------------
 
 For large datasets, consider these performance optimizations:
 
@@ -701,12 +703,12 @@ For large datasets, consider these performance optimizations:
    * For very large datasets, consider saving results to disk using NumPy's `save` function
 
    Mean Field Theory Analysis
-=========================
+=============================
 
 The Mean Field Theory (MFT) module provides tools for decomposing simulation data into average (mean) and fluctuation components, a fundamental approach in plasma physics analysis.
 
 MeanFieldTheory Class
--------------------
+---------------------
 
 .. autoclass:: osiris_utils.postprocessing.mft.MeanFieldTheory
    :members:
@@ -775,7 +777,7 @@ MeanFieldTheory Class
        b3_delta = b3_mft['delta']
 
 MFT_Diagnostic Class
------------------
+--------------------
 
 .. autoclass:: osiris_utils.postprocessing.mft.MFT_Diagnostic
    :members:
@@ -794,7 +796,7 @@ MFT_Diagnostic Class
    * ``load_all()`` - Load both components into memory
 
 MFT_Diagnostic_Average Class
--------------------------
+----------------------------
 
 .. autoclass:: osiris_utils.postprocessing.mft.MFT_Diagnostic_Average
    :members:
@@ -813,7 +815,7 @@ MFT_Diagnostic_Average Class
    * ``__getitem__(index)`` - Compute average for a specific timestep on-demand
 
 MFT_Diagnostic_Fluctuations Class
-------------------------------
+---------------------------------
 
 .. autoclass:: osiris_utils.postprocessing.mft.MFT_Diagnostic_Fluctuations
    :members:
@@ -832,7 +834,7 @@ MFT_Diagnostic_Fluctuations Class
    * ``__getitem__(index)`` - Compute fluctuations for a specific timestep on-demand
 
 Mean Field Theory Concepts
-------------------------
+--------------------------
 
 Mean Field Theory is a fundamental approach in plasma physics that decomposes quantities into:
 
@@ -854,7 +856,7 @@ This decomposition allows for:
 * Identification of coherent structures
 
 Implementation Details
--------------------
+----------------------
 
 The MFT implementation includes several important features:
 
@@ -871,33 +873,8 @@ The MFT implementation includes several important features:
    * Works with 1D, 2D, and 3D data
    * Manages axis indexing differences between full arrays and individual timesteps
 
-Applications in Plasma Physics
----------------------------
-
-Mean Field Theory is valuable for many plasma physics analyses:
-
-1. **Turbulence Studies**:
-   * Separate background fields from turbulent fluctuations
-   * Calculate energy in fluctuations vs. mean fields
-   * Analyze spectral properties of turbulence
-
-2. **Transport Analysis**:
-   * Compute Reynolds stresses using fluctuating components
-   * Analyze anomalous transport due to fluctuations
-   * Study correlations between fluctuating quantities
-
-3. **Wave-Particle Interactions**:
-   * Isolate wave characteristics from background plasma conditions
-   * Study energy transfer between waves and mean fields
-   * Analyze wave damping and instability mechanisms
-
-4. **Structure Identification**:
-   * Reveal coherent structures hidden within noisy data
-   * Track evolution of structures relative to background fields
-   * Identify intermittent phenomena
-
 Example: Analyzing Field Fluctuations
------------------------------------
+-------------------------------------
 
 This example demonstrates how to analyze the relative importance of fluctuations:
 
@@ -955,7 +932,7 @@ This example demonstrates how to analyze the relative importance of fluctuations
     plt.show()
 
 Performance Considerations
------------------------
+--------------------------
 
 For large datasets, consider these performance optimizations:
 
