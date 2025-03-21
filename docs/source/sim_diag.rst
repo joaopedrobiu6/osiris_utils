@@ -587,7 +587,7 @@ FFT_Diagnostic Class
    
    **FFT Properties:**
    
-   * FFT results are returned as power spectra (|FFT|**2**)
+   * Power spectra (|FFT|**2**) are returned
    * Data is properly shifted to place zero frequency at the center
    * Hanning windows are applied to reduce spectral leakage
 
@@ -701,7 +701,8 @@ For large datasets, consider these performance optimizations:
    * FFT results can be larger than the original data (complex values)
    * For very large datasets, consider saving results to disk using NumPy's `save` function
 
-   Mean Field Theory Analysis
+
+Mean Field Theory Analysis
 =============================
 
 The Mean Field Theory (MFT) module provides tools for decomposing simulation data into average (mean) and fluctuation components, a fundamental approach in plasma physics analysis.

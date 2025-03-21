@@ -1,7 +1,7 @@
 .. osiris-utils documentation master file
 
 OSIRIS Utils Documentation
-=========================
+==========================
 
 .. include:: ../../README.rst
    
