@@ -67,6 +67,7 @@ class Diagnostic:
         self._dim = None
         self._ndump = None
         self._maxiter = None
+        self._tunits = None
         
         if simulation_folder:
             self._simulation_folder = simulation_folder
@@ -136,6 +137,7 @@ class Diagnostic:
         self._label = dump1.label
         self._dim = dump1.dim
         self._ndump = dump1.iter
+        self._tunits = dump1.time[1]
     
     def _data_generator(self, index):
         if self._simulation_folder is None:
@@ -705,6 +707,10 @@ class Diagnostic:
         return self._units
     
     @property
+    def tunits(self):
+        return self._tunits
+    
+    @property
     def name(self):
         return self._name
     
@@ -737,7 +743,7 @@ class Diagnostic:
         return self._label
     
     def time(self, index):
-        return [index * self._dt * self._ndump, r"$1 / \omega_p$"]
+        return [index * self._dt * self._ndump, self._tunits]
     
     @dx.setter
     def dx(self, value):
@@ -767,6 +773,10 @@ class Diagnostic:
     def units(self, value):
         self._units = value
 
+    @tunits.setter
+    def tunits(self, value):
+        self._tunits = value
+    
     @name.setter
     def name(self, value):
         self._name = value
