@@ -451,7 +451,36 @@ class Diagnostic:
             return result
         
     def __pow__(self, other):
-       raise NotImplementedError("Power operation not implemented for Diagnostic objects.")
+       # power by scalar
+        if isinstance(other, (int, float)):
+            result = Diagnostic(self._species)
+
+            for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump', '_maxiter']:
+                if hasattr(self, attr):
+                    setattr(result, attr, getattr(self, attr))
+
+            if not hasattr(result, '_maxiter') or result._maxiter is None:
+                if hasattr(self, '_maxiter') and self._maxiter is not None:
+                    result._maxiter = self._maxiter
+
+            result._name = self._name + " ^(" + str(other) + ")"
+
+            if self._all_loaded:
+                result._data = self._data ** other
+                result._all_loaded = True
+            else:
+                def gen_scalar_pow(original_gen, scalar):
+                    for val in original_gen:
+                        yield val ** scalar
+
+                original_generator = self._data_generator
+                result._data_generator = lambda index: gen_scalar_pow(original_generator(index), other)
+
+            return result
+        
+        # power by another diagnostic
+        elif isinstance(other, Diagnostic):
+            raise ValueError("Power by another diagnostic is not supported. Why would you do that?")
 
     def __radd__(self, other):
         return self + other
