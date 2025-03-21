@@ -323,7 +323,6 @@ Post-processors are designed to work seamlessly with the OSIRIS diagnostic syste
 * Results maintain compatibility with visualization tools
 * Processing operations can be applied to any diagnostic type
 
-See the :doc:`analysis` page for specific post-processing implementations available in the package.
 
 Derivative Post-Processing
 ==========================
@@ -606,7 +605,7 @@ The FFT implementation includes several important features:
    * Single-axis FFTs use `np.fft.fft`
    * Multi-dimensional FFTs use `np.fft.fftn`
    * Results are properly shifted with `np.fft.fftshift`
-   * Power spectra (|FFT|²) are returned
+   * Power spectra (|FFT|**2**) are returned
 
 3. **Memory Management**:
    * Single-dimension spatial FFTs can be computed on-demand for individual timesteps

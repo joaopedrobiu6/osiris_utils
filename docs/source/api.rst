@@ -82,7 +82,7 @@ Visualization & GUI
 Interactive Visualization
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: osiris_utils.gui.LAVA
+.. autoclass:: osiris_utils.gui.gui.LAVA
    :members:
    :undoc-members:
    :show-inheritance:
