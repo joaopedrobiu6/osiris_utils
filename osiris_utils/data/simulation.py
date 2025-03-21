@@ -41,7 +41,7 @@ class Simulation:
     >>> diag = sim['e1']
     >>> diag[<index>]
     '''
-    def __init__(self, species, simulation_folder = None):
+    def __init__(self, simulation_folder, species = None):
         self._species = species
         self._simulation_folder = simulation_folder
         self._diagnostics = {}  # Dictionary to store diagnostics for each quantity

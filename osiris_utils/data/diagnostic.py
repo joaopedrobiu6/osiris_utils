@@ -394,7 +394,6 @@ class Diagnostic:
 
             return result
     
-
     def __sub__(self, other):
         if isinstance(other, (int, float, np.ndarray)):
             result = Diagnostic(self._species)
@@ -600,7 +599,7 @@ class Diagnostic:
         return self + other
     
     def __rsub__(self, other): # I don't know if this is correct because I'm not sure if the order of the subtraction is correct
-        return self - other
+        return - self + other
     
     def __rmul__(self, other):
         return self * other

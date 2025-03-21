@@ -3,7 +3,7 @@ from ..data.simulation import Simulation
 from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
 
-class MeanFieldTheory(PostProcess):
+class MeanFieldTheory_Simulation(PostProcess):
     """
     Class to compute the mean field theory of a diagnostic. Works as a wrapper for the MFT_Diagnostic class.
     Inherits from PostProcess to ensure all operation overloads work properly.

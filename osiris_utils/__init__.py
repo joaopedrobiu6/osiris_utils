@@ -6,10 +6,10 @@ from .data.simulation import Simulation
 from .data.diagnostic import Diagnostic
 
 from .postprocessing.postprocess import PostProcess
-from .postprocessing.derivative import Derivative, Derivative_Diagnostic
-from .postprocessing.fft import FFT_Diagnostic, FastFourierTransform
+from .postprocessing.derivative import Derivative_Simulation, Derivative_Diagnostic
+from .postprocessing.fft import FFT_Diagnostic, FastFourierTransform_Simulation
 
 from .postprocessing.mft_for_gridfile import MFT_Single
-from .postprocessing.mft import MeanFieldTheory, MFT_Diagnostic, MFT_Diagnostic_Average, MFT_Diagnostic_Fluctuations
+from .postprocessing.mft import MeanFieldTheory_Simulation, MFT_Diagnostic, MFT_Diagnostic_Average, MFT_Diagnostic_Fluctuations
 
 # true div not working because of rtruediv - division is not commutative

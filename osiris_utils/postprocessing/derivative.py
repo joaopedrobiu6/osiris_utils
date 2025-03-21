@@ -3,7 +3,7 @@ from ..data.simulation import Simulation
 from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
 
-class Derivative(PostProcess):
+class Derivative_Simulation(PostProcess):
     """
     Class to compute the derivative of a diagnostic. Works as a wrapper for the Derivative_Diagnostic class.
     Inherits from PostProcess to ensure all operation overloads work properly.
