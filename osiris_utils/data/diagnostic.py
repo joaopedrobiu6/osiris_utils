@@ -60,6 +60,7 @@ class Diagnostic:
         self._axis = None
         self._units = None
         self._name = None
+        self._label = None
         self._dim = None
         self._ndump = None
         self._maxiter = None
@@ -129,6 +130,7 @@ class Diagnostic:
         self._axis = dump1.axis
         self._units = dump1.units
         self._name = dump1.name
+        self._label = dump1.label
         self._dim = dump1.dim
         self._ndump = dump1.iter
     
@@ -264,7 +266,7 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
             
-            result._name = self._name + " + " + str(other)
+            result._name = self._name + " + " + str(other._name)
 
             if self._all_loaded:
                 other.load_all()
@@ -295,7 +297,7 @@ class Diagnostic:
                     result._maxiter = self._maxiter
 
             result._name = self._name + " - " + str(other) if isinstance(other, (int, float)) else self._name + " - np.ndarray"
-            
+
             if self._all_loaded:
                 result._data = self._data - other
                 result._all_loaded = True
@@ -322,7 +324,7 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
             
-            result._name = self._name + " - " + str(other)
+            result._name = self._name + " - " + str(other._name)
 
             if self._all_loaded:
                 other.load_all()
@@ -377,7 +379,7 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
             
-            result._name = self._name + " * " + str(other) 
+            result._name = self._name + " * " + str(other._name)
 
             if self._all_loaded:
                 other.load_all()
@@ -433,7 +435,7 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
             
-            result._name = self._name + " / " + str(other)
+            result._name = self._name + " / " + str(other._name)
 
             if self._all_loaded:
                 other.load_all()
@@ -464,6 +466,7 @@ class Diagnostic:
                     result._maxiter = self._maxiter
 
             result._name = self._name + " ^(" + str(other) + ")"
+            result._label = self._label + rf"$ ^{other}$"
 
             if self._all_loaded:
                 result._data = self._data ** other
@@ -530,7 +533,7 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
             
-            result._name =  str(other) + " / " + self._name
+            result._name =  str(other._name) + " / " + self._name
 
             if self._all_loaded:
                 other.load_all()
@@ -605,6 +608,14 @@ class Diagnostic:
     @property
     def all_loaded(self):
         return self._all_loaded
+    
+    @property
+    def maxiter(self):
+        return self._maxiter
+    
+    @property
+    def label(self):
+        return self._label
     
     def time(self, index):
         return [index * self._dt * self._ndump, r"$1 / \omega_p$"]
