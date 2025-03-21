@@ -288,31 +288,31 @@ PostProcess Base Class
        # Visualize or further analyze
        result.plot()
 
-Creating Custom Post-Processors
--------------------------------
+.. Creating Custom Post-Processors
+.. -------------------------------
 
-To create your own post-processing operation, subclass `PostProcess` and implement the `process` method:
+.. To create your own post-processing operation, subclass `PostProcess` and implement the `process` method:
 
-.. code-block:: python
+.. .. code-block:: python
 
-    from osiris_utils.postprocessing import PostProcess
+..     from osiris_utils.postprocessing import PostProcess
     
-    class MyCustomProcessor(PostProcess):
-        def __init__(self, name, threshold=0.5, species=None):
-            super().__init__(name, species)
-            self.threshold = threshold
+..     class MyCustomProcessor(PostProcess):
+..         def __init__(self, name, threshold=0.5, species=None):
+..             super().__init__(name, species)
+..             self.threshold = threshold
             
-        def process(self, diagnostic):
-            # Get raw data from the diagnostic
-            raw_data = diagnostic.data
+..         def process(self, diagnostic):
+..             # Get raw data from the diagnostic
+..             raw_data = diagnostic.data
             
-            # Apply some transformation
-            processed_data = raw_data * (raw_data > self.threshold)
+..             # Apply some transformation
+..             processed_data = raw_data * (raw_data > self.threshold)
             
-            # Create and return a new object with processed data
-            result = diagnostic.copy()
-            result.data = processed_data
-            return result
+..             # Create and return a new object with processed data
+..             result = diagnostic.copy()
+..             result.data = processed_data
+..             return result
 
 Integration with OSIRIS Diagnostics
 -----------------------------------
@@ -327,12 +327,12 @@ Post-processors are designed to work seamlessly with the OSIRIS diagnostic syste
 Derivative Post-Processing
 ==========================
 
-The `Derivative` module provides tools for computing various types of derivatives from simulation diagnostics.
+The `Derivative_Simulation` module provides tools for computing various types of derivatives from simulation diagnostics.
 
-Derivative Class
+Derivative_Simulation Class
 ----------------
 
-.. autoclass:: osiris_utils.postprocessing.derivative.Derivative
+.. autoclass:: osiris_utils.postprocessing.derivative.Derivative_Simulation
    :members:
    :special-members: __init__, __getitem__
    :show-inheritance:
@@ -340,7 +340,7 @@ Derivative Class
 
    Post-processor for computing derivatives of diagnostic data.
    
-   The Derivative class provides a convenient interface for calculating derivatives of various simulation quantities.
+   The Derivative_Simulation class provides a convenient interface for calculating derivatives of various simulation quantities.
    It works as a wrapper around the `Derivative_Diagnostic` class, managing the creation and caching of derivative objects.
    
    **Derivative Types:**
@@ -360,13 +360,13 @@ Derivative Class
    .. code-block:: python
    
        from osiris_utils.data import Simulation
-       from osiris_utils.postprocessing import Derivative
+       from osiris_utils.postprocessing import Derivative_Simulation
        
        # Create a simulation interface
        sim = Simulation('electrons', '/path/to/simulation')
        
        # Create a derivative processor for x₁ derivatives
-       dx1 = Derivative(sim, 'x1')
+       dx1 = Derivative_Simulation(sim, 'x1')
        
        # Get the derivative of E1 with respect to x₁
        dE1_dx1 = dx1['e1']
@@ -376,19 +376,7 @@ Derivative Class
        
        # Load all timesteps
        dE1_dx1.load_all()
-   
-   Applying directly to a diagnostic:
-   
-   .. code-block:: python
-   
-       # Create a derivative processor
-       derivative = Derivative(sim, 't')
-       
-       # Get a diagnostic
-       e1_field = sim['e1']
-       
-       # Calculate its time derivative
-       de1_dt = derivative.process(e1_field)
+
 
 Derivative_Diagnostic Class
 ---------------------------
@@ -451,7 +439,7 @@ When working with large simulations, consider these performance tips:
 Use Cases
 ---------
 
-Common applications of the Derivative post-processor include:
+Common applications of the Derivative_Simulation post-processor include:
 
 1. **Computing Gradients**:
    * Electric field gradients for energy analysis
@@ -479,16 +467,12 @@ This example shows how to compute the z-component of curl(B):
     
     # Setup
     sim = Simulation('electrons', '/path/to/simulation')
-    dx1 = Derivative(sim, 'x1')
-    dx2 = Derivative(sim, 'x2')
-    
-    # Get B field components
-    b1 = sim['b1']
-    b2 = sim['b2']
-    
+    dx1 = Derivative_Simulation(sim, 'x1')
+    dx2 = Derivative_Simulation(sim, 'x2')
+
     # Calculate curl(B) = dB2/dx1 - dB1/dx2
-    dB2_dx1 = dx1.process(b2)
-    dB1_dx2 = dx2.process(b1)
+    dB2_dx1 = dx1["b2"]
+    dB1_dx2 = dx2["b1"]
     
     # Compute curl B (z-component)
     curl_B_z = dB2_dx1 - dB1_dx2
@@ -496,12 +480,12 @@ This example shows how to compute the z-component of curl(B):
 Spectral Analysis with Fast Fourier Transform
 =============================================
 
-The `FastFourierTransform` module provides tools for performing spectral analysis on simulation diagnostics using the Fast Fourier Transform (FFT).
+The `FastFourierTransform_Simulation` module provides tools for performing spectral analysis on simulation diagnostics using the Fast Fourier Transform (FFT).
 
-FastFourierTransform Class
+FastFourierTransform_Simulation Class
 --------------------------
 
-.. autoclass:: osiris_utils.postprocessing.fft.FastFourierTransform
+.. autoclass:: osiris_utils.postprocessing.fft.FastFourierTransform_Simulation
    :members:
    :special-members: __init__, __getitem__
    :show-inheritance:
@@ -527,42 +511,16 @@ FastFourierTransform Class
    .. code-block:: python
    
        from osiris_utils.data import Simulation
-       from osiris_utils.postprocessing import FastFourierTransform
+       from osiris_utils.postprocessing import FastFourierTransform_Simulation
        
        # Create a simulation interface
        sim = Simulation('electrons', '/path/to/simulation')
        
        # Create an FFT processor for the first spatial dimension
-       fft = FastFourierTransform(sim, 1)
+       fft = FastFourierTransform_Simulation(sim, 1)
        
        # Get the power spectrum of E1
        e1_spectrum = fft['e1']
-       
-       # Load all data and compute the complete FFT
-       e1_spectrum.load_all()
-       
-       # Plot the power spectrum
-       import matplotlib.pyplot as plt
-       plt.figure(figsize=(10, 6))
-       plt.pcolormesh(e1_spectrum.data, cmap='jet')
-       plt.colorbar(label='Power')
-       plt.xlabel('Wavenumber k')
-       plt.ylabel('Time step')
-       plt.title('E1 Power Spectrum')
-       plt.show()
-   
-   Applying to a specific diagnostic:
-   
-   .. code-block:: python
-   
-       # Create an FFT processor
-       fft = FastFourierTransform(sim, [1, 2])  # 2D FFT
-       
-       # Get a diagnostic
-       b3_field = sim['b3']
-       
-       # Calculate its 2D power spectrum
-       b3_spectrum = fft.process(b3_field)
 
 FFT_Diagnostic Class
 --------------------
@@ -642,7 +600,7 @@ This example shows how to compute and visualize a dispersion relation:
 .. code-block:: python
 
     from osiris_utils.data import Simulation
-    from osiris_utils.postprocessing import FastFourierTransform
+    from osiris_utils.postprocessing import FastFourierTransform_Simulation
     import numpy as np
     import matplotlib.pyplot as plt
     
@@ -651,7 +609,7 @@ This example shows how to compute and visualize a dispersion relation:
     
     # Create FFT processor for both time and space
     # We'll do a 2D FFT - time (axis 0) and x1 (axis 1)
-    fft_processor = FastFourierTransform(sim, [0, 1])
+    fft_processor = FastFourierTransform_Simulation(sim, [0, 1])
     
     # Get E1 field and compute its FFT
     e1_fft = fft_processor['e1']
@@ -672,13 +630,6 @@ This example shows how to compute and visualize a dispersion relation:
     plt.xlabel('Wavenumber k')
     plt.ylabel('Frequency ω')
     plt.title('E1 Dispersion Relation')
-    
-    # Overlay theoretical dispersion relation if desired
-    # plasma_freq = 1.0  # Set your plasma frequency
-    # k_values = np.linspace(k.min(), k.max(), 100)
-    # omega_values = np.sqrt(plasma_freq**2 + k_values**2)  # Example dispersion relation
-    # plt.plot(k_values, omega_values, 'w--', label='Theoretical')
-    # plt.legend()
     
     plt.tight_layout()
     plt.show()
@@ -707,10 +658,10 @@ Mean Field Theory Analysis
 
 The Mean Field Theory (MFT) module provides tools for decomposing simulation data into average (mean) and fluctuation components, a fundamental approach in plasma physics analysis.
 
-MeanFieldTheory Class
+MeanFieldTheory_Simulation Class
 ---------------------
 
-.. autoclass:: osiris_utils.postprocessing.mft.MeanFieldTheory
+.. autoclass:: osiris_utils.postprocessing.mft.MeanFieldTheory_Simulation
    :members:
    :special-members: __init__, __getitem__
    :show-inheritance:
@@ -718,7 +669,7 @@ MeanFieldTheory Class
 
    Post-processor for performing mean field decomposition of diagnostic data.
    
-   The MeanFieldTheory class provides a convenient interface for separating plasma quantities into their average and fluctuating components along a specified axis.
+   The MeanFieldTheory_Simulation class provides a convenient interface for separating plasma quantities into their average and fluctuating components along a specified axis.
    
    **Key Features:**
    
@@ -734,13 +685,13 @@ MeanFieldTheory Class
    .. code-block:: python
    
        from osiris_utils.data import Simulation
-       from osiris_utils.postprocessing import MeanFieldTheory
+       from osiris_utils.postprocessing import MeanFieldTheory_Simulation
        
        # Create a simulation interface
        sim = Simulation('electrons', '/path/to/simulation')
        
        # Create MFT analyzer for x₁ direction (axis=1)
-       mft = MeanFieldTheory(sim, 1)
+       mft = MeanFieldTheory_Simulation(sim, 1)
        
        # Get MFT decomposition of electric field E₁
        mft_e1 = mft['e1']
@@ -758,23 +709,6 @@ MeanFieldTheory Class
        # Load all data
        e1_avg.load_all()
        e1_delta.load_all()
-   
-   Direct application to a diagnostic:
-   
-   .. code-block:: python
-   
-       # Create MFT processor
-       mft = MeanFieldTheory(sim, 2)  # For x₂ direction
-       
-       # Get a diagnostic
-       b3_field = sim['b3']
-       
-       # Apply MFT directly
-       b3_mft = mft.process(b3_field)
-       
-       # Access components
-       b3_avg = b3_mft['avg']
-       b3_delta = b3_mft['delta']
 
 MFT_Diagnostic Class
 --------------------
@@ -872,64 +806,6 @@ The MFT implementation includes several important features:
 3. **Dimensional Handling**:
    * Works with 1D, 2D, and 3D data
    * Manages axis indexing differences between full arrays and individual timesteps
-
-Example: Analyzing Field Fluctuations
--------------------------------------
-
-This example demonstrates how to analyze the relative importance of fluctuations:
-
-.. code-block:: python
-
-    from osiris_utils.data import Simulation
-    from osiris_utils.postprocessing import MeanFieldTheory
-    import numpy as np
-    import matplotlib.pyplot as plt
-    
-    # Setup
-    sim = Simulation('electrons', '/path/to/simulation')
-    
-    # Create MFT processor for x₁ direction
-    mft = MeanFieldTheory(sim, 1)
-    
-    # Get MFT decomposition of E1
-    e1_mft = mft['e1']
-    
-    # Get components
-    e1_avg = e1_mft['avg']
-    e1_fluc = e1_mft['delta']
-    
-    # Load specific timestep
-    timestep = 100
-    avg_field = e1_avg[timestep]
-    fluc_field = e1_fluc[timestep]
-    
-    # Calculate energy densities (E²)
-    avg_energy = avg_field**2
-    fluc_energy = fluc_field**2
-    
-    # Calculate relative fluctuation strength
-    rel_strength = np.sqrt(np.mean(fluc_energy)) / np.sqrt(np.mean(avg_energy))
-    print(f"Relative fluctuation strength: {rel_strength:.4f}")
-    
-    # Plot comparison
-    plt.figure(figsize=(10, 8))
-    
-    plt.subplot(211)
-    plt.plot(sim['e1'].x[0], avg_field, 'b-', label='Mean Field')
-    plt.fill_between(sim['e1'].x[0], avg_field-fluc_field, avg_field+fluc_field, 
-                     color='r', alpha=0.3, label='Fluctuations')
-    plt.legend()
-    plt.title(f'E1 Field at Timestep {timestep}')
-    plt.ylabel('E1')
-    
-    plt.subplot(212)
-    plt.plot(sim['e1'].x[0], fluc_field, 'r-')
-    plt.title('Fluctuation Component')
-    plt.xlabel('x₁')
-    plt.ylabel('δE1')
-    
-    plt.tight_layout()
-    plt.show()
 
 Performance Considerations
 --------------------------
