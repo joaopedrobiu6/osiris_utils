@@ -11,6 +11,9 @@ import os
 
 from .data import OsirisGridFile
 import tqdm
+import matplotlib.pyplot as plt
+import warnings
+from typing import Literal
 
 OSIRIS_DENSITY = "n"
 OSIRIS_SPECIE_REPORTS = ["charge", "q1", "q2", "q3", "j1", "j2", "j3"]
@@ -64,6 +67,7 @@ class Diagnostic:
         self._dim = None
         self._ndump = None
         self._maxiter = None
+        self._tunits = None
         
         if simulation_folder:
             self._simulation_folder = simulation_folder
@@ -133,6 +137,7 @@ class Diagnostic:
         self._label = dump1.label
         self._dim = dump1.dim
         self._ndump = dump1.iter
+        self._tunits = dump1.time[1]
     
     def _data_generator(self, index):
         if self._simulation_folder is None:
@@ -550,6 +555,122 @@ class Diagnostic:
 
             return result
 
+    def plot_3d(self, idx, scale_type: Literal["zero_centered", "pos", "neg", "default"] = "default", boundaries: np.ndarray = None):
+        """
+        Plots a 3D scatter plot of the diagnostic data (grid data).
+
+        Parameters
+        ----------
+        idx : int
+            Index of the data to plot.
+        scale_type : Literal["zero_centered", "pos", "neg", "default"], optional
+            Type of scaling for the colormap:
+            - "zero_centered": Center colormap around zero.
+            - "pos": Colormap for positive values.
+            - "neg": Colormap for negative values.
+            - "default": Standard colormap.
+        boundaries : np.ndarray, optional
+            Boundaries to plot part of the data. (3,2) If None, uses the default grid boundaries.
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes._subplots.Axes3DSubplot
+            The 3D axes object of the plot.
+
+        Example
+        -------
+        sim = ou.Simulation("electrons", "path/to/simulation")
+        fig, ax = sim["b3"].plot_3d(55, scale_type="zero_centered",  boundaries= [[0, 40], [0, 40], [0, 20]])
+        plt.show()
+        """
+
+
+        if self._dim != 3:
+            raise ValueError("This method is only available for 3D diagnostics.")
+        
+        if boundaries is None:
+            boundaries = self._grid
+
+        if not isinstance(boundaries, np.ndarray):
+            try :
+                boundaries = np.array(boundaries)
+            except:
+                boundaries = self._grid 
+                warnings.warn("boundaries cannot be accessed as a numpy array with shape (3, 2), using default instead")
+
+        if boundaries.shape != (3, 2):
+            warnings.warn("boundaries should have shape (3, 2), using default instead")
+            boundaries = self._grid 
+
+        # Load data
+        if self._all_loaded:
+            data = self._data[idx]
+        else:
+            data = self[idx]
+
+        # Create grid points
+        x = self._x[0]
+        y = self._x[1]
+        z = self._x[2]
+
+        X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
+
+        # Flatten arrays for scatter plot
+        X_flat, Y_flat, Z_flat, = X.ravel(), Y.ravel(), Z.ravel()
+        data_flat = data.ravel()
+
+        # Apply filter: Keep only chosen points
+        mask = (X_flat > boundaries[0][0]) & (X_flat < boundaries[0][1]) & (Y_flat > boundaries[1][0]) & (Y_flat < boundaries[1][1]) & (Z_flat > boundaries[2][0]) & (Z_flat < boundaries[2][1])
+        X_cut, Y_cut, Z_cut, data_cut = X_flat[mask], Y_flat[mask], Z_flat[mask], data_flat[mask]
+
+        if scale_type == "zero_centered":
+            # Center colormap around zero
+            cmap = "seismic"
+            vmax = np.max(np.abs(data_flat))  # Find max absolute value
+            vmin = -vmax
+        elif scale_type == "pos":
+            cmap = "plasma"
+            vmax = np.max(data_flat)
+            vmin = 0
+
+        elif scale_type == "neg":
+            cmap = "plasma"
+            vmax = 0
+            vmin = np.min(data_flat)
+        else:
+            cmap = "plasma"
+            vmax = np.max(data_flat)
+            vmin = np.min(data_flat)
+
+        norm = plt.Normalize(vmin=vmin, vmax=vmax)
+
+        # Plot
+        fig = plt.figure(figsize=(10, 7))
+        ax = fig.add_subplot(111, projection="3d")
+
+        # Scatter plot with seismic colormap
+        sc = ax.scatter(X_cut, Y_cut, Z_cut, c=data_cut, cmap=cmap, norm=norm, alpha=1)
+
+        # Set limits to maintain full background
+        ax.set_xlim([self.grid[0][0], self.grid[0][1]])
+        ax.set_ylim([self.grid[1][0], self.grid[1][1]])
+        ax.set_zlim([self.grid[2][0], self.grid[2][1]])
+
+        # Colorbar
+        cbar = plt.colorbar(sc, ax=ax, shrink=0.6)
+
+        # Labels
+        # TODO try to use a latex label instaead of _name
+        cbar.set_label(r"${}$".format(self._name) + r"$\  [{}]$".format(self._units))
+        ax.set_title(r"$t={:.2f}$".format(self.time(idx)[0]) + r"$\  [{}]$".format(self.time(idx)[1]))
+        ax.set_xlabel(r"${}$".format(self.axis[0]["long_name"]) + r"$\  [{}]$".format(self.axis[0]["units"]))
+        ax.set_ylabel(r"${}$".format(self.axis[1]["long_name"]) + r"$\  [{}]$".format(self.axis[1]["units"]))
+        ax.set_zlabel(r"${}$".format(self.axis[2]["long_name"]) + r"$\  [{}]$".format(self.axis[2]["units"]))
+
+        return fig, ax
+
     # Getters
     @property
     def data(self):
@@ -586,6 +707,10 @@ class Diagnostic:
         return self._units
     
     @property
+    def tunits(self):
+        return self._tunits
+    
+    @property
     def name(self):
         return self._name
     
@@ -618,7 +743,7 @@ class Diagnostic:
         return self._label
     
     def time(self, index):
-        return [index * self._dt * self._ndump, r"$1 / \omega_p$"]
+        return [index * self._dt * self._ndump, self._tunits]
     
     @dx.setter
     def dx(self, value):
@@ -648,6 +773,10 @@ class Diagnostic:
     def units(self, value):
         self._units = value
 
+    @tunits.setter
+    def tunits(self, value):
+        self._tunits = value
+    
     @name.setter
     def name(self, value):
         self._name = value
