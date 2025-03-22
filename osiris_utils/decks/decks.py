@@ -271,7 +271,16 @@ class InputDeckIO:
 
     @property
     def n_species(self):
-        return int(self["particles"][0]["num_species"])
+        try:
+            return int(self["particles"][0]["num_species"])
+        except (KeyError, IndexError):
+            # If num_species doesn't exist, try num_cathode
+            try:
+                return int(self["particles"][0]["num_cathode"])
+            except (KeyError, IndexError):
+                # If neither exists, raise an informative error
+                raise KeyError("Could not find 'num_species' or 'num_cathode' in the particles section")
+        
 
     @property
     def species(self):

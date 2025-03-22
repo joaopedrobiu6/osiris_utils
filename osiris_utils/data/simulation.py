@@ -1,5 +1,7 @@
+from matplotlib.style import available
 from ..data.diagnostic import *
 from ..utils import *
+from ..decks.decks import InputDeckIO
 
 
 class Simulation:
@@ -41,10 +43,15 @@ class Simulation:
     >>> diag = sim['e1']
     >>> diag[<index>]
     '''
-    def __init__(self, simulation_folder, species = None):
-        self._species = species
+    def __init__(self, simulation_folder, input_deck_file):
+        self._input_deck_file = simulation_folder + "/" + input_deck_file
+        self._input_deck = InputDeckIO(self._input_deck_file, verbose=False)
+
+        self._species = list(self._input_deck.species.keys())
+
         self._simulation_folder = simulation_folder
         self._diagnostics = {}  # Dictionary to store diagnostics for each quantity
+        self._species_handler = {}
     
 
     def delete_all_diagnostics(self):
@@ -63,11 +70,18 @@ class Simulation:
             print(f"Diagnostic {key} not found in simulation")
 
     def __getitem__(self, key):
+        # check if key is a species
+        if key in self._species:
+            # check if species handler already exists
+            if key not in self._species_handler:
+                self._species_handler[key] = Species_Handler(self._simulation_folder, self._input_deck.species[key])
+            return self._species_handler[key]
+        
         if key in self._diagnostics:
             return self._diagnostics[key]
         
-        # Create a temporary diagnostic for this quantity
-        diag = Diagnostic(simulation_folder=self._simulation_folder, species=self._species)
+        # Create a temporary diagnostic for this quantity - this is for quantities that are not species related
+        diag = Diagnostic(simulation_folder=self._simulation_folder, species=None)
         diag.get_quantity(key)
         
         original_load_all = diag.load_all
@@ -81,3 +95,32 @@ class Simulation:
         
         return diag
 
+    @property
+    def species(self):
+        return self._species
+
+# This is to handle species related diagnostics
+class Species_Handler:
+    def __init__(self, simulation_folder, species_name):
+        self._simulation_folder = simulation_folder
+        self._species_name = species_name
+        self._diagnostics = {}
+    
+    def __getitem__(self, key):
+        if key in self._diagnostics:
+            return self._diagnostics[key]
+        
+        # Create a temporary diagnostic for this quantity
+        diag = Diagnostic(simulation_folder=self._simulation_folder, species=self._species_name)
+        diag.get_quantity(key)
+
+        original_load_all = diag.load_all
+
+        def patched_load_all(*args, **kwargs):
+            result = original_load_all(*args, **kwargs)
+            self._diagnostics[key] = diag
+            return diag
+        
+        diag.load_all = patched_load_all
+
+        return diag

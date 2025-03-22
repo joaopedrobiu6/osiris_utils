@@ -29,8 +29,13 @@ class MeanFieldTheory_Simulation(PostProcess):
         self._simulation = simulation
         self._mft_axis = mft_axis
         self._mft_computed = {}
+        self._species_handler = {}
 
     def __getitem__(self, key):
+        if key in self._simulation._species:
+            if key not in self._species_handler:
+                self._species_handler[key] = MFT_Species_Handler(self._simulation[key], self._mft_axis)
+            return self._species_handler[key]
         if key not in self._mft_computed:
             self._mft_computed[key] = MFT_Diagnostic(self._simulation[key], self._mft_axis)
         return self._mft_computed[key]
@@ -187,7 +192,7 @@ class MFT_Diagnostic_Average(Diagnostic):
         if self._mft_axis is None:
             raise ValueError("Mean field theory axis must be specified.")
         else:
-            self._data = self._diag._data.mean(axis=self._mft_axis)
+            self._data = np.expand_dims(self._diag._data.mean(axis=self._mft_axis), axis=-1)
 
         self._all_loaded = True
         return self._data
@@ -199,7 +204,7 @@ class MFT_Diagnostic_Average(Diagnostic):
             data = self._diag[index]
             # Compute the average (mean) along the specified axis
             # Note: When accessing a slice, axis numbering is 0-based
-            avg = data.mean(axis=self._mft_axis-1)
+            avg = np.expand_dims(data.mean(axis=self._mft_axis-1), axis=-1)
             yield avg
         else:
             raise ValueError("Invalid axis for mean field theory.")
@@ -299,3 +304,29 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
         
         # Otherwise compute on-demand
         return next(self._data_generator(index))
+    
+class MFT_Species_Handler:
+    """
+    Class to handle mean field theory for a species.
+    Acts as a wrapper for the MFT_Diagnostic class.
+
+    Not intended to be used directly, but through the MFT_Simulation class.
+
+    Parameters
+    ----------
+    species_handler : Species_Handler
+        The species handler object.
+    mft_axis : int
+        The axis to compute the mean field theory.
+    """
+    
+    def __init__(self, species_handler, mft_axis):
+        self._species_handler = species_handler
+        self._mft_axis = mft_axis
+        self._mft_computed = {}
+
+    def __getitem__(self, key):
+        if key not in self._mft_computed:
+            diag = self._species_handler[key]
+            self._mft_computed[key] = MFT_Diagnostic(diag, self._mft_axis)
+        return self._mft_computed[key]

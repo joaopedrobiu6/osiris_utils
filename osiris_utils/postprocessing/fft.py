@@ -32,8 +32,14 @@ class FastFourierTransform_Simulation(PostProcess):
         self._simulation = simulation
         self._fft_axis = fft_axis
         self._fft_computed = {}
+        self._species_handler = {}
 
     def __getitem__(self, key):
+        if key in self._simulation._species:
+            if key not in self._species_handler:
+                self._species_handler[key] = FFT_Species_Handler(self._simulation[key], self._fft_axis)
+            return self._species_handler[key]
+        
         if key not in self._fft_computed:
             self._fft_computed[key] = FFT_Diagnostic(self._simulation[key], self._fft_axis)
         return self._fft_computed[key]
@@ -213,3 +219,15 @@ class FFT_Diagnostic(Diagnostic):
     @property
     def kmax(self):
         return self._kmax
+    
+class FFT_Species_Handler:
+    def __init__(self, species_handler, fft_axis):
+        self._species_handler = species_handler
+        self._fft_axis = fft_axis
+        self._fft_computed = {}
+
+    def __getitem__(self, key):
+        if key not in self._fft_computed:
+            diag = self._species_handler[key]
+            self._fft_computed[key] = FFT_Diagnostic(diag, self._fft_axis)
+        return self._fft_computed[key]

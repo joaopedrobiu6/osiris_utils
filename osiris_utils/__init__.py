@@ -10,7 +10,7 @@ from .utils import (
 )
 from .gui.gui import LAVA_Qt, LAVA
 from .data.data import OsirisGridFile, OsirisRawFile, OsirisData, OsirisHIST
-from .data.simulation import Simulation
+from .data.simulation import Simulation, Species_Handler
 from .data.diagnostic import Diagnostic
 
 from .decks.decks import InputDeckIO
@@ -27,5 +27,3 @@ from .postprocessing.mft import (
     MFT_Diagnostic_Average,
     MFT_Diagnostic_Fluctuations,
 )
-
-# true div not working because of rtruediv - division is not commutative
