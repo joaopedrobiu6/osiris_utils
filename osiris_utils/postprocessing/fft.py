@@ -81,7 +81,8 @@ class FFT_Diagnostic(Diagnostic):
     """
     def __init__(self, diagnostic, fft_axis):
         if hasattr(diagnostic, '_species'):
-            super().__init__(diagnostic._species, diagnostic._simulation_folder if hasattr(diagnostic, '_simulation_folder') else None)
+            super().__init__(simulation_folder=diagnostic._simulation_folder if hasattr(diagnostic, '_simulation_folder') else None, 
+                             species=diagnostic._species)
         else:
             super().__init__(None)
 
