@@ -38,10 +38,10 @@ class AnomalousResistivity:
         
         # Compute components of the mometum equation
         self.dV1dt = (self.V1_a.data - self.V1_b.data)/(2*self.V1_a.dt)
-        self.V1_dV1dx = self.V1.data * np.gradient(self.V1.data, self.V1.dx[0], axis=0)
+        self.V1_dV1dx = self.V1.data * np.gradient(self.V1.data, self.V1.dx[0], axis=0, edge_order=2)
         
-        self.dT11nedx = np.gradient(self.T11.data*self.ne.data, self.T11.dx[0], axis=0)
-        self.dT12nedy = np.gradient(self.T12.data*self.ne.data, self.T12.dx[1], axis=1)
+        self.dT11nedx = np.gradient(self.T11.data*self.ne.data, self.T11.dx[0], axis=0, edge_order=2)
+        self.dT12nedy = np.gradient(self.T12.data*self.ne.data, self.T12.dx[1], axis=1, edge_order=2)
         
         self.V2B3 = self.V2.data * self.B3.data
         self.V3B2 = self.V3.data * self.B2.data  
@@ -77,10 +77,10 @@ class AnomalousResistivity:
 
         # Compute components of the mometum equation for average quantities
         self.dV1dt_bar = (self.V1_a_bar - self.V1_b_bar)/(2*self.V1_a.dt)
-        self.V1_dV1dx_bar = self.V1_bar*np.gradient(self.V1_bar, self.V1.dx[0], axis=0)
+        self.V1_dV1dx_bar = self.V1_bar*np.gradient(self.V1_bar, self.V1.dx[0], axis=0, edge_order=2)
         
-        self.dT11nedx_bar = np.gradient(self.T11_bar * self.ne_bar, self.T11.dx[0], axis=0)
-        self.dT11nedx_delta = np.gradient(self.T11_delta * self.ne_delta, self.T11.dx[0], axis=0)
+        self.dT11nedx_bar = np.gradient(self.T11_bar * self.ne_bar, self.T11.dx[0], axis=0, edge_order=2)
+        self.dT11nedx_delta = np.gradient(self.T11_delta * self.ne_delta, self.T11.dx[0], axis=0, edge_order=2)
             
         self.V2V3_bar = self.V2_bar*self.B3_bar
         self.V3V2_bar = self.V3_bar*self.B2_bar

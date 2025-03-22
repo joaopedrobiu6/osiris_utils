@@ -187,7 +187,7 @@ class MFT_Diagnostic_Average(Diagnostic):
         if self._mft_axis is None:
             raise ValueError("Mean field theory axis must be specified.")
         else:
-            self._data = self._diag._data.mean(axis=self._mft_axis)
+            self._data = np.expand_dims(self._diag._data.mean(axis=self._mft_axis), -1)
 
         self._all_loaded = True
         return self._data
@@ -199,7 +199,7 @@ class MFT_Diagnostic_Average(Diagnostic):
             data = self._diag[index]
             # Compute the average (mean) along the specified axis
             # Note: When accessing a slice, axis numbering is 0-based
-            avg = data.mean(axis=self._mft_axis-1)
+            avg = np.expand_dims(data.mean(axis=self._mft_axis-1), axis=-1)
             yield avg
         else:
             raise ValueError("Invalid axis for mean field theory.")
