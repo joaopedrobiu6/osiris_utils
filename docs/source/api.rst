@@ -1,93 +1,128 @@
 API Reference
 =============
 
+This document provides a complete reference to the osiris_utils package API.
+
 Core Data Structures
 --------------------
 
-OsirisData (Base Class)
-~~~~~~~~~~~~~~~~~~~~~~~
-.. autoclass:: osiris_utils.data.OsirisData
+The package provides several classes for handling different types of OSIRIS data.
+
+OsirisData
+~~~~~~~~~~
+
+.. autoclass:: osiris_utils.data.data.OsirisData
    :members: dt, dim, time, iter, name, type, verbose
    :special-members: __init__
    :noindex:
    
-   Base class for all OSIRIS data types. Provides common attributes and methods for handling simulation metadata.
+   Base class for all OSIRIS data types. All other data classes inherit from this class.
+   
+   **Key Attributes:**
+   
+   * ``dt`` - Time step of the simulation
+   * ``dim`` - Dimensionality of the data
+   * ``time`` - Physical time of the data
+   * ``iter`` - Iteration number
+   * ``name`` - Name of the dataset
+   * ``type`` - Type of the data
+   * ``verbose`` - Verbosity flag for logging
 
-OsirisGridFile
-~~~~~~~~~~~~~~
-.. autoclass:: osiris_utils.data.OsirisGridFile
+Grid-Based Data
+~~~~~~~~~~~~~~~
+
+.. autoclass:: osiris_utils.data.data.OsirisGridFile
    :members: grid, nx, dx, x, axis, data, units, label
    :inherited-members:
 
-   Specialized class for grid-based field data. Inherits from :class:`OsirisData`.
+   Specialized class for handling grid-based field data such as electromagnetic fields.
+   
+   **Key Attributes:**
+   
+   * ``grid`` - Grid information
+   * ``nx`` - Number of grid points
+   * ``dx`` - Grid spacing
+   * ``x`` - Grid coordinates
+   * ``axis`` - Coordinate labels
+   * ``data`` - The actual field data
+   * ``units`` - Physical units of the data
+   * ``label`` - Data labels for visualization
 
-OsirisRawFile
+Particle Data
 ~~~~~~~~~~~~~
-.. autoclass:: osiris_utils.data.OsirisRawFile
+
+.. autoclass:: osiris_utils.data.data.OsirisRawFile
    :members: data, axis
    :inherited-members: grid, nx, dx, x, axis, data, units, label
 
-   Handles particle/raw data files. Inherits from :class:`OsirisData`.
+   Handles particle (raw) data files from OSIRIS simulations.
+   
+   **Key Attributes:**
+   
+   * ``data`` - Particle data array
+   * ``axis`` - Coordinate labels
+   * Inherits grid-related attributes from OsirisData
 
-OsirisHIST
-~~~~~~~~~~
-.. autoclass:: osiris_utils.data.OsirisHIST
+HIST Data
+~~~~~~~~~
+
+.. autoclass:: osiris_utils.data.data.OsirisHIST
    :members: df
    :inherited-members: grid, nx, dx, x, axis, data, units, label
 
-   Processes HIST file time series data. Inherits from :class:`OsirisData`.
-
-Mean Field Theory Module
-~~~~~~~~~~~~~~~~~~~~~~~~
-.. autoclass:: osiris_utils.mean_field_theory.MeanFieldTheory
-   :members: average, delta, derivative
-   :inherited-members: grid, nx, dx, x, axis, data, units, label
-   :noindex:
-
-   Tools for calculating mean field quantities from simulation data.
+   Processes HIST file from OSIRIS diagnostics.
+   
+   **Key Attributes:**
+   
+   * ``df`` - DataFrame containing the data
 
 Visualization & GUI
 -------------------
 
-GUI Component
-~~~~~~~~~~~~~
-.. autoclass:: osiris_utils.gui.LAVA
+Interactive Visualization
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: osiris_utils.gui.gui.LAVA
    :members:
    :undoc-members:
    :show-inheritance:
    :noindex:
 
-   Graphical user interface components for data visualization.
+   LAVA (Lightweight Analysis and Visualization Application) provides interactive 
+   visualization capabilities for OSIRIS data.
 
-Visualization Utilities
-~~~~~~~~~~~~~~~~~~~~~~~
+Animation Tools
+~~~~~~~~~~~~~~~
+
 .. automodule:: osiris_utils.utils
    :members: animate_2D
    :noindex:
 
-   .. autofunction:: animate_2D
-
-   Function for creating 2D animations from simulation data.
+   Tools for creating animations from simulation data:
+   
+   * ``animate_2D`` - Creates animations from 2D field data
 
 Physics & Analysis
 ------------------
 
-Physical Calculations
-~~~~~~~~~~~~~~~~~~~~~
+Numerical Methods
+~~~~~~~~~~~~~~~~~
+
 .. automodule:: osiris_utils.utils
    :members: courant2D, transverse_average
    :noindex:
 
-   .. autofunction:: courant2D
-   .. autofunction:: transverse_average
-
-   Core physics calculations and analysis routines.
+   Methods for common physics calculations:
+   
+   * ``courant2D`` - Calculate the Courant condition for 2D simulations
+   * ``transverse_average`` - Compute averages along transverse directions
 
 Data Utilities
---------------
+-------------- 
 
-Data I/O & Processing
-~~~~~~~~~~~~~~~~~~~~~
+File Operations
+~~~~~~~~~~~~~~~
+
 .. automodule:: osiris_utils.utils
    :members: 
        time_estimation,
@@ -97,8 +132,10 @@ Data I/O & Processing
        read_data
    :noindex:
 
-   .. autofunction:: integrate
-   .. autofunction:: save_data
-   .. autofunction:: read_data
-
-   Essential utilities for data processing and file operations.
+   Utilities for data handling and file operations:
+   
+   * ``time_estimation`` - Estimate runtime for operations
+   * ``filesize_estimation`` - Estimate file sizes
+   * ``integrate`` - Numerical integration routines
+   * ``save_data`` - Save data to disk
+   * ``read_data`` - Read data from disk
