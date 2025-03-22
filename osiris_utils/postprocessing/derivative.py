@@ -42,7 +42,8 @@ class Derivative_Simulation(PostProcess):
 
     def __getitem__(self, key):
         if key not in self._derivatives_computed:
-            self._derivatives_computed[key] = Derivative_Diagnostic(self._simulation[key], self._type, self._axis)
+            self._derivatives_computed[key] = Derivative_Diagnostic(diagnostic=self._simulation[key], 
+                                                                    type=self._type, axis=self._axis)
         return self._derivatives_computed[key]
     
     def delete_all(self):
@@ -90,7 +91,8 @@ class Derivative_Diagnostic(Diagnostic):
     def __init__(self, diagnostic, type, axis=None):
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, '_species'):
-            super().__init__(diagnostic._species, diagnostic._simulation_folder if hasattr(diagnostic, '_simulation_folder') else None)
+            super().__init__(simulation_folder=diagnostic._simulation_folder if hasattr(diagnostic, '_simulation_folder') else None, 
+                             species=diagnostic._species)
         else:
             super().__init__(None)
             

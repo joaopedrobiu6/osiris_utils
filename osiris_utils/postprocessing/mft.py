@@ -72,7 +72,7 @@ class MFT_Diagnostic(Diagnostic):
     def __init__(self, diagnostic, mft_axis):
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, '_species'):
-            super().__init__(diagnostic._species)
+            super().__init__(species=diagnostic._species)
         else:
             super().__init__(None)
             
@@ -157,7 +157,7 @@ class MFT_Diagnostic_Average(Diagnostic):
     def __init__(self, diagnostic, mft_axis):
         # Initialize with the same species as the diagnostic
         if hasattr(diagnostic, '_species'):
-            super().__init__(diagnostic._species)
+            super().__init__(species=diagnostic._species)
         else:
             super().__init__(None)
             
@@ -234,7 +234,7 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
     def __init__(self, diagnostic, mft_axis):
         # Initialize with the same species as the diagnostic
         if hasattr(diagnostic, '_species'):
-            super().__init__(diagnostic._species)
+            super().__init__(species=diagnostic._species)
         else:
             super().__init__(None)
             
