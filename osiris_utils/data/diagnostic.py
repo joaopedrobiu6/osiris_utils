@@ -292,6 +292,9 @@ class Diagnostic:
         Unload data from memory. This is useful to free memory when the data is not needed anymore.
         """
         print("Unloading data from memory.")
+        if self._all_loaded == False:
+            print("Data is not loaded.")
+            return
         self._data = None
         self._all_loaded = False
 
@@ -348,7 +351,7 @@ class Diagnostic:
 
     def __add__(self, other):
         if isinstance(other, (int, float, np.ndarray)):
-            result = Diagnostic(self._species)
+            result = Diagnostic(species=self._species)
         
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump', '_maxiter']:
                 if hasattr(self, attr):
@@ -375,7 +378,7 @@ class Diagnostic:
             return result
 
         elif isinstance(other, Diagnostic):
-            result = Diagnostic(self._species)
+            result = Diagnostic(species=self._species)
 
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump', '_maxiter']:
                 if hasattr(self, attr):
@@ -404,7 +407,7 @@ class Diagnostic:
     
     def __sub__(self, other):
         if isinstance(other, (int, float, np.ndarray)):
-            result = Diagnostic(self._species)
+            result = Diagnostic(species=self._species)
         
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump', '_maxiter']:
                 if hasattr(self, attr):
@@ -432,7 +435,7 @@ class Diagnostic:
         elif isinstance(other, Diagnostic):
                 
             
-            result = Diagnostic(self._species)
+            result = Diagnostic(species=self._species)
 
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump', '_maxiter']:
                 if hasattr(self, attr):
@@ -461,7 +464,7 @@ class Diagnostic:
     
     def __mul__(self, other):
         if isinstance(other, (int, float, np.ndarray)):
-            result = Diagnostic(self._species)
+            result = Diagnostic(species=self._species)
         
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump', '_maxiter']:
                 if hasattr(self, attr):
@@ -487,7 +490,7 @@ class Diagnostic:
             return result
 
         elif isinstance(other, Diagnostic):
-            result = Diagnostic(self._species)
+            result = Diagnostic(species=self._species)
 
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump', '_maxiter']:
                 if hasattr(self, attr):
@@ -516,7 +519,7 @@ class Diagnostic:
     
     def __truediv__(self, other):
         if isinstance(other, (int, float, np.ndarray)):
-            result = Diagnostic(self._species)
+            result = Diagnostic(species=self._species)
         
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump', '_maxiter']:
                 if hasattr(self, attr):
@@ -543,7 +546,7 @@ class Diagnostic:
 
         elif isinstance(other, Diagnostic):
                 
-            result = Diagnostic(self._species)
+            result = Diagnostic(species=self._species)
 
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump', '_maxiter']:
                 if hasattr(self, attr):
@@ -573,7 +576,7 @@ class Diagnostic:
     def __pow__(self, other):
        # power by scalar
         if isinstance(other, (int, float)):
-            result = Diagnostic(self._species)
+            result = Diagnostic(species=self._species)
 
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump', '_maxiter']:
                 if hasattr(self, attr):
@@ -614,7 +617,7 @@ class Diagnostic:
     
     def __rtruediv__(self, other): # division is not commutative
         if isinstance(other, (int, float, np.ndarray)):
-            result = Diagnostic(self._species)
+            result = Diagnostic(species=self._species)
         
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump', '_maxiter']:
                 if hasattr(self, attr):
@@ -641,7 +644,7 @@ class Diagnostic:
         
         elif isinstance(other, Diagnostic):
             
-            result = Diagnostic(self._species)
+            result = Diagnostic(species=self._species)
 
             for attr in ['_dx', '_nx', '_x', '_dt', '_grid', '_axis', '_dim', '_ndump', '_maxiter']:
                 if hasattr(self, attr):
