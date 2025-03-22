@@ -172,18 +172,22 @@ class Diagnostic:
         quantity : str
             The quantity to get the data.
         """
-        if quantity not in OSIRIS_ALL:
-            raise ValueError(f"Invalid quantity {quantity}. Use which_quantities() to see the available quantities.")
-        if quantity in OSIRIS_SPECIE_REP_UDIST:
-            self._get_moment(self._species, quantity)
-        elif quantity in OSIRIS_SPECIE_REPORTS:
-            self._get_density(self._species, quantity)
-        elif quantity in OSIRIS_FLD:
-            self._get_field(quantity)
-        elif quantity in OSIRIS_PHA:
-            self._get_phase_space(self._species, quantity)
+        self._quantity = quantity
+
+        if self._quantity not in OSIRIS_ALL:
+            raise ValueError(f"Invalid quantity {self._quantity}. Use which_quantities() to see the available quantities.")
+        if self._quantity in OSIRIS_SPECIE_REP_UDIST:
+            self._get_moment(self._species.name, self._quantity)
+        elif self._quantity in OSIRIS_SPECIE_REPORTS:
+            self._get_density(self._species.name, self._quantity)
+        elif self._quantity in OSIRIS_FLD:
+            self._get_field(self._quantity)
+        elif self._quantity in OSIRIS_PHA:
+            self._get_phase_space(self._species.name, self._quantity)
+        elif self._quantity == "n":
+            self._get_density(self._species.name, "n")
         else:
-            raise ValueError(f"Invalid quantity {quantity}. Or it's not implemented yet (this may happen for phase space quantities).")
+            raise ValueError(f"Invalid quantity {self._quantity}. Or it's not implemented yet (this may happen for phase space quantities).")
 
     def _get_moment(self, species, moment):
         if self._simulation_folder is None:
@@ -239,7 +243,7 @@ class Diagnostic:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         file = os.path.join(self._path, self._file_template + f"{index:06d}.h5")
         data_object = OsirisGridFile(file)
-        yield data_object.data
+        yield data_object.data if self._quantity not in OSIRIS_DENSITY else self._species.rqm * data_object.data
 
     def load_all(self):
         """
@@ -362,7 +366,7 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
 
-            result._name = self._name + " + " + str(other) if isinstance(other, (int, float)) else self._name + " + np.ndarray"
+            # result._name = self._name + " + " + str(other) if isinstance(other, (int, float)) else self._name + " + np.ndarray"
             
             if self._all_loaded:
                 result._data = self._data + other
@@ -388,7 +392,7 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
             
-            result._name = self._name + " + " + str(other._name)
+            # result._name = self._name + " + " + str(other._name)
 
             if self._all_loaded:
                 other.load_all()
@@ -417,7 +421,7 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
 
-            result._name = self._name + " - " + str(other) if isinstance(other, (int, float)) else self._name + " - np.ndarray"
+            # result._name = self._name + " - " + str(other) if isinstance(other, (int, float)) else self._name + " - np.ndarray"
 
             if self._all_loaded:
                 result._data = self._data - other
@@ -445,7 +449,7 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
             
-            result._name = self._name + " - " + str(other._name)
+            # result._name = self._name + " - " + str(other._name)
 
             if self._all_loaded:
                 other.load_all()
@@ -474,7 +478,7 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
 
-            result._name = self._name + " * " + str(other) if isinstance(other, (int, float)) else self._name + " * np.ndarray"
+            # result._name = self._name + " * " + str(other) if isinstance(other, (int, float)) else self._name + " * np.ndarray"
             
             if self._all_loaded:
                 result._data = self._data * other
@@ -500,7 +504,7 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
             
-            result._name = self._name + " * " + str(other._name)
+            # result._name = self._name + " * " + str(other._name)
 
             if self._all_loaded:
                 other.load_all()
@@ -529,7 +533,7 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
 
-            result._name = self._name + " / " + str(other) if isinstance(other, (int, float)) else self._name + " / np.ndarray"
+            # result._name = self._name + " / " + str(other) if isinstance(other, (int, float)) else self._name + " / np.ndarray"
             
             if self._all_loaded:
                 result._data = self._data / other
@@ -556,7 +560,7 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
             
-            result._name = self._name + " / " + str(other._name)
+            # result._name = self._name + " / " + str(other._name)
 
             if self._all_loaded:
                 other.load_all()
@@ -586,8 +590,8 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
 
-            result._name = self._name + " ^(" + str(other) + ")"
-            result._label = self._label + rf"$ ^{other}$"
+            # result._name = self._name + " ^(" + str(other) + ")"
+            # result._label = self._label + rf"$ ^{other}$"
 
             if self._all_loaded:
                 result._data = self._data ** other
@@ -627,7 +631,7 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
 
-            result._name = str(other) + " / " + self._name if isinstance(other, (int, float)) else "np.ndarray / " + self._name
+            # result._name = str(other) + " / " + self._name if isinstance(other, (int, float)) else "np.ndarray / " + self._name
             
             if self._all_loaded:
                 result._data = other / self._data
@@ -654,7 +658,7 @@ class Diagnostic:
                 if hasattr(self, '_maxiter') and self._maxiter is not None:
                     result._maxiter = self._maxiter
             
-            result._name =  str(other._name) + " / " + self._name
+            # result._name =  str(other._name) + " / " + self._name
 
             if self._all_loaded:
                 other.load_all()

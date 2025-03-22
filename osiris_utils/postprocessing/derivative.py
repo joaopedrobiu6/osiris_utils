@@ -39,8 +39,14 @@ class Derivative_Simulation(PostProcess):
         self._type = type
         self._axis = axis
         self._derivatives_computed = {}
+        self._species_handler = {}
 
     def __getitem__(self, key):
+        if key in self._simulation._species:
+            if key not in self._species_handler:
+                self._species_handler[key] = Derivative_Species_Handler(self._simulation[key], self._type, self._axis)
+            return self._species_handler[key]
+                
         if key not in self._derivatives_computed:
             self._derivatives_computed[key] = Derivative_Diagnostic(diagnostic=self._simulation[key], 
                                                                     type=self._type, axis=self._axis)
@@ -96,7 +102,7 @@ class Derivative_Diagnostic(Diagnostic):
         else:
             super().__init__(None)
             
-        self._name = f"D[{diagnostic._name}, {type}]"
+        # self._name = f"D[{diagnostic._name}, {type}]"
         self._diag = diagnostic
         self._type = type
         self._axis = axis if axis is not None else diagnostic._axis
@@ -200,3 +206,31 @@ class Derivative_Diagnostic(Diagnostic):
         
         # Otherwise compute on-demand
         return next(self._data_generator(index))
+    
+class Derivative_Species_Handler:
+    """
+    Class to handle derivatives for a species.
+    Acts as a wrapper for the Derivative_Diagnostic class.
+
+    Not intended to be used directly, but through the Derivative_Simulation class.
+
+    Parameters
+    ----------
+    species_handler : Species_Handler
+        The species handler object.
+    type : str
+        The type of derivative to compute. Options are: 't', 'x1', 'x2', 'x3', 'xx', 'xt' and 'tx'.
+    axis : int or tuple
+        The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
+    """
+    def __init__(self, species_handler, type, axis=None):
+        self._species_handler = species_handler
+        self._type = type
+        self._axis = axis
+        self._derivatives_computed = {}
+
+    def __getitem__(self, key):
+        if key not in self._derivatives_computed:
+            diag = self._species_handler[key]
+            self._derivatives_computed[key] = Derivative_Diagnostic(diag, self._type, self._axis)
+        return self._derivatives_computed[key]
