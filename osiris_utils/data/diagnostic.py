@@ -248,7 +248,7 @@ class Diagnostic:
     
     def _data_generator(self, index):
         if self._simulation_folder is None:
-            raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
+            raise ValueError("Simulation folder not set.")
         file = os.path.join(self._path, self._file_template + f"{index:06d}.h5")
         data_object = OsirisGridFile(file)
         yield data_object.data if self._quantity not in OSIRIS_DENSITY else self._species.rqm * data_object.data

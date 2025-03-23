@@ -53,7 +53,6 @@ class Simulation:
         self._diagnostics = {}  # Dictionary to store diagnostics for each quantity
         self._species_handler = {}
     
-
     def delete_all_diagnostics(self):
         """
         Delete all diagnostics.
