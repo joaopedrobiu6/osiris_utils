@@ -1,10 +1,10 @@
-API Reference
+Utilities API
 =============
 
-This document provides a complete reference to the osiris_utils package API.
+This document provides a reference to the osiris_utils utilities API.
 
-Core Data Structures
---------------------
+Data Readers Structures
+-----------------------
 
 The package provides several classes for handling different types of OSIRIS data.
 

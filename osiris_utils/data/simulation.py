@@ -17,10 +17,10 @@ class Simulation:
     
     Attributes
     ----------
-    species : str
-        The species to analyze.
     simulation_folder : str
         The simulation folder.
+    species : Specie object
+        The species to analyze.
     diagnostics : dict
         Dictionary to store diagnostics for each quantity when `load_all` method is used.
 
