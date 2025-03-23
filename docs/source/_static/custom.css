@@ -1,21 +1,53 @@
+/* Sidebar background */
 .wy-nav-side {
-    background: #ff7700
+  background: #88cbf8;  /* Change to your preferred color */
 }
+
+/* Sidebar link color */
+.wy-menu-vertical a {
+  color: #ffffff;
+}
+
+/* Sidebar link hover color */
+.wy-menu-vertical a:hover {
+  background-color: #36a8f3;
+}
+
+/* Selected item in sidebar */
+.wy-menu-vertical li.current {
+  background: #2f93f0;
+}
+
+.wy-menu-vertical li.current > a {
+  background: #aeecff;
+}
+
+/* Header (H1, H2, etc.) colors */
+h1, h2, h3, h4, h5, h6 {
+  color: #57bafb;
+}
+
+a:hover {
+  color: #a5c0fe;
+}
+
+/* Code block background */
+.highlight {
+  background: #000000;
+}
+
+/* Keep your existing settings for content width */
 .wy-nav-content {
-    max-width: 1200px !important;
+  max-width: 1200px !important;
 }
 
-/* override table width restrictions */
+/* Keep your existing table width overrides */
 @media screen and (min-width: 767px) {
+.wy-table-responsive table td {
+  white-space: normal !important;
+}
 
-  .wy-table-responsive table td {
-    /* !important prevents the common CSS stylesheets from
-       overriding this as on RTD they are loaded after this stylesheet */
-    white-space: normal !important;
-  }
-
-  .wy-table-responsive {
-    overflow: visible !important;
-  }
-
+.wy-table-responsive {
+  overflow: visible !important;
+}
 }

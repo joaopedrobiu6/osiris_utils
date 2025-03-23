@@ -177,14 +177,22 @@ class Diagnostic:
         if self._quantity not in OSIRIS_ALL:
             raise ValueError(f"Invalid quantity {self._quantity}. Use which_quantities() to see the available quantities.")
         if self._quantity in OSIRIS_SPECIE_REP_UDIST:
+            if self._species is None:
+                raise ValueError("Species not set.")
             self._get_moment(self._species.name, self._quantity)
         elif self._quantity in OSIRIS_SPECIE_REPORTS:
+            if self._species is None:
+                raise ValueError("Species not set.")
             self._get_density(self._species.name, self._quantity)
         elif self._quantity in OSIRIS_FLD:
             self._get_field(self._quantity)
         elif self._quantity in OSIRIS_PHA:
+            if self._species is None:
+                raise ValueError("Species not set.")
             self._get_phase_space(self._species.name, self._quantity)
         elif self._quantity == "n":
+            if self._species is None:
+                raise ValueError("Species not set.")
             self._get_density(self._species.name, "n")
         else:
             raise ValueError(f"Invalid quantity {self._quantity}. Or it's not implemented yet (this may happen for phase space quantities).")

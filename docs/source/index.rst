@@ -7,7 +7,21 @@ OSIRIS Utils Documentation
    
 .. toctree::
    :maxdepth: 2
-   :caption: API Reference:
+   :caption: Simulation and Diagnostic API:
+   :hidden:
    
-   api
-   sim_diag
+   api/sim_diag
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Post-Processing API:
+   :hidden:
+
+   api/postprocess
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Utilities API:
+   :hidden:
+   
+   api/utilities
