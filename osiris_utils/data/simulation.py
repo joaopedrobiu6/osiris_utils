@@ -94,6 +94,82 @@ class Simulation:
         diag.load_all = patched_load_all
         
         return diag
+    
+    def add_diagnostic(self, diagnostic, name=None):
+        """
+        Add a custom diagnostic to the simulation.
+        
+        Parameters
+        ----------
+        diagnostic : Diagnostic or array-like
+            The diagnostic to add. If not a Diagnostic object, it will be wrapped
+            in a Diagnostic object.
+        name : str, optional
+            The name to use as the key for accessing the diagnostic.
+            If None, an auto-generated name will be used.
+            
+        Returns
+        -------
+        str
+            The name (key) used to store the diagnostic
+            
+        Example
+        -------
+        >>> sim = Simulation('path/to/simulation', 'input_deck.txt')
+        >>> nT = sim['electrons']['n'] * sim['electrons']['T11']
+        >>> sim.add_diagnostic(nT, 'nT')
+        >>> sim['nT']  # Access the custom diagnostic
+        """
+        # Generate a name if none provided
+        if name is None:
+            # Find an unused name
+            i = 1
+            while f"custom_diag_{i}" in self._diagnostics:
+                i += 1
+            name = f"custom_diag_{i}"
+        
+        # If already a Diagnostic, store directly
+        if isinstance(diagnostic, Diagnostic):
+            self._diagnostics[name] = diagnostic
+        else:
+            # Create a new Diagnostic and copy metadata from one of the existing diagnostics
+            # (assuming at least one diagnostic exists)
+            if len(self._diagnostics) > 0:
+                # Use the first diagnostic as a template for metadata
+                template_diag = next(iter(self._diagnostics.values()))
+                diag = Diagnostic(simulation_folder=self._simulation_folder, species=None)
+                
+                # Copy metadata but use the new data
+                diag._data = diagnostic
+                diag._dt = template_diag.dt  # Copy time info
+                diag._x = template_diag.x  
+                diag._dx = template_diag.dx
+                diag._axis = template_diag.axis
+                diag._grid = template_diag.grid
+                diag._maxiter = template_diag.maxiter
+                diag._units = template_diag.units
+                diag._dim = template_diag.dim
+                diag._nx = template_diag.nx
+                
+                self._diagnostics[name] = diag
+            else:
+                # If no existing diagnostics, create a basic one
+                diag = Diagnostic(simulation_folder=None, species=None)
+
+                diag._data = diagnostic
+                diag._dt = template_diag.dt  # Copy time info
+                diag._x = template_diag.x  
+                diag._dx = template_diag.dx
+                diag._axis = template_diag.axis
+                diag._grid = template_diag.grid
+                diag._maxiter = template_diag.maxiter
+                diag._units = template_diag.units
+                diag._dim = template_diag.dim
+                diag._nx = template_diag.nx
+                
+                self._diagnostics[name] = diag
+        
+        return name
 
     @property
     def species(self):

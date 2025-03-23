@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import warnings
 from typing import Literal
 
-OSIRIS_DENSITY = "n"
+OSIRIS_DENSITY = ["n"]
 OSIRIS_SPECIE_REPORTS = ["charge", "q1", "q2", "q3", "j1", "j2", "j3"]
 OSIRIS_SPECIE_REP_UDIST = [
     "vfl1",
@@ -39,7 +39,7 @@ OSIRIS_SPECIE_REP_UDIST = [
 ]
 OSIRIS_FLD = ["e1", "e2", "e3", "b1", "b2", "b3"]
 OSIRIS_PHA = ["p1x1", "p1x2", "p1x3", "p2x1", "p2x2", "p2x3", "p3x1", "p3x2", "p3x3", "gammax1", "gammax2", "gammax3"] # there may be more that I don't know
-OSIRIS_ALL = OSIRIS_SPECIE_REPORTS + OSIRIS_SPECIE_REP_UDIST + OSIRIS_FLD + OSIRIS_PHA
+OSIRIS_ALL = OSIRIS_DENSITY + OSIRIS_SPECIE_REPORTS + OSIRIS_SPECIE_REP_UDIST + OSIRIS_FLD + OSIRIS_PHA
 
 def which_quantities():
     print("Available quantities:")
@@ -193,7 +193,7 @@ class Diagnostic:
         elif self._quantity == "n":
             if self._species is None:
                 raise ValueError("Species not set.")
-            self._get_density(self._species.name, "n")
+            self._get_density(self._species.name, "charge")
         else:
             raise ValueError(f"Invalid quantity {self._quantity}. Or it's not implemented yet (this may happen for phase space quantities).")
 
