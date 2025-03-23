@@ -2,7 +2,7 @@ OSIRIS_UTILS
 ============
 |Pypi|
 
-.. image:: docs/imagem1.png
+.. image:: docs/Imagem1.png
    :alt: OSIRIS Utils Logo
    :width: 600px
    :align: center
