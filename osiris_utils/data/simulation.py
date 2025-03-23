@@ -132,45 +132,8 @@ class Simulation:
         if isinstance(diagnostic, Diagnostic):
             self._diagnostics[name] = diagnostic
         else:
-            # Create a new Diagnostic and copy metadata from one of the existing diagnostics
-            # (assuming at least one diagnostic exists)
-            if len(self._diagnostics) > 0:
-                # Use the first diagnostic as a template for metadata
-                template_diag = next(iter(self._diagnostics.values()))
-                diag = Diagnostic(simulation_folder=self._simulation_folder, species=None)
-                
-                # Copy metadata but use the new data
-                diag._data = diagnostic
-                diag._dt = template_diag.dt  # Copy time info
-                diag._x = template_diag.x  
-                diag._dx = template_diag.dx
-                diag._axis = template_diag.axis
-                diag._grid = template_diag.grid
-                diag._maxiter = template_diag.maxiter
-                diag._units = template_diag.units
-                diag._dim = template_diag.dim
-                diag._nx = template_diag.nx
-                
-                self._diagnostics[name] = diag
-            else:
-                # If no existing diagnostics, create a basic one
-                diag = Diagnostic(simulation_folder=None, species=None)
-
-                diag._data = diagnostic
-                diag._dt = template_diag.dt  # Copy time info
-                diag._x = template_diag.x  
-                diag._dx = template_diag.dx
-                diag._axis = template_diag.axis
-                diag._grid = template_diag.grid
-                diag._maxiter = template_diag.maxiter
-                diag._units = template_diag.units
-                diag._dim = template_diag.dim
-                diag._nx = template_diag.nx
-                
-                self._diagnostics[name] = diag
-        
-        return name
-
+            raise ValueError("Only Diagnostic objects are supported for now")
+    
     @property
     def species(self):
         return self._species
