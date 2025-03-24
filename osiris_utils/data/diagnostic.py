@@ -37,7 +37,7 @@ OSIRIS_SPECIE_REP_UDIST = [
     "T23",
     "T33",
 ]
-OSIRIS_FLD = ["e1", "e2", "e3", "b1", "b2", "b3"]
+OSIRIS_FLD = ["e1", "e2", "e3", "b1", "b2", "b3", "part_e1", "part_e2", "epart_3", "part_b1", "part_b2", "part_b3", "ext_e1", "ext_e2", "ext_e3", "ext_b1", "ext_b2", "ext_b3"]
 OSIRIS_PHA = ["p1x1", "p1x2", "p1x3", "p2x1", "p2x2", "p2x3", "p3x1", "p3x2", "p3x3", "gammax1", "gammax2", "gammax3"] # there may be more that I don't know
 OSIRIS_ALL = OSIRIS_DENSITY + OSIRIS_SPECIE_REPORTS + OSIRIS_SPECIE_REP_UDIST + OSIRIS_FLD + OSIRIS_PHA
 
