@@ -1,4 +1,3 @@
-from torch import isin
 from ..utils import *
 from ..data.simulation import Simulation
 from .postprocess import PostProcess
