@@ -58,7 +58,7 @@ class InputDeckIO:
             lines = f.readlines()
 
         # remove comments
-        lines = [l[: l.find("!")] for l in lines]
+        lines = [l[: l.find("!")] if "!" in l else l for l in lines]
 
         # join into single string (makes it easier to parse using regex)
         lines = "".join(lines)
@@ -279,8 +279,9 @@ class InputDeckIO:
                 return int(self["particles"][0]["num_cathode"])
             except (KeyError, IndexError):
                 # If neither exists, raise an informative error
-                raise KeyError("Could not find 'num_species' or 'num_cathode' in the particles section")
-        
+                raise KeyError(
+                    "Could not find 'num_species' or 'num_cathode' in the particles section"
+                )
 
     @property
     def species(self):
