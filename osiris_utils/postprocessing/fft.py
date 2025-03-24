@@ -203,7 +203,16 @@ class FFT_Diagnostic(Diagnostic):
     def __getitem__(self, index):
         if self._all_loaded and self._data is not None:
             return self._data[index]
-        return next(self._data_generator(index))
+        
+        if isinstance(index, int):
+            return next(self._data_generator(index))
+        elif isinstance(index, slice):
+            start = 0 if index.start is None else index.start
+            step = 1 if index.step is None else index.step
+            stop = self._diag._maxiter if index.stop is None else index.stop
+            return np.array([next(self._data_generator(i)) for i in range(start, stop, step)])
+        else:
+            raise ValueError("Invalid index type. Use int or slice.")
     
     def omega(self):
         """
