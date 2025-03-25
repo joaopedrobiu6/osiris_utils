@@ -14,6 +14,17 @@ import tqdm
 import matplotlib.pyplot as plt
 import warnings
 from typing import Literal
+from ..decks.decks import InputDeckIO, deval
+
+def get_dimension_from_deck(deck: InputDeckIO) -> int:
+    for dim in range(1, 4):
+        try:
+            deck.get_param(section='grid', param=f'nx_p(1:{dim})')
+            return dim
+        except:
+            continue
+    
+    raise Exception('Error parsing grid dimension')
 
 OSIRIS_DENSITY = ["n"]
 OSIRIS_SPECIE_REPORTS = ["charge", "q1", "q2", "q3", "j1", "j2", "j3"]
@@ -37,7 +48,7 @@ OSIRIS_SPECIE_REP_UDIST = [
     "T23",
     "T33",
 ]
-OSIRIS_FLD = ["e1", "e2", "e3", "b1", "b2", "b3"]
+OSIRIS_FLD = ["e1", "e2", "e3", "b1", "b2", "b3", "part_e1", "part_e2", "epart_3", "part_b1", "part_b2", "part_b3", "ext_e1", "ext_e2", "ext_e3", "ext_b1", "ext_b2", "ext_b3"]
 OSIRIS_PHA = ["p1x1", "p1x2", "p1x3", "p2x1", "p2x2", "p2x3", "p3x1", "p3x2", "p3x3", "gammax1", "gammax2", "gammax3"] # there may be more that I don't know
 OSIRIS_ALL = OSIRIS_DENSITY + OSIRIS_SPECIE_REPORTS + OSIRIS_SPECIE_REP_UDIST + OSIRIS_FLD + OSIRIS_PHA
 
@@ -137,7 +148,7 @@ class Diagnostic:
     >>> sim[0]
     array with the data for the first timestep
     """
-    def __init__(self, simulation_folder=None, species=None):
+    def __init__(self, simulation_folder=None, species=None, input_deck=None):
         self._species = species if species else None
 
         self._dx = None
@@ -160,6 +171,12 @@ class Diagnostic:
                 raise FileNotFoundError(f"Simulation folder {simulation_folder} not found.")
         else:
             self._simulation_folder = None
+
+        # load input deck if available
+        if input_deck:
+            self._input_deck = input_deck
+        else:
+            self._input_deck = None
 
         self._all_loaded = False
     
@@ -203,7 +220,7 @@ class Diagnostic:
         self._path = f"{self._simulation_folder}/MS/UDIST/{species}/{moment}/"
         self._file_template = os.listdir(self._path)[0][:-9]
         self._maxiter = len(os.listdir(self._path))
-        self._load_attributes(self._file_template)
+        self._load_attributes(self._file_template, self._input_deck)
     
     def _get_field(self, field):
         if self._simulation_folder is None:
@@ -211,7 +228,7 @@ class Diagnostic:
         self._path = f"{self._simulation_folder}/MS/FLD/{field}/"
         self._file_template = os.listdir(self._path)[0][:-9]
         self._maxiter = len(os.listdir(self._path))
-        self._load_attributes(self._file_template)
+        self._load_attributes(self._file_template, self._input_deck)
         
     def _get_density(self, species, quantity):
         if self._simulation_folder is None:
@@ -219,7 +236,7 @@ class Diagnostic:
         self._path = f"{self._simulation_folder}/MS/DENSITY/{species}/{quantity}/"
         self._file_template = os.listdir(self._path)[0][:-9]
         self._maxiter = len(os.listdir(self._path))
-        self._load_attributes(self._file_template)
+        self._load_attributes(self._file_template, self._input_deck)
 
     def _get_phase_space(self, species, type):
         if self._simulation_folder is None:
@@ -227,24 +244,38 @@ class Diagnostic:
         self._path = f"{self._simulation_folder}/MS/PHA/{type}/{species}/"
         self._file_template = os.listdir(self._path)[0][:-9]
         self._maxiter = len(os.listdir(self._path))
-        self._load_attributes(self._file_template)
+        self._load_attributes(self._file_template, self._input_deck)
 
-    def _load_attributes(self, file_template): # this will be replaced by reading the input deck
+    def _load_attributes(self, file_template, input_deck): # this will be replaced by reading the input deck
         # This can go wrong! NDUMP
-        path_file1 = os.path.join(self._path, file_template + "000001.h5")
-        dump1 = OsirisGridFile(path_file1)
-        self._dx = dump1.dx
-        self._nx = dump1.nx
-        self._x = dump1.x
-        self._dt = dump1.dt
-        self._grid = dump1.grid
-        self._axis = dump1.axis
-        self._units = dump1.units
-        self._name = dump1.name
-        self._label = dump1.label
-        self._dim = dump1.dim
-        self._ndump = dump1.iter
-        self._tunits = dump1.time[1]
+        # if input_deck is not None:
+        #     self._dt = float(input_deck["time_step"][0]["dt"])
+        #     self._ndump = int(input_deck["time_step"][0]["ndump"])
+        #     self._dim = get_dimension_from_deck(input_deck)
+        #     self._nx = np.array(list(map(int, input_deck["grid"][0][f"nx_p(1:{self._dim})"].split(','))))
+        #     xmin = [deval(input_deck["space"][0][f"xmin(1:{self._dim})"].split(',')[i]) for i in range(self._dim)]
+        #     xmax = [deval(input_deck["space"][0][f"xmax(1:{self._dim})"].split(',')[i]) for i in range(self._dim)]
+        #     self._grid = np.array([[xmin[i], xmax[i]] for i in range(self._dim)])
+        #     self._dx = (self._grid[:,1] - self._grid[:,0])/self._nx
+        #     self._x = [np.arange(self._grid[i,0], self._grid[i,1], self._dx[i]) for i in range(self._dim)]
+
+        try:
+            path_file1 = os.path.join(self._path, file_template + "000001.h5")
+            dump1 = OsirisGridFile(path_file1)
+            self._dx = dump1.dx
+            self._nx = dump1.nx
+            self._x = dump1.x
+            self._dt = dump1.dt
+            self._grid = dump1.grid
+            self._axis = dump1.axis
+            self._units = dump1.units
+            self._name = dump1.name
+            self._label = dump1.label
+            self._dim = dump1.dim
+            self._ndump = dump1.iter
+            self._tunits = dump1.time[1]
+        except:
+            pass
     
     def _data_generator(self, index):
         if self._simulation_folder is None:
@@ -317,18 +348,40 @@ class Diagnostic:
         self._data = next(self._data_generator(index))
 
     def __getitem__(self, index):
-        # For standard diagnostics with files
-        if self._simulation_folder is not None and hasattr(self, '_data_generator'):
-            return next(self._data_generator(index))
-        
         # For derived diagnostics with cached data
         if self._all_loaded and self._data is not None:
             return self._data[index]
         
-        # For derived diagnostics with custom generators
-        if hasattr(self, '_data_generator') and callable(self._data_generator):
-            return next(self._data_generator(index))
-        
+        # For standard diagnostics with files
+        if isinstance(index, int):
+            if self._simulation_folder is not None and hasattr(self, '_data_generator'):
+                return next(self._data_generator(index))
+            
+            # For derived diagnostics with custom generators
+            if hasattr(self, '_data_generator') and callable(self._data_generator):
+                return next(self._data_generator(index))
+            
+        elif isinstance(index, slice):
+            start = 0 if index.start is None else index.start
+            step = 1 if index.step is None else index.step
+
+            if index.stop is None:
+                if hasattr(self, '_maxiter') and self._maxiter is not None:
+                    stop = self._maxiter
+                elif self._simulation_folder is not None and hasattr(self, '_path'):
+                    stop = len(sorted(os.listdir(self._path)))
+                else:
+                    stop = 100  # Default if we can't determine
+                    print(f"Warning: Could not determine iteration count for iteration, using {stop}.")
+            else:
+                stop = index.stop
+
+            indices = range(start, stop, step)
+            if self._simulation_folder is not None and hasattr(self, '_data_generator'):
+                return np.stack([next(self._data_generator(i)) for i in indices])
+            elif hasattr(self, '_data_generator') and callable(self._data_generator):
+                return np.stack([next(self._data_generator(i)) for i in indices])
+
         # If we get here, we don't know how to get data for this index
         raise ValueError(f"Cannot retrieve data for this diagnostic at index {index}. No data loaded and no generator available.")   
     

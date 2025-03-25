@@ -215,7 +215,15 @@ class MFT_Diagnostic_Average(Diagnostic):
             return self._data[index]
         
         # Otherwise compute on-demand
-        return next(self._data_generator(index))
+        if isinstance(index, int):
+            return next(self._data_generator(index))
+        elif isinstance(index, slice):
+            start = 0 if index.start is None else index.start
+            step = 1 if index.step is None else index.step
+            stop = self._diag._maxiter if index.stop is None else index.stop
+            return np.array([next(self._data_generator(i)) for i in range(start, stop, step)])
+        else:
+            raise ValueError("Invalid index type. Use int or slice.")
     
 class MFT_Diagnostic_Fluctuations(Diagnostic):
     """
@@ -303,7 +311,15 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
             return self._data[index]
         
         # Otherwise compute on-demand
-        return next(self._data_generator(index))
+        if isinstance(index, int):
+            return next(self._data_generator(index))
+        elif isinstance(index, slice):
+            start = 0 if index.start is None else index.start
+            step = 1 if index.step is None else index.step
+            stop = self._diag._maxiter if index.stop is None else index.stop
+            return np.array([next(self._data_generator(i)) for i in range(start, stop, step)])
+        else:
+            raise ValueError("Invalid index type. Use int or slice.")
     
 class MFT_Species_Handler:
     """
