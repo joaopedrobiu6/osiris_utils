@@ -24,7 +24,7 @@ def courant2D(dx, dy):
     dt = 1 / (np.sqrt(1/dx**2 + 1/dy**2))
     return dt
 
-def time_estimation(n_cells, ppc, push_time, t_steps, n_cpu, hours = False):
+def time_estimation(n_cells, ppc, t_steps, n_cpu, push_time = 1e-7, hours = False):
     '''
     Estimate the simulation time.
 
@@ -105,45 +105,6 @@ def integrate(array, dx):
     # int = -scipy.integrate.cumulative_trapezoid(flip_array, dx = dx, initial = flip_array[0])
     int = -scipy.integrate.cumulative_simpson(flip_array, dx = dx, initial = 0)
     return np.flip(int)
-
-def animate_2D(datafiles, frames, interval, fps, savename, **kwargs):
-    '''
-    Animate 2D OSIRIS files.
-
-    Parameters
-    ----------
-    datafiles : str
-        The path to the files.
-        Must be of the type 'path/to/file_%06d.h5'.
-    kwargs : dict
-        Additional keyword arguments for plotting.
-
-    Returns
-    -------
-    matplotlib.animation.FuncAnimation
-        The animation.
-    '''
-    fig, ax = plt.subplots(figsize=(12, 6), tight_layout=True)
-    im = 0
-
-    def animate(i):
-        # Assuming this returns (x, y, data, out) correctly
-        x, y, data, _ = open2D(datafiles % i)
-        ax.clear()
-        # Display image data, make sure data shape is valid for imshow
-        im = ax.imshow(-data, extent=[x.min(), x.max(), y.min(), y.max()], aspect='auto', origin='lower', **kwargs)
-        plt.xlabel(r'x [c/$\omega_p$]')
-        plt.ylabel(r'y [c/$\omega_p$]')
-        
-
-    # Creating the animation, and frames should be updated accordingly
-    ani = animation.FuncAnimation(fig, animate, frames=frames, interval=interval)
-
-    # Save the animation as a GIF (you can set the path and filename)
-    ani.save(savename, writer='pillow', fps=fps)  # fps can be adjusted
-
-    # Display the animation
-    return ani
 
 def save_data(data, savename, option='numpy'):
     """

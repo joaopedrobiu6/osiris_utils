@@ -3,7 +3,6 @@ from .utils import (
     filesize_estimation,
     transverse_average,
     integrate,
-    animate_2D,
     save_data,
     read_data,
     courant2D,
