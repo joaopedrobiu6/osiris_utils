@@ -43,13 +43,14 @@ class Simulation:
     >>> diag = sim['e1']
     >>> diag[<index>]
     '''
-    def __init__(self, simulation_folder, input_deck_file):
-        self._input_deck_file = simulation_folder + "/" + input_deck_file
-        self._input_deck = InputDeckIO(self._input_deck_file, verbose=False)
+    def __init__(self, input_deck_path):
+        folder_path = os.path.dirname(input_deck_path)
+        self._input_deck_path = input_deck_path
+        self._input_deck = InputDeckIO(self._input_deck_path, verbose=False)
 
         self._species = list(self._input_deck.species.keys())
 
-        self._simulation_folder = simulation_folder
+        self._simulation_folder = folder_path
         self._diagnostics = {}  # Dictionary to store diagnostics for each quantity
         self._species_handler = {}
     
