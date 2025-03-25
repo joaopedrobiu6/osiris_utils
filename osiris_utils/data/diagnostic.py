@@ -14,6 +14,17 @@ import tqdm
 import matplotlib.pyplot as plt
 import warnings
 from typing import Literal
+from ..decks.decks import InputDeckIO, deval
+
+def get_dimension_from_deck(deck: InputDeckIO) -> int:
+    for dim in range(1, 4):
+        try:
+            deck.get_param(section='grid', param=f'nx_p(1:{dim})')
+            return dim
+        except:
+            continue
+    
+    raise Exception('Error parsing grid dimension')
 
 OSIRIS_DENSITY = ["n"]
 OSIRIS_SPECIE_REPORTS = ["charge", "q1", "q2", "q3", "j1", "j2", "j3"]
@@ -137,7 +148,7 @@ class Diagnostic:
     >>> sim[0]
     array with the data for the first timestep
     """
-    def __init__(self, simulation_folder=None, species=None):
+    def __init__(self, simulation_folder=None, species=None, input_deck=None):
         self._species = species if species else None
 
         self._dx = None
@@ -160,6 +171,12 @@ class Diagnostic:
                 raise FileNotFoundError(f"Simulation folder {simulation_folder} not found.")
         else:
             self._simulation_folder = None
+
+        # load input deck if available
+        if input_deck:
+            self._input_deck = input_deck
+        else:
+            self._input_deck = None
 
         self._all_loaded = False
     
@@ -203,7 +220,7 @@ class Diagnostic:
         self._path = f"{self._simulation_folder}/MS/UDIST/{species}/{moment}/"
         self._file_template = os.listdir(self._path)[0][:-9]
         self._maxiter = len(os.listdir(self._path))
-        self._load_attributes(self._file_template)
+        self._load_attributes(self._file_template, self._input_deck)
     
     def _get_field(self, field):
         if self._simulation_folder is None:
@@ -211,7 +228,7 @@ class Diagnostic:
         self._path = f"{self._simulation_folder}/MS/FLD/{field}/"
         self._file_template = os.listdir(self._path)[0][:-9]
         self._maxiter = len(os.listdir(self._path))
-        self._load_attributes(self._file_template)
+        self._load_attributes(self._file_template, self._input_deck)
         
     def _get_density(self, species, quantity):
         if self._simulation_folder is None:
@@ -219,7 +236,7 @@ class Diagnostic:
         self._path = f"{self._simulation_folder}/MS/DENSITY/{species}/{quantity}/"
         self._file_template = os.listdir(self._path)[0][:-9]
         self._maxiter = len(os.listdir(self._path))
-        self._load_attributes(self._file_template)
+        self._load_attributes(self._file_template, self._input_deck)
 
     def _get_phase_space(self, species, type):
         if self._simulation_folder is None:
@@ -227,24 +244,38 @@ class Diagnostic:
         self._path = f"{self._simulation_folder}/MS/PHA/{type}/{species}/"
         self._file_template = os.listdir(self._path)[0][:-9]
         self._maxiter = len(os.listdir(self._path))
-        self._load_attributes(self._file_template)
+        self._load_attributes(self._file_template, self._input_deck)
 
-    def _load_attributes(self, file_template): # this will be replaced by reading the input deck
+    def _load_attributes(self, file_template, input_deck): # this will be replaced by reading the input deck
         # This can go wrong! NDUMP
-        path_file1 = os.path.join(self._path, file_template + "000001.h5")
-        dump1 = OsirisGridFile(path_file1)
-        self._dx = dump1.dx
-        self._nx = dump1.nx
-        self._x = dump1.x
-        self._dt = dump1.dt
-        self._grid = dump1.grid
-        self._axis = dump1.axis
-        self._units = dump1.units
-        self._name = dump1.name
-        self._label = dump1.label
-        self._dim = dump1.dim
-        self._ndump = dump1.iter
-        self._tunits = dump1.time[1]
+        if input_deck is not None:
+            self._dt = float(input_deck["time_step"][0]["dt"])
+            self._ndump = int(input_deck["time_step"][0]["ndump"])
+            self._dim = get_dimension_from_deck(input_deck)
+            self._nx = np.array(list(map(int, input_deck["grid"][0][f"nx_p(1:{self._dim})"].split(','))))
+            xmin = [deval(input_deck["space"][0][f"xmin(1:{self._dim})"].split(',')[i]) for i in range(self._dim)]
+            xmax = [deval(input_deck["space"][0][f"xmax(1:{self._dim})"].split(',')[i]) for i in range(self._dim)]
+            self._grid = np.array([[xmin[i], xmax[i]] for i in range(self._dim)])
+            self._dx = (self._grid[:,1] - self._grid[:,0])/self._nx
+            self._x = [np.arange(self._grid[i,0], self._grid[i,1], self._dx[i]) for i in range(self._dim)]
+
+        try:
+            path_file1 = os.path.join(self._path, file_template + "000001.h5")
+            dump1 = OsirisGridFile(path_file1)
+            # self._dx = dump1.dx
+            # self._nx = dump1.nx
+            # self._x = dump1.x
+            # self._dt = dump1.dt
+            # self._grid = dump1.grid
+            self._axis = dump1.axis
+            self._units = dump1.units
+            self._name = dump1.name
+            self._label = dump1.label
+            # self._dim = dump1.dim
+            # self._ndump = dump1.iter
+            self._tunits = dump1.time[1]
+        except:
+            pass
     
     def _data_generator(self, index):
         if self._simulation_folder is None:

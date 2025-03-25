@@ -73,14 +73,14 @@ class Simulation:
         if key in self._species:
             # check if species handler already exists
             if key not in self._species_handler:
-                self._species_handler[key] = Species_Handler(self._simulation_folder, self._input_deck.species[key])
+                self._species_handler[key] = Species_Handler(self._simulation_folder, self._input_deck.species[key], self._input_deck)
             return self._species_handler[key]
         
         if key in self._diagnostics:
             return self._diagnostics[key]
         
         # Create a temporary diagnostic for this quantity - this is for quantities that are not species related
-        diag = Diagnostic(simulation_folder=self._simulation_folder, species=None)
+        diag = Diagnostic(simulation_folder=self._simulation_folder, species=None, input_deck=self._input_deck)
         diag.get_quantity(key)
         
         original_load_all = diag.load_all
@@ -139,9 +139,10 @@ class Simulation:
 
 # This is to handle species related diagnostics
 class Species_Handler:
-    def __init__(self, simulation_folder, species_name):
+    def __init__(self, simulation_folder, species_name, input_deck):
         self._simulation_folder = simulation_folder
         self._species_name = species_name
+        self._input_deck = input_deck
         self._diagnostics = {}
     
     def __getitem__(self, key):
@@ -149,7 +150,7 @@ class Species_Handler:
             return self._diagnostics[key]
         
         # Create a temporary diagnostic for this quantity
-        diag = Diagnostic(simulation_folder=self._simulation_folder, species=self._species_name)
+        diag = Diagnostic(simulation_folder=self._simulation_folder, species=self._species_name, input_deck=self._input_deck)
         diag.get_quantity(key)
 
         original_load_all = diag.load_all
