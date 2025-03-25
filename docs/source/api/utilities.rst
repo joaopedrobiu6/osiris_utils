@@ -91,17 +91,6 @@ Interactive Visualization
    LAVA (Lightweight Analysis and Visualization Application) provides interactive 
    visualization capabilities for OSIRIS data.
 
-Animation Tools
-~~~~~~~~~~~~~~~
-
-.. automodule:: osiris_utils.utils
-   :members: animate_2D
-   :noindex:
-
-   Tools for creating animations from simulation data:
-   
-   * ``animate_2D`` - Creates animations from 2D field data
-
 Physics & Analysis
 ------------------
 
