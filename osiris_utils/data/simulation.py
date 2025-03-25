@@ -10,10 +10,8 @@ class Simulation:
     
     Parameters
     ----------
-    species : str
-        The species to analyze.
-    simulation_folder : str
-        The simulation folder.
+    input_deck_path : str
+        Path to the input deck (It must be in the folder where the simulation was run)
     
     Attributes
     ----------
