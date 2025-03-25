@@ -162,3 +162,42 @@ class Species_Handler:
         diag.load_all = patched_load_all
 
         return diag
+    
+    def add_diagnostic(self, diagnostic, name=None):
+        """
+        Add a custom diagnostic to the simulation.
+        
+        Parameters
+        ----------
+        diagnostic : Diagnostic or array-like
+            The diagnostic to add. If not a Diagnostic object, it will be wrapped
+            in a Diagnostic object.
+        name : str, optional
+            The name to use as the key for accessing the diagnostic.
+            If None, an auto-generated name will be used.
+            
+        Returns
+        -------
+        str
+            The name (key) used to store the diagnostic
+            
+        Example
+        -------
+        >>> sim = Simulation('path/to/simulation', 'input_deck.txt')
+        >>> nT = sim['electrons']['n'] * sim['electrons']['T11']
+        >>> sim.add_diagnostic(nT, 'nT')
+        >>> sim['nT']  # Access the custom diagnostic
+        """
+        # Generate a name if none provided
+        if name is None:
+            # Find an unused name
+            i = 1
+            while f"custom_diag_{i}" in self._diagnostics:
+                i += 1
+            name = f"custom_diag_{i}"
+        
+        # If already a Diagnostic, store directly
+        if isinstance(diagnostic, Diagnostic):
+            self._diagnostics[name] = diagnostic
+        else:
+            raise ValueError("Only Diagnostic objects are supported for now")
