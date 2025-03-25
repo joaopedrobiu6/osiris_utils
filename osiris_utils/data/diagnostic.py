@@ -248,31 +248,31 @@ class Diagnostic:
 
     def _load_attributes(self, file_template, input_deck): # this will be replaced by reading the input deck
         # This can go wrong! NDUMP
-        if input_deck is not None:
-            self._dt = float(input_deck["time_step"][0]["dt"])
-            self._ndump = int(input_deck["time_step"][0]["ndump"])
-            self._dim = get_dimension_from_deck(input_deck)
-            self._nx = np.array(list(map(int, input_deck["grid"][0][f"nx_p(1:{self._dim})"].split(','))))
-            xmin = [deval(input_deck["space"][0][f"xmin(1:{self._dim})"].split(',')[i]) for i in range(self._dim)]
-            xmax = [deval(input_deck["space"][0][f"xmax(1:{self._dim})"].split(',')[i]) for i in range(self._dim)]
-            self._grid = np.array([[xmin[i], xmax[i]] for i in range(self._dim)])
-            self._dx = (self._grid[:,1] - self._grid[:,0])/self._nx
-            self._x = [np.arange(self._grid[i,0], self._grid[i,1], self._dx[i]) for i in range(self._dim)]
+        # if input_deck is not None:
+        #     self._dt = float(input_deck["time_step"][0]["dt"])
+        #     self._ndump = int(input_deck["time_step"][0]["ndump"])
+        #     self._dim = get_dimension_from_deck(input_deck)
+        #     self._nx = np.array(list(map(int, input_deck["grid"][0][f"nx_p(1:{self._dim})"].split(','))))
+        #     xmin = [deval(input_deck["space"][0][f"xmin(1:{self._dim})"].split(',')[i]) for i in range(self._dim)]
+        #     xmax = [deval(input_deck["space"][0][f"xmax(1:{self._dim})"].split(',')[i]) for i in range(self._dim)]
+        #     self._grid = np.array([[xmin[i], xmax[i]] for i in range(self._dim)])
+        #     self._dx = (self._grid[:,1] - self._grid[:,0])/self._nx
+        #     self._x = [np.arange(self._grid[i,0], self._grid[i,1], self._dx[i]) for i in range(self._dim)]
 
         try:
             path_file1 = os.path.join(self._path, file_template + "000001.h5")
             dump1 = OsirisGridFile(path_file1)
-            # self._dx = dump1.dx
-            # self._nx = dump1.nx
-            # self._x = dump1.x
-            # self._dt = dump1.dt
-            # self._grid = dump1.grid
+            self._dx = dump1.dx
+            self._nx = dump1.nx
+            self._x = dump1.x
+            self._dt = dump1.dt
+            self._grid = dump1.grid
             self._axis = dump1.axis
             self._units = dump1.units
             self._name = dump1.name
             self._label = dump1.label
-            # self._dim = dump1.dim
-            # self._ndump = dump1.iter
+            self._dim = dump1.dim
+            self._ndump = dump1.iter
             self._tunits = dump1.time[1]
         except:
             pass
