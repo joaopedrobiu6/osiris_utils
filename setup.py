@@ -39,7 +39,7 @@ setup(
     packages=find_packages(exclude=['docs', 'tests', 'local', 'report']),
     include_package_data=True,
     install_requires=requirements,
-    python_requires='>=3.11',
+    python_requires='>=3.10',
     project_urls={
         'Issues Tracker': 'https://github.com/joaopedrobiu6/osiris_utils/issues',
         'Source Code': 'https://github.com/joaopedrobiu6/osiris_utils',
