@@ -179,6 +179,7 @@ class Diagnostic:
             self._input_deck = None
 
         self._all_loaded = False
+        self._quantity = None
     
     def get_quantity(self, quantity):
         """
@@ -917,6 +918,10 @@ class Diagnostic:
     @property
     def label(self):
         return self._label
+
+    @property
+    def quantity(self):
+        return self._quantity
     
     def time(self, index):
         return [index * self._dt * self._ndump, self._tunits]
@@ -968,3 +973,7 @@ class Diagnostic:
     @data.setter
     def data(self, value):
         self._data = value       
+
+    @quantity.setter
+    def quantity(self, key):
+        self._quantity = key

@@ -21,6 +21,8 @@ PostProcess Base Class
    
    The PostProcess framework allows for applying custom transformations to OSIRIS diagnostics.
    It inherits from the Diagnostic class to ensure compatibility with the broader osiris_utils ecosystem.
+   This method is never called directly; instead, subclasses implement specific post-processing operations.
+   It provides a consistent interface for accessing and manipulating Post Processing routines as diagnostic data.
    
    **Key Attributes:**
    
@@ -31,24 +33,6 @@ PostProcess Base Class
    
    * ``process(diagnostic)`` - Apply the post-processing to a diagnostic
    
-   **Usage Example:**
-   
-   .. code-block:: python
-   
-       from osiris_utils.postprocessing import CustomPostProcess
-       from osiris_utils.data import OsirisData
-       
-       # Load some OSIRIS data
-       data = OsirisData("path/to/data")
-       
-       # Create a post-processor
-       processor = CustomPostProcess(name="my_analysis", species="electrons")
-       
-       # Apply processing
-       result = processor.process(data)
-       
-       # Visualize or further analyze
-       result.plot()
 
 Integration with OSIRIS Diagnostics
 -----------------------------------
@@ -57,7 +41,8 @@ Post-processors are designed to work seamlessly with the OSIRIS diagnostic syste
 
 * They can be chained together for complex analysis pipelines
 * Results maintain compatibility with visualization tools
-* Processing operations can be applied to any diagnostic type
+* Processing operations can be applied to any diagnostic type, and even to other post-processors.
+* Post-processors can be used to create new diagnostics, which can then be further processed or visualized.
 
 
 Derivative Post-Processing
@@ -76,7 +61,7 @@ Derivative_Simulation Class
    :show-inheritance:
    :noindex:
 
-   Post-processor for computing derivatives of diagnostic data.
+   Post-processor for computing derivatives of diagnostic data. It can be though of as an operator that acts on the `Diagnostic` objects of a `Simulation` object.
    
    The Derivative_Simulation class provides a convenient interface for calculating derivatives of various simulation quantities.
    It works as a wrapper around the `Derivative_Diagnostic` class, managing the creation and caching of derivative objects.
@@ -101,16 +86,22 @@ Derivative_Simulation Class
        from osiris_utils.postprocessing import Derivative_Simulation
        
        # Create a simulation interface
-       sim = Simulation('electrons', '/path/to/simulation')
+       sim = Simulation('/path/to/input/deck')
        
        # Create a derivative processor for x₁ derivatives
        dx1 = Derivative_Simulation(sim, 'x1')
        
        # Get the derivative of E1 with respect to x₁
        dE1_dx1 = dx1['e1']
+
+       # Get the derivative of a species related quantity 
+       dvfl1_dx1 = dx1["electrons"]["vfl1"]
        
        # Access specific timestep
        timestep_5 = dE1_dx1[5]
+
+       # Or a slice of timesteps
+       timestep_5_to_10 = dE1_dx1[5:10]
        
        # Load all timesteps
        dE1_dx1.load_all()
@@ -145,8 +136,8 @@ The derivative calculation uses NumPy's gradient function with appropriate handl
 
 1. **Time Derivatives** (∂/∂t):
    * Uses centered differences for interior points
-   * Uses forward/backward differences at boundaries
-   * Accounts for the simulation time step and ndump parameter
+   * Uses forward/backward differences at boundaries (second order)
+   * Accounts for the simulation time step and ndump parameter (be extra careful with time derivatives for diagnostics with different dump intervals)
 
 2. **Spatial Derivatives** (∂/∂x):
    * Uses centered differences with edge_order=2 for higher accuracy
@@ -156,6 +147,7 @@ The derivative calculation uses NumPy's gradient function with appropriate handl
 3. **Higher-Order Derivatives** (∂²/∂x∂y):
    * Implemented through chained application of gradient
    * Requires specification of derivative axes
+   * Can be also implemented by using the `Derivative_Simulation` class directly on another `Derivative_Simulation` object.
 
 Performance Considerations
 --------------------------
@@ -164,15 +156,15 @@ When working with large simulations, consider these performance tips:
 
 1. **Selective Loading**:
    * Use indexing (`deriv['e1'][10]`) to compute derivatives for specific timesteps
-   * Only call `load_all()` when you need all timesteps
+   * Only call `load_all()` when you need all timesteps, and `unload()` to free memory
 
 2. **Memory Management**:
    * Clear unneeded derivatives with `derivative.delete('e1')` or `derivative.delete_all()`
    * For very large simulations, process data iteratively rather than loading everything
 
 3. **Caching Behavior**:
-   * Computed derivatives are cached for reuse
-   * Initial access may be slower, but subsequent access is fast
+   * Computed derivatives are cached for reuse (when using `load_all()`)
+   * For single timesteps, derivatives are computed on-demand using generators
 
 Use Cases
 ---------
@@ -193,8 +185,8 @@ Common applications of the Derivative_Simulation post-processor include:
 4. **Phase Velocity Measurements**:
    * Mixed space-time derivatives for wave analysis
 
-Example: Computing Curl of B
-----------------------------
+Example: Computing Curl of B using `Derivative_Simulation`
+----------------------------------------------------------
 
 This example shows how to compute the z-component of curl(B):
 
@@ -204,16 +196,41 @@ This example shows how to compute the z-component of curl(B):
     from osiris_utils.postprocessing import Derivative
     
     # Setup
-    sim = Simulation('electrons', '/path/to/simulation')
+    sim = Simulation('/path/to/input/deck')
     dx1 = Derivative_Simulation(sim, 'x1')
     dx2 = Derivative_Simulation(sim, 'x2')
 
-    # Calculate curl(B) = dB2/dx1 - dB1/dx2
+    # Calculate curl(B)_z = dB2/dx1 - dB1/dx2
     dB2_dx1 = dx1["b2"]
     dB1_dx2 = dx2["b1"]
     
     # Compute curl B (z-component)
     curl_B_z = dB2_dx1 - dB1_dx2
+
+Example: Computing Divergence of E using `Derivative_Diagnostic`
+----------------------------------------------------------------
+
+This example shows how to compute the divergence of E:
+.. code-block:: python
+
+    from osiris_utils.data import Simulation
+    from osiris_utils.postprocessing import Derivative_Diagnostic
+    
+    # Setup
+    e1 = Diagnostic('/path/to/folder', Species, "path/to/input/deck")
+    
+    # Create derivative processor for x₁ and x₂ derivatives
+    de1_dx1 = Derivative_Diagnostic(e1, 'x1')
+    de1_dx2 = Derivative_Simulation(e1, 'x2')
+    de1_dx3 = Derivative_Simulation(e1, 'x3')
+
+    # Calculate divergence of E = dE1/dx1 + dE2/dx2 + dE3/dx3
+    dE1_dx1 = dx1["e1"]
+    dE2_dx2 = dx2["e2"]
+    dE3_dx3 = dx3["e3"]
+    
+    # Compute divergence E
+    div_E = dE1_dx1 + dE2_dx2 + dE3_dx3
 
 Spectral Analysis with Fast Fourier Transform
 =============================================
@@ -254,7 +271,7 @@ FastFourierTransform_Simulation Class
        from osiris_utils.postprocessing import FastFourierTransform_Simulation
        
        # Create a simulation interface
-       sim = Simulation('electrons', '/path/to/simulation')
+       sim = Simulation('/path/to/input/deck')
        
        # Create an FFT processor for the first spatial dimension
        fft = FastFourierTransform_Simulation(sim, 1)
@@ -345,11 +362,11 @@ This example shows how to compute and visualize a dispersion relation:
     import matplotlib.pyplot as plt
     
     # Setup
-    sim = Simulation('electrons', '/path/to/simulation')
+    sim = Simulation('/path/to/input/deck')
     
     # Create FFT processor for both time and space
     # We'll do a 2D FFT - time (axis 0) and x1 (axis 1)
-    fft_processor = FastFourierTransform_Simulation(sim, [0, 1])
+    fft_processor = FastFourierTransform_Simulation(sim, (0, 1))
     
     # Get E1 field and compute its FFT
     e1_fft = fft_processor['e1']
@@ -430,7 +447,7 @@ MeanFieldTheory_Simulation Class
        from osiris_utils.postprocessing import MeanFieldTheory_Simulation
        
        # Create a simulation interface
-       sim = Simulation('electrons', '/path/to/simulation')
+       sim = Simulation('/path/to/input/deck')
        
        # Create MFT analyzer for x₁ direction (axis=1)
        mft = MeanFieldTheory_Simulation(sim, 1)
