@@ -416,3 +416,186 @@ class OsirisHIST(OsirisData):
         Returns the data in a pandas DataFrame
         """
         return self._df
+
+class OsirisTrackFile(OsirisData):
+    """
+    Handles structured track data from OSIRIS HDF5 simulations.
+
+    Parameters
+    ----------
+    filename : str
+        Path to OSIRIS HDF5 track file (.h5 extension)
+
+    Attributes
+    ----------
+    data: numpy.ndarray of shape (num_particles, num_time_iter), 
+                    dtype = [(field_name, float) for field_name in field_names]
+        A structured numpy array with the track data
+        Accessed as data[particles, time_iters][quant]
+    grid : np.ndarray
+        Grid boundaries as ((x1_min, x1_max), (x2_min, x2_max), ...)
+    label : list[str]
+        Field labels/names (LaTeX formatted, e.g., r'$E_x$')
+    num_particles : int
+        Number of particlest tracked, they are accessed from 0 to num_particles-1
+    num_time_iters : int
+        Number of time iteratis, they are accessed from 0 to num_time_iters-1
+    quants : list[str]
+        field names of the data
+    units : list[str]
+        Units of each field of the data (LaTeX formatted)
+    
+    Example
+    -------
+    >>>import osiris_utils as ou
+    >>>track = ou.OsirisTrackFile(track_path)
+    >>>print(track.data[0:10, :]["x1"])
+    """
+
+    def __init__(self, filename):
+        super().__init__(filename)
+        
+        self._grid = np.array([self._file['SIMULATION'].attrs['XMIN'], self._file['SIMULATION'].attrs['XMAX']]).T
+
+        self._units = [byte.decode('utf-8') for byte in self._file.attrs['UNITS'][1:]]
+        self._labels = [byte.decode('utf-8') for byte in self._file.attrs['LABELS'][1:]]
+        self._quants = [byte.decode('utf-8') for byte in self._file.attrs['QUANTS'][1:]]
+        
+        self._num_particles = self._file.attrs['NTRACKS'][0]
+
+        unordered_data = self._file['data'][:]
+        itermap = self._file['itermap'][:]
+        
+        idxs = get_track_indexes(itermap, self._num_particles)
+        self._data = reorder_track_data(unordered_data, idxs, self._quants)
+        self._time = self._data[0][0]["t"]
+        self._num_time_iters = np.shape(self._time.shape)
+        self._close_file()
+
+    def _load_basic_attributes(self, f: h5py.File) -> None:
+        '''Load common attributes from HDF5 file'''
+        self._dt = float(f['SIMULATION'].attrs['DT'][0])
+        self._dim = int(f['SIMULATION'].attrs['NDIMS'][0])
+        self._time = None
+        self._iter = None
+        self._name = f.attrs['NAME'][0].decode('utf-8')
+        self._type = f.attrs['TYPE'][0].decode('utf-8')
+
+
+    # Getters
+    @property
+    def grid(self):
+        return self._grid
+    @property
+    def data(self):
+        return self._data
+    @property
+    def units(self):
+        return self._units
+    @property
+    def labels(self):
+        return self._labels
+    @property
+    def quants(self):
+        return self._quants
+    @property
+    def num_particles(self):
+        return self._num_particles
+    @property
+    def num_time_iters(self):
+        return self._num_time_iters   
+
+
+    # Setters
+    @data.setter
+    def data(self, data):
+        self._data = data
+
+    def __str__(self):
+        # write me a template to print with the name, label, units, iter, grid, nx, dx, axis, dt, dim in a logical way
+        return rf'{self.name}' + f'\n' + f'Iteration: {self.iter}' + f'\n' + f'Grid: {self.grid}' + f'\n' + f'dx: {self.dx}' + f'\n' + f'Dimensions: {self.dim}D'
+
+    def __array__(self):
+        return np.asarray(self.data)
+
+
+
+def reorder_track_data(unordered_data, indexes, field_names):
+    '''
+    Reorder data from HDF5 track file such data it can be accessed more intuitively
+    
+    Parameters
+    ----------
+    unordered_data: np.array
+        The data from a HDF5 osiris track file
+    
+    indexes : list[list[int]]
+        Output of get_track_indexes(), list with the indexes associated with each particle
+
+    field_names: list[str]
+        Names for the quantities on the output file. 
+        Recommended: field_names = [byte.decode('utf-8') for byte in file.attrs['QUANTS'][1:]]
+    
+    Returns
+    -------
+    data_sorted: numpy.ndarray of shape (num_particles, num_time_iter), 
+                    dtype = [(field_name, float) for field_name in field_names]
+        A structured numpy array where data is reordered according to indexes.
+    
+    Example:
+        >>> field_names = [byte.decode('utf-8') for byte in file.attrs['QUANTS'][1:]]
+        >>> indexes = get_track_indexes(itermap = self._file['itermap'][:], num_particles = file.attrs['NTRACKS'][0])
+        >>> data_sorted = reorder_track_data(unordered_data = self._file['data'][:], indexes, field_names)
+    '''
+    # Initialize the sorted data structure
+    num_particles = len(indexes)
+    num_time_iter = len(indexes[0])
+    data_sorted = np.empty((num_particles, num_time_iter), dtype=[(name, float) for name in field_names])
+
+    # Fill the sorted data based on the indexes
+    for particle in range(num_particles):
+        for time_iter in range(num_time_iter):
+            index = indexes[particle][time_iter]
+            if len(unordered_data[index]) != len(field_names):
+                raise ValueError(f"Data at index {index} has {len(unordered_data[index])} elements, "
+                                f"but {len(field_names)} are expected.")
+            data_sorted[particle, time_iter] = tuple(unordered_data[index])
+
+    return (data_sorted)
+
+
+def get_track_indexes(itermap, num_particles):
+    '''
+    Returns the indexes for each particle to read track data directly from the hd5 file
+    (before it is ordered)
+
+    Parameters
+    ----------
+    itermap: np.array
+        Itermap from a HDF5 osiris track file
+    num_particles: int
+        num of particles tracked, recomended file.attrs['NTRACKS'][0]
+    
+    Returns
+    -------     
+    indexes : list[list[int]]
+        Returns a list with the indexes associated with each particle
+        shape(num_particles, num_time_iters)
+    '''
+
+    itermapshape = itermap.shape
+    for i in range(itermapshape[0]):
+        part_number,npoints,nstart = itermap[i,:]
+    track_indices = np.zeros(num_particles)
+
+    data_index = 0
+    indexes = [[] for _ in range(num_particles)]
+    for i in range(itermapshape[0]):
+        part_number,npoints,nstart = itermap[i,:]
+
+        indexes[part_number-1].extend(list(range(data_index, data_index + npoints)))
+
+        data_index += npoints
+        track_indices[part_number-1] += npoints
+
+    return indexes
