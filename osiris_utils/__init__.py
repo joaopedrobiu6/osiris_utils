@@ -8,7 +8,7 @@ from .utils import (
     courant2D,
 )
 from .gui.gui import LAVA_Qt, LAVA
-from .data.data import OsirisGridFile, OsirisRawFile, OsirisData, OsirisHIST
+from .data.data import OsirisGridFile, OsirisRawFile, OsirisData, OsirisHIST, OsirisTrackFile
 from .data.simulation import Simulation, Species_Handler
 from .data.diagnostic import Diagnostic
 

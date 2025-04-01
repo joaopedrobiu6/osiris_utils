@@ -15,7 +15,7 @@ with open(os.path.join(here, 'requirements.txt'), encoding='utf-8') as f:
 
 setup(
     name='osiris_utils',
-    version='v1.1.3',
+    version='v1.1.4',
     description=('Utilities to manipulate and visualize OSIRIS framework output data'),
     long_description=long_description,
     long_description_content_type='text/x-rst',
@@ -39,7 +39,7 @@ setup(
     packages=find_packages(exclude=['docs', 'tests', 'local', 'report']),
     include_package_data=True,
     install_requires=requirements,
-    python_requires='>=3.11',
+    python_requires='>=3.10',
     project_urls={
         'Issues Tracker': 'https://github.com/joaopedrobiu6/osiris_utils/issues',
         'Source Code': 'https://github.com/joaopedrobiu6/osiris_utils',
