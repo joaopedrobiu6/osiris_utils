@@ -187,7 +187,8 @@ def read_data(filename, option='numpy'):
 def convert_tracks(filename_in):
     '''
     PYTHON SCRIPT FOR CONVERTING IDL FORMATTED TRACKS TO OLD FORMAT.
-    In the new hd5 file there is a folder for each particle with datasets for each quantity
+    This old format is more readable.
+    In the old format there is a folder for each particle with datasets for each quantity
 
     code from https://github.com/GoLP-IST/RaDi-x/blob/main/tools/convert_idl_tracks_py3.py 
 
@@ -236,11 +237,6 @@ def convert_tracks(filename_in):
         part_number,npoints,nstart = itermap[i,:]
         sizes[part_number-1] += npoints
 
-    #----------------------------------------#
-    for i in sizes:
-        print(i)
-
-
     # initialize ordered data buffer
     #----------------------------------------#
     ordered_data = []
@@ -282,6 +278,7 @@ def convert_tracks(filename_in):
 
     file_out.close()
     file_in.close()
+    print("Track file converted to the old, more readable format: ", filename_out)
 
 def create_file_tags(filename, tags_array):
     '''
@@ -310,5 +307,5 @@ def create_file_tags(filename, tags_array):
         file.write("! particle tag list\n")
         
         for i in range(num_tags):
-            file.write(f"         {tags_array[i, 0]:<6}{tags_array[i, 1]:>10}\n")
+            file.write(f"         {tags_array[i, 0]:<6}{tags_array[i, 1]:>6}\n")
 

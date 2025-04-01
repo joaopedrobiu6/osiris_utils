@@ -414,7 +414,12 @@ class OsirisRawFile(OsirisData):
 
         Output
         -------
-        - A file_tags file with path \"filename\" to be used for the OSIRIS track diagnostic.
+        A file_tags file with path \"filename\" to be used for the OSIRIS track diagnostic.
+
+        Notes:
+        ------
+        The first element of the tag of a particle that is being tracked is negative
+            so we apply the absolute function when generating the file
 
         Example
         -------
@@ -443,7 +448,10 @@ class OsirisRawFile(OsirisData):
         else:
             raise TypeError("Invalid type", type)
         
+        # In case the particles chosen were already being tracked
+        tags[:, 0] = np.abs(tags[:, 0])
         tags = tags[np.lexsort((tags[:, 1], tags[:, 0]))]
+
         create_file_tags(filename, tags)
         print("Tag_file created: ", filename)
 
