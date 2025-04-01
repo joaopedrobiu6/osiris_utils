@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 import h5py
+from osiris_utils.utils import create_file_tags
+from typing import Literal
 
 class OsirisData():
     """
@@ -391,6 +393,60 @@ class OsirisRawFile(OsirisData):
                 'long_name': self._file.attrs['LABELS'][idx][0].decode('utf-8'),
             }
             self.axis[key] = axis_data
+
+    def raw_to_file_tags(self, filename, type: Literal["all", "random"] = "all", n_tags=10, mask=None):
+        """
+        Function to write a file_tags file from raw data.
+        this file is used to choose particles for the OSIRIS track diagnostic.
+
+        Parameters
+        ----------
+        filename : str
+            Path to the output file where tags will be stored.
+        type : {'all', 'random'}, optional
+            Selection mode for tags:
+            - 'all': Includes all available tags.
+            - 'random': Randomly selects `n_tags` tags.
+        n_tags : int, optional
+            Number of tags to randomly select when `type` is 'random'. Default is 10.
+        mask : np.ndarray, optional
+            Boolean mask array applied to filter valid tags before selection.
+
+        Output
+        -------
+        - A file_tags file with path \"filename\" to be used for the OSIRIS track diagnostic.
+
+        Example
+        -------
+        >>> raw = ou.OsirisRawFile("path/to/raw/file/.../.h5")
+        >>> # Selecting 5 random tags from particles with energy>5
+        >>> mask = raw.data["ene"] > 5.
+        >>> raw_to_file_tags("output.tag", type="random", n_tags=5, mask=mask)
+        """
+            
+        if mask is not None:
+            # Apply mask to select certain tags
+            if not isinstance(mask, np.ndarray) or mask.dtype != bool or mask.shape[0] != self.data["tag"].shape[0]:
+                raise ValueError("Mask must be a boolean NumPy array of the same length as 'tag'.")
+            filtered_indices = np.where(mask)[0]
+            filtered_tags = self.data["tag"][filtered_indices]
+        else:
+            filtered_tags = self.data["tag"]
+        
+        if type == "all":
+            tags = filtered_tags
+        elif type == "random":
+            if len(filtered_tags) < n_tags:
+                raise ValueError("Not enough tags to sample from.")
+            random_indices = np.random.choice(len(filtered_tags), size=n_tags, replace=False)
+            tags = filtered_tags[random_indices]
+        else:
+            raise TypeError("Invalid type", type)
+        
+        tags = tags[np.lexsort((tags[:, 1], tags[:, 0]))]
+        create_file_tags(filename, tags)
+        print("Tag_file created: ", filename)
+
 
 class OsirisHIST(OsirisData):
     ''''

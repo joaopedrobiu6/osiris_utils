@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import scipy 
 import pandas as pd
+from datetime import datetime
 
 def courant2D(dx, dy):
     '''
@@ -281,3 +282,33 @@ def convert_tracks(filename_in):
 
     file_out.close()
     file_in.close()
+
+def create_file_tags(filename, tags_array):
+    '''
+    Function to write a file_tags file from a (number_of_tags, 2) NumPy array of tags.
+    this file is used to choose particles for the OSIRIS track diagnostic.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the output file where tags will be stored.
+    tags_array: np.ndarray
+        shape (number_of_tags, 2), containing particle tags
+    
+    Output
+    ------
+        - A file_tags file with path \"filename\" to be used for the OSIRIS track diagnostic.
+    '''
+    
+    num_tags = tags_array.shape[0]
+    
+    with open(filename, 'w') as file:
+        file.write("! particle tag list\n")
+        file.write(f"! generated on {datetime.now().strftime('%a %b %d %H:%M:%S %Y')}\n")
+        file.write("! number of tags\n")
+        file.write(f"       {num_tags}\n")
+        file.write("! particle tag list\n")
+        
+        for i in range(num_tags):
+            file.write(f"         {tags_array[i, 0]:<6}{tags_array[i, 1]:>10}\n")
+
