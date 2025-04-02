@@ -147,9 +147,9 @@ def read_data(filename, option='numpy'):
 
 def convert_tracks(filename_in):
     '''
-    PYTHON SCRIPT FOR CONVERTING IDL FORMATTED TRACKS TO OLD FORMAT.
-    This old format is more readable.
-    In the old format there is a folder for each particle with datasets for each quantity
+   Converts a new OSIRIS track file aka IDL-formatted aka tracks-2 to an older format that is more human-readable.  
+   In the old format, each particle is stored in a separate folder, with datasets for each quantity.  
+   The function reads data from the input file, processes it, and writes it to a new file with the suffix "-v2".
 
     code from https://github.com/GoLP-IST/RaDi-x/blob/main/tools/convert_idl_tracks_py3.py 
 
@@ -158,9 +158,15 @@ def convert_tracks(filename_in):
     filename_in : str
         The path to the trackfile.
 
-    Output file
+    Returns
     -------
     The output file will be in the same folder as the input file with the same name with \"v2\" added
+    
+    Example
+    -------
+        >>> import osiris_utils as ou 
+        >>> ou.utils.convert_tracks('path/to/input_trackfile.h5')
+        >>> # The output will be saved as 'path/to/input_trackfile-v2.h5'
     '''
 
     try:
@@ -240,6 +246,7 @@ def convert_tracks(filename_in):
     file_out.close()
     file_in.close()
     print("Track file converted to the old, more readable format: ", filename_out)
+    return filename_out
 
 def create_file_tags(filename, tags_array):
     '''
@@ -253,11 +260,27 @@ def create_file_tags(filename, tags_array):
     tags_array: np.ndarray
         shape (number_of_tags, 2), containing particle tags
     
-    Output
-    ------
-        - A file_tags file with path \"filename\" to be used for the OSIRIS track diagnostic.
-    '''
+    Returns
+    -------
+    file_tags file with path \"filename\" to be used for the OSIRIS track diagnostic.
     
+    Notes
+    ------
+    The first element of the tag of a particle that is already being tracked is negative,
+        so we apply the absolute function when generating the file
+    
+    Example
+    -------
+        >>> import osiris_utils as ou 
+        >>> import numpy as np
+        >>> tags = np.array([[1, 12345], [2, 67890], [3, 11111]])  # Example tags
+        >>> ou.utils.create_file_tags('output.tag', tags)
+        >>> # This will generate a file 'output.tag' with the particle tags.
+    '''
+
+    # In case the particles chosen were already being tracked
+    tags_array[:, 0] = np.abs(tags_array[:, 0])
+    tags_array = tags_array[np.lexsort((tags_array[:, 1], tags_array[:, 0]))]
     num_tags = tags_array.shape[0]
     
     with open(filename, 'w') as file:
@@ -269,4 +292,4 @@ def create_file_tags(filename, tags_array):
         
         for i in range(num_tags):
             file.write(f"         {tags_array[i, 0]:<6}{tags_array[i, 1]:>6}\n")
-
+    return filename
