@@ -372,8 +372,14 @@ class OsirisRawFile(OsirisData):
         - type - type of data (particles in the case of raw files)
             str
 
+    Example
+    -------
+        >>> import osiris_utils as ou  
+        >>> raw = ou.raw = ou.OsirisRawFile("path/to/raw/file.h5")
+        >>> print(raw.data.keys())
+        >>> print(raw.data["x1"][0:10])  # Access x1 position of first 10 particles
     '''
-    
+
     def __init__(self, filename):
         super().__init__(filename)
 
@@ -412,21 +418,21 @@ class OsirisRawFile(OsirisData):
         mask : np.ndarray, optional
             Boolean mask array applied to filter valid tags before selection.
 
-        Output
-        -------
+        Returns
+        ------
         A file_tags file with path \"filename\" to be used for the OSIRIS track diagnostic.
 
-        Notes:
-        ------
-        The first element of the tag of a particle that is being tracked is negative
+        Notes
+        -----
+            The first element of the tag of a particle that is already being tracked is negative,
             so we apply the absolute function when generating the file
 
         Example
         -------
-        >>> raw = ou.OsirisRawFile("path/to/raw/file/.../.h5")
-        >>> # Selecting 5 random tags from particles with energy>5
-        >>> mask = raw.data["ene"] > 5.
-        >>> raw_to_file_tags("output.tag", type="random", n_tags=5, mask=mask)
+            >>> raw = ou.OsirisRawFile("path/to/raw/file/.../.h5")
+            >>> # Selecting 5 random tags from particles with energy>5
+            >>> mask = raw.data["ene"] > 5.
+            >>> raw_to_file_tags("output.tag", type="random", n_tags=5, mask=mask)
         """
             
         if mask is not None:
@@ -447,10 +453,6 @@ class OsirisRawFile(OsirisData):
             tags = filtered_tags[random_indices]
         else:
             raise TypeError("Invalid type", type)
-        
-        # In case the particles chosen were already being tracked
-        tags[:, 0] = np.abs(tags[:, 0])
-        tags = tags[np.lexsort((tags[:, 1], tags[:, 0]))]
 
         create_file_tags(filename, tags)
         print("Tag_file created: ", filename)
@@ -511,9 +513,9 @@ class OsirisTrackFile(OsirisData):
     
     Example
     -------
-    >>>import osiris_utils as ou
-    >>>track = ou.OsirisTrackFile(track_path)
-    >>>print(track.data[0:10, :]["x1"])
+        >>> import osiris_utils as ou
+        >>> track = ou.OsirisTrackFile(path/to/track_file.h5)
+        >>> print(track.data[0:10, :]["x1"]) # Access x1 position of first 10 particles over all time steps
     """
 
     def __init__(self, filename):
@@ -606,7 +608,8 @@ def reorder_track_data(unordered_data, indexes, field_names):
                     dtype = [(field_name, float) for field_name in field_names]
         A structured numpy array where data is reordered according to indexes.
     
-    Example:
+    Example
+    -------
         >>> field_names = [byte.decode('utf-8') for byte in file.attrs['QUANTS'][1:]]
         >>> indexes = get_track_indexes(itermap = self._file['itermap'][:], num_particles = file.attrs['NTRACKS'][0])
         >>> data_sorted = reorder_track_data(unordered_data = self._file['data'][:], indexes, field_names)
