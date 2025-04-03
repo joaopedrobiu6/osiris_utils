@@ -110,7 +110,7 @@ class FFT_Diagnostic(Diagnostic):
     
     def load_all(self):
         if self._data is not None:
-            print("Using cached derivative")
+            print("Using cached data.")
             return self._data
         
         if not hasattr(self._diag, '_data') or self._diag._data is None:
@@ -119,7 +119,9 @@ class FFT_Diagnostic(Diagnostic):
 
        # Apply appropriate windows based on which axes we're transforming
         if isinstance(self._fft_axis, (list, tuple)):
-            # Multiple axes FFT
+            if self._diag._data is None:
+                raise ValueError(f"Unable to load data for diagnostic {self._diag._name}. The data is None even after loading.")
+
             result = self._diag._data.copy()
             
             for axis in self._fft_axis:
