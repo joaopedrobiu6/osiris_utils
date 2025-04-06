@@ -283,7 +283,6 @@ class Diagnostic:
         self._path = f"{self._simulation_folder}/MS/FLD/{field}/"
         self._file_template = glob.glob(f"{self._path}/*.h5")[0][:-9]
         self._maxiter = len(glob.glob(f"{self._path}/*.h5"))
-        print(self._maxiter)
         self._load_attributes(self._file_template, self._input_deck)
 
     def _get_density(self, species, quantity):
