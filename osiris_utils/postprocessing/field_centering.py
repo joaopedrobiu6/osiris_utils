@@ -131,7 +131,7 @@ class FieldCentering_Diagnostic(Diagnostic):
             if self._original_name.lower() in ['b2', 'b3', 'e1']:
                 yield 0.5 * (np.roll(self._diag[index], shift=1) + self._diag[index])
             elif self._original_name.lower() in ['b1', 'e2', 'e3']: # it's already centered but self._data does not exist 
-                raise ValueError(f"Field {self._original_name} is already centered.")
+                yield self._diag[index]
             else:
                 raise ValueError(f"Unknown field {self._original_name}.")
             
@@ -143,7 +143,7 @@ class FieldCentering_Diagnostic(Diagnostic):
             elif self._original_name in ['b3']:
                 yield 0.5 * (np.roll((0.5 * (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index])), shift=1, axis=1) + (0.5 * (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index])))
             elif self._original_name in ['e3']:
-                raise ValueError(f"Field {self._original_name} is already centered.")
+                yield self._diag[index]
             else:
                 raise ValueError(f"Unknown field {self._original_name}.")
             
