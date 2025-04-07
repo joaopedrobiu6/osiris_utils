@@ -1001,7 +1001,9 @@ class Diagnostic:
         ----------
         folder : str
             The folder to save the HDF5 files.
-        index : int, slice, or list of ints, optional
+        savename : str, optional
+            The name of the HDF5 file. If None, uses the diagnostic name.
+        index : int, or list of ints, optional
             The index or indices of the data to save.
         all : bool, optional
             If True, save all data. Default is False.
