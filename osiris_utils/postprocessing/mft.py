@@ -91,7 +91,7 @@ class MFT_Diagnostic(Diagnostic):
         self._components = {}
         
         # Copy all relevant attributes from diagnostic
-        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter']:
+        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter', '_type']:
             if hasattr(diagnostic, attr):
                 setattr(self, attr, getattr(diagnostic, attr))
 
@@ -176,7 +176,7 @@ class MFT_Diagnostic_Average(Diagnostic):
         self._all_loaded = False
 
         # Copy all relevant attributes from diagnostic
-        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter']:
+        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter', '_type']:
             if hasattr(diagnostic, attr):
                 setattr(self, attr, getattr(diagnostic, attr))
 
@@ -261,7 +261,7 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
         self._all_loaded = False
 
         # Copy all relevant attributes from diagnostic
-        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter']:
+        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter', '_type']:
             if hasattr(diagnostic, attr):
                 setattr(self, attr, getattr(diagnostic, attr))
 
