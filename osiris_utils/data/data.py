@@ -372,12 +372,6 @@ class OsirisRawFile(OsirisData):
         - type - type of data (particles in the case of raw files)
             str
 
-    Example
-    -------
-        >>> import osiris_utils as ou  
-        >>> raw = ou.raw = ou.OsirisRawFile("path/to/raw/file.h5")
-        >>> print(raw.data.keys())
-        >>> print(raw.data["x1"][0:10])  # Access x1 position of first 10 particles
     '''
 
     def __init__(self, filename):
@@ -427,12 +421,6 @@ class OsirisRawFile(OsirisData):
             The first element of the tag of a particle that is already being tracked is negative,
             so we apply the absolute function when generating the file
 
-        Example
-        -------
-            >>> raw = ou.OsirisRawFile("path/to/raw/file/.../.h5")
-            >>> # Selecting 5 random tags from particles with energy>5
-            >>> mask = raw.data["ene"] > 5.
-            >>> raw_to_file_tags("output.tag", type="random", n_tags=5, mask=mask)
         """
             
         if mask is not None:
@@ -462,25 +450,22 @@ class OsirisHIST(OsirisData):
     ''''
     Class to read the data from an OSIRIS HIST file.'
 
-    Input:
-        - filename: the path to the HIST file
+    Input
+    -----
+    filename: the path to the HIST file
 
-    Attributes:
-        - filename - the path to the file
-            str
-        - verbose - if True, the class will print messages
-            bool
-        - df - the data in a pandas DataFrame
-            pandas.DataFrame
+    Attributes
+    ----------
+    filename: the path to the file
+        str
+    df: the data in a pandas DataFrame
+        pandas.DataFrame
     '''
     def __init__(self, filename):
         super().__init__(filename)
 
     @property
     def df(self):
-        """
-        Returns the data in a pandas DataFrame
-        """
         return self._df
 
 class OsirisTrackFile(OsirisData):
@@ -495,7 +480,7 @@ class OsirisTrackFile(OsirisData):
     Attributes
     ----------
     data: numpy.ndarray of shape (num_particles, num_time_iter), 
-                    dtype = [(field_name, float) for field_name in field_names]
+        dtype = [(field_name, float) for field_name in field_names]
         A structured numpy array with the track data
         Accessed as data[particles, time_iters][quant]
     grid : np.ndarray
@@ -510,12 +495,7 @@ class OsirisTrackFile(OsirisData):
         field names of the data
     units : list[str]
         Units of each field of the data (LaTeX formatted)
-    
-    Example
-    -------
-        >>> import osiris_utils as ou
-        >>> track = ou.OsirisTrackFile(path/to/track_file.h5)
-        >>> print(track.data[0:10, :]["x1"]) # Access x1 position of first 10 particles over all time steps
+
     """
 
     def __init__(self, filename):
@@ -608,11 +588,6 @@ def reorder_track_data(unordered_data, indexes, field_names):
                     dtype = [(field_name, float) for field_name in field_names]
         A structured numpy array where data is reordered according to indexes.
     
-    Example
-    -------
-        >>> field_names = [byte.decode('utf-8') for byte in file.attrs['QUANTS'][1:]]
-        >>> indexes = get_track_indexes(itermap = self._file['itermap'][:], num_particles = file.attrs['NTRACKS'][0])
-        >>> data_sorted = reorder_track_data(unordered_data = self._file['data'][:], indexes, field_names)
     '''
     # Initialize the sorted data structure
     num_particles = len(indexes)

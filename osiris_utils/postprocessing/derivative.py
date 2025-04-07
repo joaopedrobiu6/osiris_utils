@@ -24,11 +24,6 @@ class Derivative_Simulation(PostProcess):
     axis : int or tuple
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
 
-    Example
-    -------
-    >>> sim = Simulation('electrons', 'path/to/simulation')
-    >>> derivative = Derivative(sim, 'x1')
-    >>> deriv_e1_wrt_x1 = derivative['e1']
     """
 
     def __init__(self, simulation, deriv_type, axis=None):
@@ -87,11 +82,6 @@ class Derivative_Diagnostic(Diagnostic):
     __getitem__(index)
         Get data at a specific index.
 
-    Example
-    -------
-    >>> sim = Simulation('electrons', 'path/to/simulation')
-    >>> diag = sim['e1']
-    >>> derivative = Derivative_Diagnostic(diag, 'x1')
     """
 
     def __init__(self, diagnostic, deriv_type, axis=None):

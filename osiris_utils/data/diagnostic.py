@@ -179,19 +179,7 @@ class Diagnostic:
         Plot a 3D scatter plot of the diagnostic data.
     time(index)
         Get the time for a given index.
-
-    Examples
-    --------
-    >>> sim = Simulation("electrons", "path/to/simulation")
-    >>> sim.get_quantity("charge")
-    >>> sim.load_all()
-    >>> print(sim.data.shape)
-    (100, 100, 100)
-
-    >>> sim = Simulation("electrons", "path/to/simulation")
-    >>> sim.get_quantity("charge")
-    >>> sim[0]
-    array with the data for the first timestep
+        
     """
 
     def __init__(self, simulation_folder=None, species=None, input_deck=None):

@@ -15,11 +15,6 @@ class MeanFieldTheory_Simulation(PostProcess):
     mft_axis : int
         The axis to compute the mean field theory.
 
-    Example
-    -------
-    >>> sim = Simulation('electrons', 'path/to/simulation')
-    >>> mft = MeanFieldTheory(sim, 1)
-    >>> mft_e1 = mft['e1']
     """
 
     def __init__(self, simulation, mft_axis=None):
@@ -65,13 +60,7 @@ class MFT_Diagnostic(Diagnostic):
     mft_axis : int
         The axis to compute mean field theory along.
 
-    Example
-    -------
-    >>> sim = Simulation('electrons', 'path/to/simulation')
-    >>> diag = sim['e1']
-    >>> mft = MFT_Diagnostic(diag, 1)
-    >>> avg = mft['avg']
-    >>> delta = mft['delta']
+
     """
 
     def __init__(self, diagnostic, mft_axis):
@@ -152,11 +141,6 @@ class MFT_Diagnostic_Average(Diagnostic):
     mft_axis : int
         The axis to compute the mean field theory.
 
-    Example
-    -------
-    >>> sim = Simulation('electrons', 'path/to/simulation')
-    >>> diag = sim['e1']
-    >>> avg = MFT_Diagnostic_Average(diag, 1)
     """
 
     def __init__(self, diagnostic, mft_axis):
@@ -237,11 +221,6 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
     mft_axis : int
         The axis to compute the mean field theory.
 
-    Example
-    -------
-    >>> sim = Simulation('electrons', 'path/to/simulation')
-    >>> diag = sim['e1']
-    >>> delta = MFT_Diagnostic_Fluctuations(diag, 1)
     """
     
     def __init__(self, diagnostic, mft_axis):

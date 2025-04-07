@@ -19,11 +19,6 @@ class FastFourierTransform_Simulation(PostProcess):
     axis : int
         The axis to compute the FFT.
 
-    Example
-    -------
-    >>> sim = Simulation('electrons', 'path/to/simulation')
-    >>> fft = FastFourierTransform(sim, 1)
-    >>> fft_e1 = fft['e1']
     """
     def __init__(self, simulation, fft_axis):
         super().__init__("FFT")
@@ -78,12 +73,7 @@ class FFT_Diagnostic(Diagnostic):
         Get the angular frequency array for the FFT.
     __getitem__(index)
         Get data at a specific index.
-    
-    Example
-    -------
-    >>> sim = Simulation('electrons', 'path/to/simulation')
-    >>> diag = sim['e1']
-    >>> fft = FFT_Diagnostic(diag, 1)
+
     """
     def __init__(self, diagnostic, fft_axis):
         if hasattr(diagnostic, '_species'):
