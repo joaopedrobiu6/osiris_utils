@@ -993,7 +993,7 @@ class Diagnostic:
 
             return result
 
-    def to_h5(self, folder, index=None, all=False, verbose=False):
+    def to_h5(self, folder, savename=None, index=None, all=False, verbose=False):
         """
         Save the diagnostic data to HDF5 files.
 
@@ -1006,6 +1006,9 @@ class Diagnostic:
         all : bool, optional
             If True, save all data. Default is False.
         """
+        if savename is None:
+            print(f"No savename provided. Using {self._name}.")
+            savename = self._name
 
         def savefile(filename, i):
             with h5py.File(filename, 'w') as f:
@@ -1024,7 +1027,7 @@ class Diagnostic:
                 f.attrs.create("LABEL", [np.bytes_(self._label.encode()) if self._label else np.bytes_(b"")])
                 
                 # Create dataset with data (transposed to match convention)
-                f.create_dataset(self._name, data=self[i].T)
+                f.create_dataset(savename, data=self[i].T)
                 
                 # Create AXIS group
                 axis_group = f.create_group("AXIS")
@@ -1048,7 +1051,7 @@ class Diagnostic:
                 if verbose:
                     print(f"File created: {filename}")
 
-        print(f"The name of the diagnostic is {self._name}. Files will be saves as {self._name}-000001.h5, {self._name}-000002.h5, etc.")
+        print(f"The savename of the diagnostic is {savename}. Files will be saves as {savename}-000001.h5, {savename}-000002.h5, etc.")
         
         print(f"If you desire a different name, please set it with the 'name' method (setter).")
 
@@ -1062,15 +1065,15 @@ class Diagnostic:
 
         if all == False:
             if isinstance(index, int):
-                filename = folder + f"/{self._name}-{index:06d}.h5"
+                filename = folder + f"/{savename}-{index:06d}.h5"
                 savefile(filename, index)
             elif isinstance(index, list) or isinstance(index, tuple):
                 for i in index:
-                    filename = folder + f"/{self._name}-{i:06d}.h5"
+                    filename = folder + f"/{savename}-{i:06d}.h5"
                     savefile(filename, i)
         elif all == True:
             for i in range(self._maxiter):
-                filename = folder + f"/{self._name}-{i:06d}.h5"
+                filename = folder + f"/{savename}-{i:06d}.h5"
                 savefile(filename, i)
         else:
             raise ValueError("index should be an int, slice, or list of ints, or all should be True")
@@ -1373,3 +1376,7 @@ class Diagnostic:
     @quantity.setter
     def quantity(self, key):
         self._quantity = key
+
+    @label.setter
+    def label(self, value):
+        self._label = value
