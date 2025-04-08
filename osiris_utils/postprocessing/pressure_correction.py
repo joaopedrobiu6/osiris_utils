@@ -77,7 +77,7 @@ class PressureCorrection_Diagnostic(Diagnostic):
         self._ufl_j = ufl_j
         self._vfl_k = vfl_k
 
-        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter']:
+        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter', '_type']:
             if hasattr(diagnostic, attr):
                 setattr(self, attr, getattr(diagnostic, attr))
 
