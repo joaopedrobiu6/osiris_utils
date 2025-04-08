@@ -27,11 +27,12 @@ class PressureCorrection_Simulation(PostProcess):
     def __getitem__(self, key):
         if key in self._simulation._species:
             if key not in self._species_handler:
-                self._species_handler[key] = PressureCorrection_Species_Handler(self._simulation[key], self._simulation)
+                self._species_handler[key] = PressureCorrection_Species_Handler(self._simulation[key])
             return self._species_handler[key]
         if key not in OSIRIS_P:
             raise ValueError(f"Invalid pressure component {key}. Supported: {OSIRIS_P}.")
         if key not in self._pressure_corrected:
+            print("Wierd that it got here - pressure is always species dependent on OSIRIS")
             self._pressure_corrected[key] = PressureCorrection_Diagnostic(self._simulation[key], self._simulation)
         return self._pressure_corrected[key]
 
@@ -50,7 +51,7 @@ class PressureCorrection_Simulation(PostProcess):
         return PressureCorrection_Diagnostic(diagnostic, self._simulation)
     
 class PressureCorrection_Diagnostic(Diagnostic):
-    def __init__(self, diagnostic, simulation):
+    def __init__(self, diagnostic, n, ufl_j, vfl_k):
 
         """
         Class to correct the pressure in the simulation.
@@ -70,7 +71,11 @@ class PressureCorrection_Diagnostic(Diagnostic):
             raise ValueError(f"Invalid pressure component {diagnostic._name}. Supported: {OSIRIS_P}")
         
         self._diag = diagnostic
-        self._simulation = simulation
+
+        # The density and velocities are now passed as arguments (so it can doesn't depend on the simulation)
+        self._n = n
+        self._ufl_j = ufl_j
+        self._vfl_k = vfl_k
 
         for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter']:
             if hasattr(diagnostic, attr):
@@ -78,10 +83,6 @@ class PressureCorrection_Diagnostic(Diagnostic):
 
         self._original_name = diagnostic._name
         self._name = diagnostic._name + "_corrected"
-
-        
-        self._j, self._k = self._original_name[-2], self._original_name[-1]
-
 
         self._data = None
         self._all_loaded = False
@@ -94,17 +95,23 @@ class PressureCorrection_Diagnostic(Diagnostic):
             self._diag.load_all()
 
         print(f"Loading {self._species._name} {self._original_name} diagnostic")
-        self._simulation[self._species._name]["n"].load_all()
-        self._simulation[self._species._name][f"ufl{self._j}"].load_all()
-        self._simulation[self._species._name][f"vfl{self._k}"].load_all()
+        self._n.load_all()
+        self._ufl_j.load_all()
+        self._vfl_k.load_all()
 
         # Then access the data
-        n = self._simulation[self._species._name]["n"].data
-        u = self._simulation[self._species._name][f"ufl{self._j}"].data
-        v = self._simulation[self._species._name][f"vfl{self._k}"].data
+        n = self._n.data
+        u = self._ufl_j.data
+        v = self._vfl_k.data
         
         self._data = self._diag.data - n * v * u
         self._all_loaded = True
+
+        # Unload the data to save memory
+        self._n.unload()
+        self._ufl_j.unload()
+        self._vfl_k.unload()
+
         return self._data
     
     def __getitem__(self, index):
@@ -123,10 +130,7 @@ class PressureCorrection_Diagnostic(Diagnostic):
             raise ValueError("Invalid index type. Use int or slice.")
 
     def _data_generator(self, index):
-        n = self._simulation[self._species]["n"][index]
-        v = self._simulation[self._species][f"vfl{self._k}"][index]
-        u = self._simulation[self._species][f"ufl{self._j}"][index]
-        yield self._diag[index] - n * v * u
+        yield self._diag[index] - self._n[index] * self._vfl_k[index] * self._ufl_j[index]
         
 class PressureCorrection_Species_Handler:
     """
@@ -144,13 +148,19 @@ class PressureCorrection_Species_Handler:
     axis : int or tuple
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
     """
-    def __init__(self, species_handler, simulation):
+    def __init__(self, species_handler):
         self._species_handler = species_handler
-        self._simulation = simulation
-        self._derivatives_computed = {}
+        self._pressure_corrected = {}
 
     def __getitem__(self, key):
-        if key not in self._derivatives_computed:
+        if key not in self._pressure_corrected:
             diag = self._species_handler[key]
-            self._derivatives_computed[key] = PressureCorrection_Diagnostic(diag, self._simulation)
-        return self._derivatives_computed[key]
+
+            # Density and velocities alwayes depend on the species so this can be done here
+
+            n = self._species_handler["n"]
+            self._j, self._k = key[-2], key[-1]
+            ufl = self._species_handler[f"vfl{self._j}"]
+            vfl = self._species_handler[f"vfl{self._k}"]
+            self._pressure_corrected[key] = PressureCorrection_Diagnostic(diag, n, ufl, vfl)
+        return self._pressure_corrected[key]
