@@ -32,7 +32,7 @@ class PressureCorrection_Simulation(PostProcess):
         if key not in OSIRIS_P:
             raise ValueError(f"Invalid pressure component {key}. Supported: {OSIRIS_P}.")
         if key not in self._pressure_corrected:
-            print("Wierd that it got here - pressure is always species dependent on OSIRIS")
+            print("Weird that it got here - pressure is always species dependent on OSIRIS")
             self._pressure_corrected[key] = PressureCorrection_Diagnostic(self._simulation[key], self._simulation)
         return self._pressure_corrected[key]
 
@@ -134,10 +134,10 @@ class PressureCorrection_Diagnostic(Diagnostic):
         
 class PressureCorrection_Species_Handler:
     """
-    Class to handle derivatives for a species.
-    Acts as a wrapper for the Derivative_Diagnostic class.
+    Class to handle pressure correction for a species.
+    Acts as a wrapper for the PressureCorrection_Diagnostic class.
 
-    Not intended to be used directly, but through the Derivative_Simulation class.
+    Not intended to be used directly, but through the PressureCorrection_Simulation class.
 
     Parameters
     ----------
