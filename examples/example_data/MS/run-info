@@ -17,7 +17,7 @@ build_info = {
    }
 }
 run_info = {
-  "input_deck_crc":         3478032486.,
+  "input_deck_crc":         3871076978.,
   "input_deck": """
 simulation
 {
@@ -76,7 +76,7 @@ diag_emf
 {
 	ndump_fac = 1,
 	ndump_fac_ene_int = 1,
-    reports  = "e1", "e2", "e3",
+    reports  = "e3",
 }
 
 particles
