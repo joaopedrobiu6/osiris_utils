@@ -1,5 +1,5 @@
 build_info = {
-  "version": "4.4.4-292-gfe9aada-dirty",
+  "version": "4.4.4-293-g983d5d2-dirty",
   "branch": "dev",
   "dimensions": "1",
   "precision": "DOUBLE",
@@ -8,16 +8,16 @@ build_info = {
   "build_tool": "make",
   "build_flags": {
     "FPP"  :"/opt/homebrew/bin/mpicc -C -E -x assembler-with-cpp -D__HAS_MPI_IN_PLACE__ -D_OPENMP -DHDF5",
-    "FPPF" :"-DP_X_DIM=1 -DOS_REV=\"4.4.4-292-gfe9aada-dirty\" -DFORTRANSINGLEUNDERSCORE -DPRECISION_DOUBLE -DENABLE_RAD -DENABLE_TILES -DENABLE_PGC -DENABLE_QED -DENABLE_SHEAR -DENABLE_CYLMODES -DENABLE_QEDCYL -DENABLE_RADCYL -DENABLE_OVERDENSE -DENABLE_OVERDENSE_CYL -DENABLE_NEUTRAL_SPIN -DENABLE_XXFEL -DENABLE_GR",
+    "FPPF" :"-DP_X_DIM=1 -DOS_REV=\"4.4.4-293-g983d5d2-dirty\" -DFORTRANSINGLEUNDERSCORE -DPRECISION_DOUBLE -DENABLE_RAD -DENABLE_TILES -DENABLE_PGC -DENABLE_QED -DENABLE_SHEAR -DENABLE_CYLMODES -DENABLE_QEDCYL -DENABLE_RADCYL -DENABLE_OVERDENSE -DENABLE_OVERDENSE_CYL -DENABLE_NEUTRAL_SPIN -DENABLE_XXFEL -DENABLE_GR",
     "F90"  :"gfortran",
-    "F90F" :"-pipe -ffree-line-length-none -fno-range-check -lgcc_s.1.1 --openmp -Ofast -march=native -I/opt/homebrew/Cellar/open-mpi/5.0.5/include -Wl,-flat_namespace -I/opt/homebrew/Cellar/open-mpi/5.0.5/lib -I/usr/local/.hdf5/include",
+    "F90F" :"-pipe -ffree-line-length-none -fno-range-check -lgcc_s.1.1 --openmp -Ofast -march=native -I/opt/homebrew/Cellar/open-mpi/5.0.7/include -Wl,-flat_namespace -I/opt/homebrew/Cellar/open-mpi/5.0.7/lib -I/usr/local/.hdf5/include",
     "CF"   :"-Ofast -mcpu=apple-m1 -std=c99  -DFORTRANSINGLEUNDERSCORE -DPRECISION_DOUBLE -D__MACH_TIMER__",
     "cc"   :"/opt/homebrew/bin/mpicc ",
-    "LDF"  :" -L/usr/local/.hdf5/lib -lhdf5_fortran -lhdf5 -lz -lm -I/opt/homebrew/Cellar/open-mpi/5.0.5/include -Wl,-flat_namespace -I/opt/homebrew/Cellar/open-mpi/5.0.5/lib -L/opt/homebrew/Cellar/open-mpi/5.0.5/lib -lmpi_usempif08 -lmpi_usempi_ignore_tkr -lmpi_mpifh -lmpi ",
+    "LDF"  :" -L/usr/local/.hdf5/lib -lhdf5_fortran -lhdf5 -lz -lm -I/opt/homebrew/Cellar/open-mpi/5.0.7/include -Wl,-flat_namespace -I/opt/homebrew/Cellar/open-mpi/5.0.7/lib -L/opt/homebrew/Cellar/open-mpi/5.0.7/lib -lmpi_usempif08 -lmpi_usempi_ignore_tkr -lmpi_mpifh -lmpi ",
    }
 }
 run_info = {
-  "input_deck_crc":         3871076978.,
+  "input_deck_crc":         3478032486.,
   "input_deck": """
 simulation
 {
@@ -76,7 +76,7 @@ diag_emf
 {
 	ndump_fac = 1,
 	ndump_fac_ene_int = 1,
-    reports  = "e3",
+    reports  = "e1", "e2", "e3",
 }
 
 particles

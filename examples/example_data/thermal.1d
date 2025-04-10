@@ -55,7 +55,7 @@ diag_emf
 {
 	ndump_fac = 1,
 	ndump_fac_ene_int = 1,
-    reports  = "e3",
+    reports  = "e1", "e2", "e3",
 }
 
 particles

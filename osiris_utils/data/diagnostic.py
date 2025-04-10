@@ -314,7 +314,7 @@ class Diagnostic:
             # Try files 000001, 000002, etc. until one is found
             found_file = False
             for file_num in range(1, self._maxiter + 1):
-                path_file = os.path.join(self._path, file_template + f"{file_num:06d}.h5")
+                path_file = os.path.join(file_template + f"{file_num:06d}.h5")
                 if os.path.exists(path_file):
                     dump = OsirisGridFile(path_file)
                     self._dx = dump.dx
@@ -341,7 +341,7 @@ class Diagnostic:
     def _data_generator(self, index):
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set.")
-        file = os.path.join(self._path, self._file_template + f"{index:06d}.h5")
+        file = os.path.join(self._file_template + f"{index:06d}.h5")
         data_object = OsirisGridFile(file)
         yield (
             data_object.data
