@@ -3,6 +3,8 @@ from ..data.simulation import Simulation
 from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
 
+from .pressure_correction import *
+
 OSIRIS_H = ["q1", "q2", "q3"]
 
 class HeatfluxCorrection_Simulation(PostProcess):
@@ -27,7 +29,7 @@ class HeatfluxCorrection_Simulation(PostProcess):
     def __getitem__(self, key):
         if key in self._simulation._species:
             if key not in self._species_handler:
-                self._species_handler[key] = HeatfluxCorrection_Species_Handler(self._simulation[key])
+                self._species_handler[key] = HeatfluxCorrection_Species_Handler(self._simulation[key], self._simulation)
             return self._species_handler[key]
         if key not in OSIRIS_H:
             raise ValueError(f"Invalid heatflux component {key}. Supported: {OSIRIS_H}.")
@@ -51,7 +53,7 @@ class HeatfluxCorrection_Simulation(PostProcess):
         return HeatfluxCorrection_Diagnostic(diagnostic, self._simulation)
     
 class HeatfluxCorrection_Diagnostic(Diagnostic):
-    def __init__(self, diagnostic, vfl_i, P_trace, vfl_j_list, Pji_list):
+    def __init__(self, diagnostic, vfl_i, Pjj_list, vfl_j_list, Pji_list):
 
         """
         Class to correct the pressure in the simulation.
@@ -74,7 +76,7 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
 
         # The density and velocities are now passed as arguments (so it can doesn't depend on the simulation)
         self._vfl_i = vfl_i
-        self._P_trace = P_trace
+        self._Pjj_list = Pjj_list
         self._vfl_j_list = vfl_j_list
         self._Pji_list = Pji_list
 
@@ -98,16 +100,19 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         print(f"Loading {self._species._name} {self._original_name} diagnostic")
         
         self._vfl_i.load_all()
-        self._P_trace.load_all()
+        
 
         for vfl_j in self._vfl_j_list:
             vfl_j.load_all()
         for Pji in self._Pji_list:
             Pji.load_all()
+        for Pjj in self._Pjj_list:
+            Pjj.load_all()
 
         q = self._diag.data
         vfl_i = self._vfl_i.data
-        trace_P = self._P_trace.data
+        
+        trace_P = sum(Pjj.data for Pjj in self._Pjj_list)
 
         # Sum over j: vfl_j * Pji
         vfl_dot_Pji = sum(vfl_j.data * Pji.data for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list))
@@ -117,11 +122,13 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
 
         
         self._vfl_i.unload()
-        self._P_trace.unload()
+        
         for vfl_j in self._vfl_j_list:
             vfl_j.unload()
         for Pji in self._Pji_list:
             Pji.unload()
+        for Pjj in self._Pjj_list:
+            Pjj.unload()
 
         return self._data
     
@@ -143,7 +150,7 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
     def _data_generator(self, index):
         q = self._diag[index]
         vfl_i = self._vfl_i[index]
-        trace_P = self._P_trace[index]
+        trace_P = sum(Pjj[index] for Pjj in self._Pjj_list)
         vfl_dot_Pji = sum(vfl_j[index] * Pji[index] for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list))
         yield 2 * q - 0.5 * vfl_i * trace_P - vfl_dot_Pji
         
@@ -158,13 +165,12 @@ class HeatfluxCorrection_Species_Handler:
     ----------
     species_handler : Species_Handler
         The species handler object.
-    type : str
-        The type of derivative to compute. Options are: 't', 'x1', 'x2', 'x3', 'xx', 'xt' and 'tx'.
-    axis : int or tuple
-        The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
+    simulation : Simulation
+        The simulation object.
     """
-    def __init__(self, species_handler):
+    def __init__(self, species_handler, simulation):
         self._species_handler = species_handler
+        self._simulation = simulation
         self._heatflux_corrected = {}
 
     def __getitem__(self, key):
@@ -178,16 +184,16 @@ class HeatfluxCorrection_Species_Handler:
             vfl_i = self._species_handler[f"vfl{i}"]
 
             # Load trace(P): sum over Pjj
-            P_trace = sum(self._species_handler[f"P{j}{j}"] for j in range(1, self._dim + 1))
-            
-            # Compute sum_j vfl_j * P_{ji}
-            vfl_j_list = [self._species_handler[f"vfl{j}"] for j in range(1, self._dim + 1)]
-            Pji_list = [self._species_handler[f"P{j}{i}_corrected"] for j in range(1, self._dim + 1)]
+            Pjj_list = [self._species_handler[f"P{j}{j}"] for j in range(1, diag._dim + 1)]
+
+            # Compute quantities for vfl_j * P_{ji}
+            vfl_j_list = [self._species_handler[f"vfl{j}"] for j in range(1, diag._dim + 1)]
+            Pji_list = [PressureCorrection_Simulation(self._simulation)[diag._species._name][f"P{j}{i}"] for j in range(1, diag._dim + 1)]
 
             self._heatflux_corrected[key] = HeatfluxCorrection_Diagnostic(
                 diag,
                 vfl_i,
-                P_trace,
+                Pjj_list,
                 vfl_j_list,
                 Pji_list
             )

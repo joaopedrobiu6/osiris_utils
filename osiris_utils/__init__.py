@@ -30,3 +30,5 @@ from .postprocessing.mft import (
 from .postprocessing.field_centering import FieldCentering_Simulation, FieldCentering_Diagnostic
 
 from .postprocessing.pressure_correction import PressureCorrection_Simulation, PressureCorrection_Diagnostic
+
+from .postprocessing.heatflux_correction import HeatfluxCorrection_Simulation, HeatfluxCorrection_Diagnostic
