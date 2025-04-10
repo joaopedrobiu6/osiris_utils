@@ -6,12 +6,8 @@ Thank you for contributing!
 The following is a set of guidelines for contributing to our code. These are
 mostly guidelines, not rules, so feel free to use your best judgment!
 
-
-How Can I Contribute?
-^^^^^^^^^^^^^^^^^^^^^
-
 Reporting Bugs
-**************
+~~~~~~~~~~~~~~
 
 How Do I Submit A (Good) Bug Report?
 ------------------------------------
@@ -33,7 +29,7 @@ reproduce the problem:
 -  **Include plots** of results that you believe to be wrong.
 
 Adding Post-Processing routines
-*******************************
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 How we contribute by adding post-processing classes? Here's a breakdown:
 
@@ -56,7 +52,7 @@ How we contribute by adding post-processing classes? Here's a breakdown:
 
 By implementing it and taking these steps into consideration, the integration with the rest of the package should be fairly straightforward. 
 However, since post-processes may differ a lot from each other, some things may be more of a case-to-case situation. 
-If any help is needed, please open an issue or contact João Biu via [email](joaopedrofbiu@tecnico.ulisboa.pt) orthrough [GitHub](https://github.com/joaopedrobiu6).
+If any help is needed, please open an issue or contact João Biu via `email <joaopedrofbiu@tecnico.ulisboa.pt>`__ or `GitHub <https://github.com/joaopedrobiu6>`__.
 
 To be consistent with the syntax of other classes:
 
