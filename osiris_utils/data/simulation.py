@@ -32,15 +32,7 @@ class Simulation:
     __getitem__(key)
         Get a diagnostic.
 
-    Example
-    -------
-    >>> sim = Simulation('electrons', 'path/to/simulation')
-    >>> diag = sim['e1']
-    >>> diag.load_all()
-    
-    >>> sim = Simulation('electrons', 'path/to/simulation')
-    >>> diag = sim['e1']
-    >>> diag[<index>]
+        
     '''
     def __init__(self, input_deck_path):
         folder_path = os.path.dirname(input_deck_path)
@@ -187,13 +179,7 @@ class Species_Handler:
         -------
         str
             The name (key) used to store the diagnostic
-            
-        Example
-        -------
-        >>> sim = Simulation('path/to/simulation', 'input_deck.txt')
-        >>> nT = sim['electrons']['n'] * sim['electrons']['T11']
-        >>> sim.add_diagnostic(nT, 'nT')
-        >>> sim['nT']  # Access the custom diagnostic
+        
         """
         # Generate a name if none provided
         if name is None:

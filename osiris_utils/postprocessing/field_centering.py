@@ -7,6 +7,18 @@ OSIRIS_FLD = ["e1", "e2", "e3", "b1", "b2", "b3"]
 
 
 class FieldCentering_Simulation(PostProcess):
+    """
+    Class to handle the field centering on data. Works as a wrapper for the FieldCentering_Diagnostic class.
+    Inherits from PostProcess to ensure all operation overloads work properly.
+    
+    Parameters
+    ----------
+    simulation : Simulation
+        The simulation object.
+    field : str
+        The field to center.
+    """
+    
     def __init__(self, simulation: Simulation):
         super().__init__(f"FieldCentering Simulation")
         """

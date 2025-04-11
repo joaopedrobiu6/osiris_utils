@@ -135,16 +135,19 @@ Implementation Details
 The derivative calculation uses NumPy's gradient function with appropriate handling of boundary conditions:
 
 1. **Time Derivatives** (∂/∂t):
+
    * Uses centered differences for interior points
    * Uses forward/backward differences at boundaries (second order)
    * Accounts for the simulation time step and ndump parameter (be extra careful with time derivatives for diagnostics with different dump intervals)
 
 2. **Spatial Derivatives** (∂/∂x):
+
    * Uses centered differences with edge_order=2 for higher accuracy
    * Properly handles grid spacing (dx) from the original diagnostic
    * Supports different dimensionality (1D, 2D, 3D)
 
 3. **Higher-Order Derivatives** (∂²/∂x∂y):
+
    * Implemented through chained application of gradient
    * Requires specification of derivative axes
    * Can be also implemented by using the `Derivative_Simulation` class directly on another `Derivative_Simulation` object.
@@ -155,14 +158,17 @@ Performance Considerations
 When working with large simulations, consider these performance tips:
 
 1. **Selective Loading**:
+
    * Use indexing (`deriv['e1'][10]`) to compute derivatives for specific timesteps
    * Only call `load_all()` when you need all timesteps, and `unload()` to free memory
 
 2. **Memory Management**:
+
    * Clear unneeded derivatives with `derivative.delete('e1')` or `derivative.delete_all()`
    * For very large simulations, process data iteratively rather than loading everything
 
 3. **Caching Behavior**:
+
    * Computed derivatives are cached for reuse (when using `load_all()`)
    * For single timesteps, derivatives are computed on-demand using generators
 
@@ -172,17 +178,21 @@ Use Cases
 Common applications of the Derivative_Simulation post-processor include:
 
 1. **Computing Gradients**:
+
    * Electric field gradients for energy analysis
    * Density gradients for instability studies
 
 2. **Calculating Curl and Divergence**:
+
    * Curl of magnetic field using spatial derivatives
    * Divergence of electric field for charge density validation
 
 3. **Growth Rate Analysis**:
+
    * Time derivatives to measure instability growth rates
 
 4. **Phase Velocity Measurements**:
+
    * Mixed space-time derivatives for wave analysis
 
 Example: Computing Curl of B using `Derivative_Simulation`
@@ -312,17 +322,20 @@ Implementation Details
 The FFT implementation includes several important features:
 
 1. **Windowing**:
+
    * Hanning windows are applied by default to reduce spectral leakage
    * Different windows can be implemented by overriding `_get_window()`
    * Windows are properly shaped to match data dimensionality
 
 2. **FFT Calculation**:
+
    * Single-axis FFTs use `np.fft.fft`
    * Multi-dimensional FFTs use `np.fft.fftn`
    * Results are properly shifted with `np.fft.fftshift`
    * Power spectra are returned
 
 3. **Memory Management**:
+
    * Single-dimension spatial FFTs can be computed on-demand for individual timesteps
    * Time-axis FFTs require all data to be loaded (via `load_all()`)
    * Progress bars are displayed for long-running computations
@@ -333,19 +346,23 @@ Common Applications
 The FFT post-processor is valuable for many plasma physics analyses:
 
 1. **Wave Analysis**:
+
    * Identify wave modes and their frequencies
    * Measure dispersion relations
    * Analyze wave growth and damping
 
 2. **Instability Studies**:
+
    * Identify dominant wavenumbers in instabilities
    * Track growth of specific modes
 
 3. **Energy Cascade**:
+
    * Examine energy distribution across scales
    * Study turbulence through k-space analysis
 
 4. **Noise Identification**:
+
    * Separate physical signals from numerical noise
    * Identify grid-scale artifacts
 
@@ -397,15 +414,18 @@ Performance Considerations
 For large datasets, consider these performance optimizations:
 
 1. **Memory Usage**:
+
    * For large 3D simulations, compute FFTs along one dimension at a time
    * Use `delete()` and `delete_all()` to free memory when finished with results
 
 2. **Computation Time**:
+
    * Multi-dimensional FFTs are computationally intensive
    * The `load_all()` method displays a progress bar for long calculations
    * For time-critical applications, consider downsampling data before FFT
 
 3. **Storage Efficiency**:
+
    * FFT results can be larger than the original data (complex values)
    * For very large datasets, consider saving results to disk using NumPy's `save` function
 
@@ -532,11 +552,13 @@ Mean Field Theory Concepts
 Mean Field Theory is a fundamental approach in plasma physics that decomposes quantities into:
 
 1. **Average Component** (⟨A⟩):
+
    * Represents large-scale, slowly varying background
    * Computed by averaging over a specific dimension
    * Contains systematic behavior of the system
 
 2. **Fluctuation Component** (δA):
+
    * Represents small-scale, rapidly varying perturbations
    * Computed as δA = A - ⟨A⟩
    * Contains turbulence, waves, and other transient phenomena
@@ -554,15 +576,18 @@ Implementation Details
 The MFT implementation includes several important features:
 
 1. **Averaging Mechanism**:
+
    * Uses NumPy's `mean()` function along the specified axis
    * For on-demand calculation, properly reshapes arrays for broadcasting
 
 2. **Memory Management**:
+
    * Both components can be calculated on-demand for specific timesteps
    * Complete datasets can be pre-computed using `load_all()`
    * Metadata is preserved from the original diagnostic
 
 3. **Dimensional Handling**:
+
    * Works with 1D, 2D, and 3D data
    * Manages axis indexing differences between full arrays and individual timesteps
 
@@ -572,11 +597,13 @@ Performance Considerations
 For large datasets, consider these performance optimizations:
 
 1. **Memory Usage**:
+
    * Use on-demand calculation with indexing when analyzing individual timesteps
    * Only call `load_all()` when analyzing the full time evolution
    * Use `delete()` and `delete_all()` to free memory when finished with results
 
 2. **Computation Efficiency**:
+
    * Averaging is computationally inexpensive compared to other operations
    * For 2D/3D data, consider which axis to average along based on your physics
    * For iterative analysis, calculate fluctuations only when needed
