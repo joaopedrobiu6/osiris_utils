@@ -260,6 +260,10 @@ class Diagnostic:
             if self._species is None:
                 raise ValueError("Species not set.")
             self._get_density(self._species.name, "charge")
+        elif self._quantity == "tracks":
+            raise ValueError("For track diagnostics use class Track_Diagnostic.")
+        elif self._quantity == "raw":
+            raise ValueError("For raw diagnostics use class OsirisRawFile.")
         else:
             raise ValueError(
                 f"Invalid quantity {self._quantity}. Or it's not implemented yet (this may happen for phase space quantities)."
