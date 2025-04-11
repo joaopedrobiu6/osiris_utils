@@ -127,6 +127,10 @@ class Simulation:
     @property
     def species(self):
         return self._species
+    
+    @property
+    def loaded_diagnostics(self):
+        return self._diagnostics
 
 # This is to handle species related diagnostics
 class Species_Handler:
