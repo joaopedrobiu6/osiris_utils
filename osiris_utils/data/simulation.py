@@ -191,3 +191,26 @@ class Species_Handler:
             self._diagnostics[name] = diagnostic
         else:
             raise ValueError("Only Diagnostic objects are supported for now")
+        
+    def delete_diagnostic(self, key):
+        """
+        Delete a diagnostic.
+        """
+        if key in self._diagnostics:
+            del self._diagnostics[key]
+        else:
+            print(f"Diagnostic {key} not found in species {self._species_name}")
+            return None
+
+    def delete_all_diagnostics(self):
+        """
+        Delete all diagnostics.
+        """
+        self._diagnostics = {}
+
+    @property
+    def species(self):
+        return self._species_name
+    @property
+    def loaded_diagnostics(self):
+        return self._diagnostics
