@@ -305,7 +305,6 @@ class Diagnostic:
         # This can go wrong! NDUMP
         # if input_deck is not None:
         #     self._dt = float(input_deck["time_step"][0]["dt"])
-        #     self._ndump = int(input_deck["time_step"][0]["ndump"])
         #     self._dim = get_dimension_from_deck(input_deck)
         #     self._nx = np.array(list(map(int, input_deck["grid"][0][f"nx_p(1:{self._dim})"].split(','))))
         #     xmin = [deval(input_deck["space"][0][f"xmin(1:{self._dim})"].split(',')[i]) for i in range(self._dim)]
@@ -314,6 +313,8 @@ class Diagnostic:
         #     self._dx = (self._grid[:,1] - self._grid[:,0])/self._nx
         #     self._x = [np.arange(self._grid[i,0], self._grid[i,1], self._dx[i]) for i in range(self._dim)]
 
+        self._ndump = int(input_deck["time_step"][0]["ndump"])
+        
         try:
             # Try files 000001, 000002, etc. until one is found
             found_file = False
@@ -331,7 +332,7 @@ class Diagnostic:
                     self._name = dump.name
                     self._label = dump.label
                     self._dim = dump.dim
-                    self._ndump = dump.iter
+                    # self._iter = dump.iter
                     self._tunits = dump.time[1]
                     self._type = dump.type
                     found_file = True
@@ -1281,6 +1282,10 @@ class Diagnostic:
     @property
     def ndump(self):
         return self._ndump
+    
+    # @property
+    # def iter(self):
+    #     return self._iter
 
     @property
     def all_loaded(self):
