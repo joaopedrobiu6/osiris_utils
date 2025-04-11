@@ -209,7 +209,7 @@ class Track_Diagnostic:
         # Original implementation for file-based diagnostics
         print("Loading data from tracks file.")
         self._data = next(self._data_generator())
-        self._time = self._data["t"]
+        self._time = self._data["t"][0]
         self._all_loaded = True
         return self._data
 

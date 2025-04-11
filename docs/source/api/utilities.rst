@@ -107,7 +107,7 @@ Particle Data
          raw = ou.OsirisRawFile("path/to/raw/file/.../.h5")
          # Selecting 5 random tags from particles with energy>5
          mask = raw.data["ene"] >    5.
-         raw_to_file_tags("output.tag", type="random", n_tags=5, mask=mask)
+         raw.raw_to_file_tags("output.tag", type="random", n_tags=5, mask=mask)
 
 
 
