@@ -120,15 +120,6 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         self._data = 2 * q - 0.5 * vfl_i * trace_P - vfl_dot_Pji
         self._all_loaded = True
 
-        
-        self._vfl_i.unload()
-        
-        for vfl_j in self._vfl_j_list:
-            vfl_j.unload()
-        for Pji in self._Pji_list:
-            Pji.unload()
-        for Pjj in self._Pjj_list:
-            Pjj.unload()
 
         return self._data
     

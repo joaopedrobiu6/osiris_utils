@@ -108,9 +108,9 @@ class PressureCorrection_Diagnostic(Diagnostic):
         self._all_loaded = True
 
         # Unload the data to save memory
-        self._n.unload()
-        self._ufl_j.unload()
-        self._vfl_k.unload()
+        # self._n.unload()
+        # self._ufl_j.unload()
+        # self._vfl_k.unload()
 
         return self._data
     
