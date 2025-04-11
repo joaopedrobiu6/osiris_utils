@@ -118,7 +118,8 @@ Diagnostic Base Class
    * ``dim`` - Dimensionality of the data
    * ``units`` - Physical units of the data
    * ``dt`` - Time step between outputs
-   * ``ndump`` - Number of steps between dumps
+   * ``ndump`` - Number of steps between dumps (globally)
+   * ``iter`` - Iteration of the first diagnostic after 000000
    * ``grid`` - Boundaries of the simulation grid in each direction (physical units)
    * ``name`` - Name of the diagnostic quantity (for quantities directly obtained from OSIRIS data)
    * ``label`` - LaTeX label for the quantity (for quantities directly obtained from OSIRIS data)
