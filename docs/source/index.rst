@@ -25,3 +25,11 @@ OSIRIS Utils Documentation
    :hidden:
    
    api/utilities
+
+.. toctree::
+   :maxdepth: 3
+   :caption: How to Contribute:
+   :hidden:
+
+   contrib
+

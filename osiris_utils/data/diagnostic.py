@@ -7,9 +7,11 @@ Took some inspiration from Diogo and Madox's work.
 This would be awsome to compute time derivatives.
 """
 
+from torch import isin
 import numpy as np
 import os
 import glob
+import h5py
 
 from .data import OsirisGridFile
 import tqdm
@@ -177,19 +179,7 @@ class Diagnostic:
         Plot a 3D scatter plot of the diagnostic data.
     time(index)
         Get the time for a given index.
-
-    Examples
-    --------
-    >>> sim = Simulation("electrons", "path/to/simulation")
-    >>> sim.get_quantity("charge")
-    >>> sim.load_all()
-    >>> print(sim.data.shape)
-    (100, 100, 100)
-
-    >>> sim = Simulation("electrons", "path/to/simulation")
-    >>> sim.get_quantity("charge")
-    >>> sim[0]
-    array with the data for the first timestep
+        
     """
 
     def __init__(self, simulation_folder=None, species=None, input_deck=None):
@@ -321,27 +311,37 @@ class Diagnostic:
         #     self._x = [np.arange(self._grid[i,0], self._grid[i,1], self._dx[i]) for i in range(self._dim)]
 
         try:
-            path_file1 = os.path.join(self._path, file_template + "000001.h5")
-            dump1 = OsirisGridFile(path_file1)
-            self._dx = dump1.dx
-            self._nx = dump1.nx
-            self._x = dump1.x
-            self._dt = dump1.dt
-            self._grid = dump1.grid
-            self._axis = dump1.axis
-            self._units = dump1.units
-            self._name = dump1.name
-            self._label = dump1.label
-            self._dim = dump1.dim
-            self._ndump = dump1.iter
-            self._tunits = dump1.time[1]
-        except:
-            pass
+            # Try files 000001, 000002, etc. until one is found
+            found_file = False
+            for file_num in range(1, self._maxiter + 1):
+                path_file = os.path.join(file_template + f"{file_num:06d}.h5")
+                if os.path.exists(path_file):
+                    dump = OsirisGridFile(path_file)
+                    self._dx = dump.dx
+                    self._nx = dump.nx
+                    self._x = dump.x
+                    self._dt = dump.dt
+                    self._grid = dump.grid
+                    self._axis = dump.axis
+                    self._units = dump.units
+                    self._name = dump.name
+                    self._label = dump.label
+                    self._dim = dump.dim
+                    self._ndump = dump.iter
+                    self._tunits = dump.time[1]
+                    self._type = dump.type
+                    found_file = True
+                    break
+            
+            if not found_file:
+                warnings.warn(f"No valid data files found in {self._path} to read metadata from.")
+        except Exception as e:
+            warnings.warn(f"Error loading diagnostic attributes: {str(e)}. Please verify it there's any file in the folder.")
 
     def _data_generator(self, index):
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set.")
-        file = os.path.join(self._path, self._file_template + f"{index:06d}.h5")
+        file = os.path.join(self._file_template + f"{index:06d}.h5")
         data_object = OsirisGridFile(file)
         yield (
             data_object.data
@@ -509,6 +509,8 @@ class Diagnostic:
                 "_dim",
                 "_ndump",
                 "_maxiter",
+                "_tunits",
+                "_type",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -549,6 +551,8 @@ class Diagnostic:
                 "_dim",
                 "_ndump",
                 "_maxiter",
+                "_tunits",
+                "_type",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -591,6 +595,8 @@ class Diagnostic:
                 "_dim",
                 "_ndump",
                 "_maxiter",
+                "_tunits",
+                "_type",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -631,6 +637,8 @@ class Diagnostic:
                 "_dim",
                 "_ndump",
                 "_maxiter",
+                "_tunits",
+                "_type",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -673,6 +681,8 @@ class Diagnostic:
                 "_dim",
                 "_ndump",
                 "_maxiter",
+                "_tunits",
+                "_type",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -712,6 +722,8 @@ class Diagnostic:
                 "_dim",
                 "_ndump",
                 "_maxiter",
+                "_tunits",
+                "_type",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -754,6 +766,8 @@ class Diagnostic:
                 "_dim",
                 "_ndump",
                 "_maxiter",
+                "_tunits",
+                "_type",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -794,6 +808,8 @@ class Diagnostic:
                 "_dim",
                 "_ndump",
                 "_maxiter",
+                "_tunits",
+                "_type",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -837,6 +853,8 @@ class Diagnostic:
                 "_dim",
                 "_ndump",
                 "_maxiter",
+                "_tunits",
+                "_type",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -963,6 +981,93 @@ class Diagnostic:
 
             return result
 
+    def to_h5(self, folder, savename=None, index=None, all=False, verbose=False):
+        """
+        Save the diagnostic data to HDF5 files.
+
+        Parameters
+        ----------
+        folder : str
+            The folder to save the HDF5 files.
+        savename : str, optional
+            The name of the HDF5 file. If None, uses the diagnostic name.
+        index : int, or list of ints, optional
+            The index or indices of the data to save.
+        all : bool, optional
+            If True, save all data. Default is False.
+        """
+        if savename is None:
+            print(f"No savename provided. Using {self._name}.")
+            savename = self._name
+
+        def savefile(filename, i):
+            with h5py.File(filename, 'w') as f:
+                # Create SIMULATION group with attributes
+                sim_group = f.create_group("SIMULATION")
+                sim_group.attrs.create("DT", [self._dt])
+                sim_group.attrs.create("NDIMS", [self._dim])
+                
+                # Set file attributes
+                f.attrs.create("TIME", [self.time(i)[0]])
+                f.attrs.create("TIME UNITS", [np.bytes_(self.time(i)[1].encode()) if self.time(i)[1] else np.bytes_(b"")])
+                f.attrs.create("ITER", [self._ndump * i])
+                f.attrs.create("NAME", [np.bytes_(self._name.encode())]) 
+                f.attrs.create("TYPE", [np.bytes_(self._type.encode())])
+                f.attrs.create("UNITS", [np.bytes_(self._units.encode()) if self._units else np.bytes_(b"")])
+                f.attrs.create("LABEL", [np.bytes_(self._label.encode()) if self._label else np.bytes_(b"")])
+                
+                # Create dataset with data (transposed to match convention)
+                f.create_dataset(savename, data=self[i].T)
+                
+                # Create AXIS group
+                axis_group = f.create_group("AXIS")
+                
+                # Create axis datasets
+                axis_names = ["AXIS1", "AXIS2", "AXIS3"][:self._dim]
+                axis_shortnames = [self._axis[i]["name"] for i in range(self._dim)]
+                axis_longnames = [self._axis[i]["long_name"] for i in range(self._dim)]
+                axis_units = [self._axis[i]["units"] for i in range(self._dim)]
+                
+                for i, axis_name in enumerate(axis_names):
+                    # Create axis dataset
+                    axis_dataset = axis_group.create_dataset(axis_name, data=np.array(self._grid[i]))
+                    
+                    # Set axis attributes
+                    axis_dataset.attrs.create("NAME", [np.bytes_(axis_shortnames[i].encode())])
+                    axis_dataset.attrs.create("UNITS", [np.bytes_(axis_units[i].encode())])
+                    axis_dataset.attrs.create("LONG_NAME", [np.bytes_(axis_longnames[i].encode())])
+                    axis_dataset.attrs.create("TYPE", [np.bytes_("linear".encode())])
+                
+                if verbose:
+                    print(f"File created: {filename}")
+
+        print(f"The savename of the diagnostic is {savename}. Files will be saves as {savename}-000001.h5, {savename}-000002.h5, etc.")
+        
+        print(f"If you desire a different name, please set it with the 'name' method (setter).")
+
+        if self._name is None:
+            raise ValueError("Diagnostic name is not set. Cannot save to HDF5.")
+        if not os.path.exists(folder):
+            print(f"Creating folder {folder}...")
+            os.makedirs(folder)
+        if not os.path.isdir(folder):
+            raise ValueError(f"{folder} is not a directory.")
+
+        if all == False:
+            if isinstance(index, int):
+                filename = folder + f"/{savename}-{index:06d}.h5"
+                savefile(filename, index)
+            elif isinstance(index, list) or isinstance(index, tuple):
+                for i in index:
+                    filename = folder + f"/{savename}-{i:06d}.h5"
+                    savefile(filename, i)
+        elif all == True:
+            for i in range(self._maxiter):
+                filename = folder + f"/{savename}-{i:06d}.h5"
+                savefile(filename, i)
+        else:
+            raise ValueError("index should be an int, slice, or list of ints, or all should be True")
+                    
     def plot_3d(
         self,
         idx,
@@ -1184,6 +1289,10 @@ class Diagnostic:
     @property
     def label(self):
         return self._label
+    
+    @property
+    def type(self):
+        return self._type
 
     @property
     def quantity(self):
@@ -1191,6 +1300,20 @@ class Diagnostic:
 
     def time(self, index):
         return [index * self._dt * self._ndump, self._tunits]
+
+    def attributes_to_save(self, index):
+        """
+        Prints the attributes of the diagnostic.
+        """
+        print(f"dt: {self._dt}\n"
+              f"dim: {self._dim}\n"
+              f"time: {self.time(index)[0]}\n"
+              f"tunits: {self.time(index)[1]}\n"
+              f"iter: {self._ndump * index}\n"
+              f"name: {self._name}\n"
+              f"type: {self._type}\n"
+              f"label: {self._label}\n"
+              f"units: {self._units}")
 
     @dx.setter
     def dx(self, value):
@@ -1243,3 +1366,7 @@ class Diagnostic:
     @quantity.setter
     def quantity(self, key):
         self._quantity = key
+
+    @label.setter
+    def label(self, value):
+        self._label = value

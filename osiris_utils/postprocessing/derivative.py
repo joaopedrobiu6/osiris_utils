@@ -12,7 +12,7 @@ class Derivative_Simulation(PostProcess):
     ----------
     simulation : Simulation
         The simulation object.
-    type : str
+    deriv_type : str
         The type of derivative to compute. Options are:
         - 't' for time derivative.
         - 'x1' for first spatial derivative.
@@ -24,19 +24,14 @@ class Derivative_Simulation(PostProcess):
     axis : int or tuple
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
 
-    Example
-    -------
-    >>> sim = Simulation('electrons', 'path/to/simulation')
-    >>> derivative = Derivative(sim, 'x1')
-    >>> deriv_e1_wrt_x1 = derivative['e1']
     """
 
-    def __init__(self, simulation, type, axis=None):
-        super().__init__(f"Derivative({type})")
+    def __init__(self, simulation, deriv_type, axis=None):
+        super().__init__(f"Derivative({deriv_type})")
         if not isinstance(simulation, Simulation):
             raise ValueError("Simulation must be a Simulation object.")
         self._simulation = simulation
-        self._type = type
+        self._deriv_type = deriv_type
         self._axis = axis
         self._derivatives_computed = {}
         self._species_handler = {}
@@ -44,12 +39,12 @@ class Derivative_Simulation(PostProcess):
     def __getitem__(self, key):
         if key in self._simulation._species:
             if key not in self._species_handler:
-                self._species_handler[key] = Derivative_Species_Handler(self._simulation[key], self._type, self._axis)
+                self._species_handler[key] = Derivative_Species_Handler(self._simulation[key], self._deriv_type, self._axis)
             return self._species_handler[key]
                 
         if key not in self._derivatives_computed:
             self._derivatives_computed[key] = Derivative_Diagnostic(diagnostic=self._simulation[key], 
-                                                                    type=self._type, axis=self._axis)
+                                                                    deriv_type=self._deriv_type, axis=self._axis)
         return self._derivatives_computed[key]
     
     def delete_all(self):
@@ -63,7 +58,7 @@ class Derivative_Simulation(PostProcess):
     
     def process(self, diagnostic):
         """Apply derivative to a diagnostic"""
-        return Derivative_Diagnostic(diagnostic, self._type, self._axis)
+        return Derivative_Diagnostic(diagnostic, self._deriv_type, self._axis)
 
     
 class Derivative_Diagnostic(Diagnostic):
@@ -75,7 +70,7 @@ class Derivative_Diagnostic(Diagnostic):
     ----------
     diagnostic : Diagnostic
         The diagnostic object.
-    type : str
+    deriv_type : str
         The type of derivative to compute. Options are: 't', 'x1', 'x2', 'x3', 'xx', 'xt' and 'tx'.
     axis : int or tuple
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types
@@ -87,14 +82,9 @@ class Derivative_Diagnostic(Diagnostic):
     __getitem__(index)
         Get data at a specific index.
 
-    Example
-    -------
-    >>> sim = Simulation('electrons', 'path/to/simulation')
-    >>> diag = sim['e1']
-    >>> derivative = Derivative_Diagnostic(diag, 'x1')
     """
 
-    def __init__(self, diagnostic, type, axis=None):
+    def __init__(self, diagnostic, deriv_type, axis=None):
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, '_species'):
             super().__init__(simulation_folder=diagnostic._simulation_folder if hasattr(diagnostic, '_simulation_folder') else None, 
@@ -104,13 +94,13 @@ class Derivative_Diagnostic(Diagnostic):
             
         # self._name = f"D[{diagnostic._name}, {type}]"
         self._diag = diagnostic
-        self._type = type
+        self._deriv_type = deriv_type
         self._axis = axis if axis is not None else diagnostic._axis
         self._data = None
         self._all_loaded = False
         
         # Copy all relevant attributes from diagnostic
-        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter']:
+        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter', '_type']:
             if hasattr(diagnostic, attr):
                 setattr(self, attr, getattr(diagnostic, attr))
 
@@ -135,34 +125,34 @@ class Derivative_Diagnostic(Diagnostic):
         if not hasattr(self._diag, '_data') or self._diag._data is None:
             self._diag.load_all()
 
-        if self._type == "t":
+        if self._deriv_type == "t":
             result = np.gradient(self._diag._data, self._diag._dt * self._diag._ndump, axis=0, edge_order=2)
 
-        elif self._type == "x1":
+        elif self._deriv_type == "x1":
             if self._dim == 1:
                 result = np.gradient(self._diag._data, self._diag._dx, axis=1, edge_order=2)
             else:
                 result = np.gradient(self._diag._data, self._diag._dx[0], axis=1, edge_order=2)
                     
-        elif self._type == "x2":
+        elif self._deriv_type == "x2":
             result = np.gradient(self._diag._data, self._diag._dx[0], axis=2, edge_order=2)
 
-        elif self._type == "x3":
+        elif self._deriv_type == "x3":
             result = np.gradient(self._diag._data, self._diag._dx[0], axis=3, edge_order=2)
 
-        elif self._type == "xx":
+        elif self._deriv_type == "xx":
             if len(self._axis) != 2:
                 raise ValueError("Axis must be a tuple with two elements.")
             result = np.gradient(np.gradient(self._diag._data, self._diag._dx[self._axis[0]-1], axis=self._axis[0], edge_order=2), 
                                 self._diag._dx[self._axis[1]-1], axis=self._axis[1], edge_order=2)
             
-        elif self._type == "xt":
+        elif self._deriv_type == "xt":
             if not isinstance(self._axis, int):
                 raise ValueError("Axis must be an integer.")
             result = np.gradient(np.gradient(self._diag._data, self._diag._dt, axis=0, edge_order=2), 
                                 self._diag._dx[self._axis-1], axis=self._axis[0], edge_order=2)
             
-        elif self._type == "tx":
+        elif self._deriv_type == "tx":
             if not isinstance(self._axis, int):
                 raise ValueError("Axis must be an integer.")
             result = np.gradient(np.gradient(self._diag._data, self._diag._dx[self._axis-1], axis=self._axis, edge_order=2), 
@@ -177,19 +167,19 @@ class Derivative_Diagnostic(Diagnostic):
 
     def _data_generator(self, index):
         """Generate data for a specific index on-demand"""
-        if self._type == "x1":
+        if self._deriv_type == "x1":
             if self._dim == 1:
                 yield np.gradient(self._diag[index], self._diag._dx, axis=0, edge_order=2)
             else:
                 yield np.gradient(self._diag[index], self._diag._dx[0], axis=0, edge_order=2)
         
-        elif self._type == "x2":
+        elif self._deriv_type == "x2":
             yield np.gradient(self._diag[index], self._diag._dx[1], axis=1, edge_order=2)
         
-        elif self._type == "x3":
+        elif self._deriv_type == "x3":
             yield np.gradient(self._diag[index], self._diag._dx[2], axis=2, edge_order=2)
             
-        elif self._type == "t":
+        elif self._deriv_type == "t":
             if index == 0:
                 yield (-3 * self._diag[index] + 4 * self._diag[index + 1] - self._diag[index + 2]) / (2 * self._diag._dt * self._diag._ndump)
             elif index == self._diag._maxiter - 1:
@@ -230,14 +220,14 @@ class Derivative_Species_Handler:
     axis : int or tuple
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
     """
-    def __init__(self, species_handler, type, axis=None):
+    def __init__(self, species_handler, deriv_type, axis=None):
         self._species_handler = species_handler
-        self._type = type
+        self._deriv_type = deriv_type
         self._axis = axis
         self._derivatives_computed = {}
 
     def __getitem__(self, key):
         if key not in self._derivatives_computed:
             diag = self._species_handler[key]
-            self._derivatives_computed[key] = Derivative_Diagnostic(diag, self._type, self._axis)
+            self._derivatives_computed[key] = Derivative_Diagnostic(diag, self._deriv_type, self._axis)
         return self._derivatives_computed[key]

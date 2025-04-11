@@ -74,30 +74,50 @@ Particle Data
    * ``time`` - List containing the simulation time and its associated units.  
    * ``type`` - Type of the dataset (e.g., "particles" for raw particle data).  
 
+   **Example Usage:**
+
+   .. code-block:: python
+  
+      import osiris_utils as ou  
+      raw = ou.raw = ou.OsirisRawFile("path/to/raw/file.h5")
+      print(raw.data.keys())
+      print(raw.data["x1"][0:10])  # Access x1 position of first 10 particles
+
    **Methods:**  
 
    * ``raw_to_file_tags(filename, type="all", n_tags=10, mask=None)``  
+
      - Converts raw particle data into a `file_tags` format, used for selecting particles in OSIRIS tracking diagnostics.  
+
      - **Parameters:**  
+
        - ``filename`` (str): Path to the output tag file.  
        - ``type`` (str, optional): Selection mode (`"all"` for all tags, `"random"` for a random subset).  
        - ``n_tags`` (int, optional): Number of tags to select when `type="random"`. Default is 10.  
        - ``mask`` (np.ndarray, optional): Boolean mask to filter valid particle tags before selection.  
+
      - **Output:**  
+
        - Generates a file storing selected particle tags to initialize OSIRIS track diagnostic.  
+      
+     - **Example Usage:**
+
+      .. code-block:: python
+
+         raw = ou.OsirisRawFile("path/to/raw/file/.../.h5")
+         # Selecting 5 random tags from particles with energy>5
+         mask = raw.data["ene"] >    5.
+         raw_to_file_tags("output.tag", type="random", n_tags=5, mask=mask)
+
+
 
 HIST Data
 ~~~~~~~~~
 
 .. autoclass:: osiris_utils.data.data.OsirisHIST
-   :members: df
    :inherited-members: grid, nx, dx, x, axis, data, units, label
 
    Processes HIST file from OSIRIS diagnostics.
-   
-   **Key Attributes:**
-   
-   * ``df`` - DataFrame containing the data
 
 TRACK Data
 ~~~~~~~~~~
@@ -123,6 +143,15 @@ TRACK Data
    * ``__array__()`` - Returns the ``data`` attribute as a standard numpy array.  
    * ``__str__()`` - Provides a string summary of the object, including simulation grid, iteration, and dimensions.  
    * ``_load_basic_attributes(f: h5py.File)`` - Loads essential attributes such as simulation time step (``dt``), dimensionality (``dim``), and file metadata.  
+
+   **Example Usage:**
+
+   .. code-block:: python
+  
+      import osiris_utils as ou
+      track = ou.OsirisTrackFile(path/to/track_file.h5)
+      print(track.data[0:10, :]["x1"]) # Access x1 position of first 10 particles over all time steps
+
 
 Convert track file to the older more readable format
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -177,11 +206,11 @@ To create a tag file directly from raw data, see :class:`osiris_utils.data.data.
 
    .. code-block:: python
       
-      >>> import osiris_utils as ou 
-      >>> import numpy as np
-      >>> tags = np.array([[1, 12345], [2, 67890], [3, 11111]])  # Example tags
-      >>> ou.utils.create_file_tags('output.tag', tags)
-      >>> # This will generate a file 'output.tag' with the particle tags.
+      import osiris_utils as ou 
+      import numpy as np
+      tags = np.array([[1, 12345], [2, 67890], [3, 11111]])  # Example tags
+      ou.utils.create_file_tags('output.tag', tags)
+      # This will generate a file 'output.tag' with the particle tags.
 
    **Notes:**  
    - The function generates the `file_tags` file in a format that can be used by the OSIRIS track diagnostic.

@@ -162,11 +162,6 @@ def convert_tracks(filename_in):
     -------
     The output file will be in the same folder as the input file with the same name with \"v2\" added
     
-    Example
-    -------
-        >>> import osiris_utils as ou 
-        >>> ou.utils.convert_tracks('path/to/input_trackfile.h5')
-        >>> # The output will be saved as 'path/to/input_trackfile-v2.h5'
     '''
 
     try:
@@ -269,13 +264,6 @@ def create_file_tags(filename, tags_array):
     The first element of the tag of a particle that is already being tracked is negative,
         so we apply the absolute function when generating the file
     
-    Example
-    -------
-        >>> import osiris_utils as ou 
-        >>> import numpy as np
-        >>> tags = np.array([[1, 12345], [2, 67890], [3, 11111]])  # Example tags
-        >>> ou.utils.create_file_tags('output.tag', tags)
-        >>> # This will generate a file 'output.tag' with the particle tags.
     '''
 
     # In case the particles chosen were already being tracked

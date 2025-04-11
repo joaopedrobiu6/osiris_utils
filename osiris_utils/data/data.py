@@ -345,48 +345,65 @@ class OsirisRawFile(OsirisData):
     '''
     Class to read the raw data from an OSIRIS HDF5 file.
     
-    Input:
-        - filename: the path to the HDF5 file
+    Parameters
+    ----------
+    filename : str
+        Path to OSIRIS HDF5 track file (.h5 extension)
     
     Attributes:
-        - axis - a dictionary where each key is a dataset name, and each value is another dictionary containing
-            name (str): The name of the quantity (e.g., r'x1', r'ene').
-            units (str): The units associated with that dataset in LaTeX (e.g., r'c/\\omega_p', r'm_e c^2').
-            long_name (str): The name of the quantity in LaTeX (e.g., r'x_1', r'En2').
-            dictionary of dictionaries
-        - data - a dictionary where each key is a dataset name, and each value is the data
-            dictionary of np.arrays
-        - dim - the number of dimensions
-            int
-        - dt - the time step
-            float
-        - grid - maximum and minimum coordinates of the box, for each axis 
-            numpy.ndarray(dim,2)
-        - iter - the iteration number
-            int
-        - name - the name of the species
-            str
-        - time - the time and its units
-            list [time, units]
-            list [float, str]
-        - type - type of data (particles in the case of raw files)
-            str
-
+    -----------
+    axis : dict[str, dict[str, str]]
+        Dictionary where each key is a dataset name, and each value is another dictionary containing:
+            - 'name' (str): Short name of the quantity (e.g., 'x1', 'ene')
+            - 'units' (str): Units (LaTeX formatted, e.g., 'c/\\omega_p', 'm_e c^2')
+            - 'long_name' (str): Descriptive name (LaTeX formatted, e.g., 'x_1', 'En2')
+    data : dict[str, np.ndarray]
+        Dataset values indexed by dataset name (quants).
+    dim : int
+        Number of spatial dimensions.
+    dt : float
+        Time step between iterations.
+    grid : np.ndarray
+        Grid boundaries as ((x1_min, x1_max), (x2_min, x2_max), ...)
+    iter : int
+        Iteration number corresponding to the data.
+    name : str
+        Name of the species.
+    time : list[float, str]
+        Simulation time and its units (e.g., [12.5, '1/\\omega_p']).
+    type : str
+        Type of data (e.g., 'particles' for raw files).
+    labels : list[str]
+        Field labels/names (LaTeX formatted, e.g., 'x_1')
+    quants : list[str]
+        field names of the data
+    units : list[str]
+        Units of each field of the data (LaTeX formatted, e.g., 'c/\\omega_p')        
+    
     Example
     -------
         >>> import osiris_utils as ou  
         >>> raw = ou.raw = ou.OsirisRawFile("path/to/raw/file.h5")
         >>> print(raw.data.keys())
-        >>> print(raw.data["x1"][0:10])  # Access x1 position of first 10 particles
+        >>> # Access x1 position of first 10 particles
+        >>> print(raw.data[\"x1\"][0:10])
+        >>> # Write beautiful labels and units
+        >>> print("${} = $".format(raw.labels[\"x1\"]) + "$[{}]$".format(track.units[\"x1\"]))
     '''
 
     def __init__(self, filename):
         super().__init__(filename)
 
-        self.grid = np.array([self._file['SIMULATION'].attrs['XMIN'], self._file['SIMULATION'].attrs['XMAX']]).T
+        self._grid = np.array([self._file['SIMULATION'].attrs['XMIN'], self._file['SIMULATION'].attrs['XMAX']]).T
 
-        self.data = {}
-        self.axis = {}
+        self._quants = [byte.decode('utf-8') for byte in self._file.attrs['QUANTS'][:]]
+        units_list = [byte.decode('utf-8') for byte in self._file.attrs['UNITS'][:]]
+        labels_list = [byte.decode('utf-8') for byte in self._file.attrs['LABELS'][:]]
+        self._units = dict(zip(self._quants, units_list))
+        self._labels = dict(zip(self._quants, labels_list))
+
+        self._data = {}
+        self._axis = {}
         for key in self._file.keys():
             if key == 'SIMULATION': continue
 
@@ -398,7 +415,7 @@ class OsirisRawFile(OsirisData):
                 'units': self._file.attrs['UNITS'][idx][0].decode('utf-8'),
                 'long_name': self._file.attrs['LABELS'][idx][0].decode('utf-8'),
             }
-            self.axis[key] = axis_data
+            self._axis[key] = axis_data
 
     def raw_to_file_tags(self, filename, type: Literal["all", "random"] = "all", n_tags=10, mask=None):
         """
@@ -427,12 +444,6 @@ class OsirisRawFile(OsirisData):
             The first element of the tag of a particle that is already being tracked is negative,
             so we apply the absolute function when generating the file
 
-        Example
-        -------
-            >>> raw = ou.OsirisRawFile("path/to/raw/file/.../.h5")
-            >>> # Selecting 5 random tags from particles with energy>5
-            >>> mask = raw.data["ene"] > 5.
-            >>> raw_to_file_tags("output.tag", type="random", n_tags=5, mask=mask)
         """
             
         if mask is not None:
@@ -457,30 +468,46 @@ class OsirisRawFile(OsirisData):
         create_file_tags(filename, tags)
         print("Tag_file created: ", filename)
 
+    # Getters
+    @property
+    def grid(self):
+        return self._grid
+    @property
+    def data(self):
+        return self._data
+    @property
+    def units(self):
+        return self._units
+    @property
+    def labels(self):
+        return self._labels
+    @property
+    def quants(self):
+        return self._quants
+    @property
+    def axis(self):
+        return self._axis    
 
 class OsirisHIST(OsirisData):
     ''''
     Class to read the data from an OSIRIS HIST file.'
 
-    Input:
-        - filename: the path to the HIST file
+    Input
+    -----
+    filename: the path to the HIST file
 
-    Attributes:
-        - filename - the path to the file
-            str
-        - verbose - if True, the class will print messages
-            bool
-        - df - the data in a pandas DataFrame
-            pandas.DataFrame
+    Attributes
+    ----------
+    filename: the path to the file
+        str
+    df: the data in a pandas DataFrame
+        pandas.DataFrame
     '''
     def __init__(self, filename):
         super().__init__(filename)
 
     @property
     def df(self):
-        """
-        Returns the data in a pandas DataFrame
-        """
         return self._df
 
 class OsirisTrackFile(OsirisData):
@@ -495,13 +522,13 @@ class OsirisTrackFile(OsirisData):
     Attributes
     ----------
     data: numpy.ndarray of shape (num_particles, num_time_iter), 
-                    dtype = [(field_name, float) for field_name in field_names]
+        dtype = [(field_name, float) for field_name in field_names]
         A structured numpy array with the track data
         Accessed as data[particles, time_iters][quant]
     grid : np.ndarray
         Grid boundaries as ((x1_min, x1_max), (x2_min, x2_max), ...)
-    label : list[str]
-        Field labels/names (LaTeX formatted, e.g., r'$E_x$')
+    labels : list[str]
+        Field labels/names (LaTeX formatted, e.g., 'x_1')
     num_particles : int
         Number of particlest tracked, they are accessed from 0 to num_particles-1
     num_time_iters : int
@@ -509,7 +536,7 @@ class OsirisTrackFile(OsirisData):
     quants : list[str]
         field names of the data
     units : list[str]
-        Units of each field of the data (LaTeX formatted)
+        Units of each field of the data (LaTeX formatted, e.g., 'c/\\omega_p')
     
     Example
     -------
@@ -523,9 +550,11 @@ class OsirisTrackFile(OsirisData):
         
         self._grid = np.array([self._file['SIMULATION'].attrs['XMIN'], self._file['SIMULATION'].attrs['XMAX']]).T
 
-        self._units = [byte.decode('utf-8') for byte in self._file.attrs['UNITS'][1:]]
-        self._labels = [byte.decode('utf-8') for byte in self._file.attrs['LABELS'][1:]]
         self._quants = [byte.decode('utf-8') for byte in self._file.attrs['QUANTS'][1:]]
+        units_list = [byte.decode('utf-8') for byte in self._file.attrs['UNITS'][1:]]
+        labels_list = [byte.decode('utf-8') for byte in self._file.attrs['LABELS'][1:]]
+        self._units = dict(zip(self._quants, units_list))
+        self._labels = dict(zip(self._quants, labels_list))
         
         self._num_particles = self._file.attrs['NTRACKS'][0]
 
@@ -534,7 +563,7 @@ class OsirisTrackFile(OsirisData):
         
         idxs = get_track_indexes(itermap, self._num_particles)
         self._data = reorder_track_data(unordered_data, idxs, self._quants)
-        self._time = self._data[0][0]["t"]
+        self._time = self._data[0][:]["t"]
         self._num_time_iters = np.shape(self._time.shape)
         self._close_file()
 
@@ -608,11 +637,6 @@ def reorder_track_data(unordered_data, indexes, field_names):
                     dtype = [(field_name, float) for field_name in field_names]
         A structured numpy array where data is reordered according to indexes.
     
-    Example
-    -------
-        >>> field_names = [byte.decode('utf-8') for byte in file.attrs['QUANTS'][1:]]
-        >>> indexes = get_track_indexes(itermap = self._file['itermap'][:], num_particles = file.attrs['NTRACKS'][0])
-        >>> data_sorted = reorder_track_data(unordered_data = self._file['data'][:], indexes, field_names)
     '''
     # Initialize the sorted data structure
     num_particles = len(indexes)
