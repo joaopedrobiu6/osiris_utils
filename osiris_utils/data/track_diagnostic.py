@@ -155,11 +155,10 @@ class Track_Diagnostic:
 
         try:
             if isinstance(self._input_deck, InputDeckIO):
-                print("The object is of type InputDeckIO or a subclass thereof.")
                 self._ndump = int(self._input_deck["time_step"][0]["ndump"])
             else:
-                print("The object not type.")
-                raise TypeError("Invalid input deck type. Expected InputDeckIO.")
+                warnings.warn(f"Invalid type for input deck : {type(self._input_deck)}. Expected InputDeckIO.")
+                raise TypeError(f"Invalid type for input deck : {type(self._input_deck)}. Expected InputDeckIO.")
         except:
             self._ndump = 1
             warnings.warn(f"Failed to read ndump from input deck. Defaulting to {self._ndump}. Use \"Tracks_Diagnostic.dump = <value>\" to set it.")
@@ -338,7 +337,7 @@ class Track_Diagnostic:
     @ndump.setter
     def ndump(self, value):
         self._ndump = value
-        
+
     @property
     def iter(self):
         return self._iter

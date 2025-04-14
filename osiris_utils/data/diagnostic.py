@@ -318,11 +318,10 @@ class Diagnostic:
 
         try:
             if isinstance(input_deck, InputDeckIO):
-                print("The object is of type InputDeckIO or a subclass thereof.")
                 self._ndump = int(input_deck["time_step"][0]["ndump"])
             else:
-                print("The object not type.")
-                raise TypeError("Invalid input deck type. Expected InputDeckIO.")
+                warnings.warn(f"Invalid type for input deck : {type(input_deck)}. Expected InputDeckIO.")
+                raise TypeError(f"Invalid type for input deck : {type(input_deck)}. Expected InputDeckIO.")
         except:
             self._ndump = 1
             warnings.warn(f"Failed to read ndump from input deck. Defaulting to {self._ndump}. Use \"Diagnostic.dump = <value>\" to set it.")
