@@ -512,6 +512,7 @@ class Diagnostic:
                 "_maxiter",
                 "_tunits",
                 "_type",
+                "_simulation_folder",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -537,6 +538,8 @@ class Diagnostic:
                     original_generator(index), other
                 )
 
+            result.created_diagnostic_name = "MISC"
+    
             return result
 
         elif isinstance(other, Diagnostic):
@@ -554,6 +557,7 @@ class Diagnostic:
                 "_maxiter",
                 "_tunits",
                 "_type",
+                "_simulation_folder",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -580,6 +584,8 @@ class Diagnostic:
                     original_generator(index), other_generator(index)
                 )
 
+            result.created_diagnostic_name = "MISC"
+
             return result
 
     def __sub__(self, other):
@@ -598,6 +604,7 @@ class Diagnostic:
                 "_maxiter",
                 "_tunits",
                 "_type",
+                "_simulation_folder",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -622,6 +629,8 @@ class Diagnostic:
                     original_generator(index), other
                 )
 
+            result.created_diagnostic_name = "MISC"
+
             return result
 
         elif isinstance(other, Diagnostic):
@@ -640,6 +649,7 @@ class Diagnostic:
                 "_maxiter",
                 "_tunits",
                 "_type",
+                "_simulation_folder",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -666,6 +676,8 @@ class Diagnostic:
                     original_generator(index), other_generator(index)
                 )
 
+            result.created_diagnostic_name = "MISC"
+
             return result
 
     def __mul__(self, other):
@@ -684,6 +696,7 @@ class Diagnostic:
                 "_maxiter",
                 "_tunits",
                 "_type",
+                "_simulation_folder",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -707,6 +720,8 @@ class Diagnostic:
                 result._data_generator = lambda index: gen_scalar_mul(
                     original_generator(index), other
                 )
+                
+            result.created_diagnostic_name = "MISC"
 
             return result
 
@@ -725,6 +740,7 @@ class Diagnostic:
                 "_maxiter",
                 "_tunits",
                 "_type",
+                "_simulation_folder",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -750,6 +766,8 @@ class Diagnostic:
                 result._data_generator = lambda index: gen_diag_mul(
                     original_generator(index), other_generator(index)
                 )
+                
+            result.created_diagnostic_name = "MISC"
 
             return result
 
@@ -769,6 +787,7 @@ class Diagnostic:
                 "_maxiter",
                 "_tunits",
                 "_type",
+                "_simulation_folder",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -792,6 +811,8 @@ class Diagnostic:
                 result._data_generator = lambda index: gen_scalar_div(
                     original_generator(index), other
                 )
+                
+            result.created_diagnostic_name = "MISC"
 
             return result
 
@@ -811,6 +832,7 @@ class Diagnostic:
                 "_maxiter",
                 "_tunits",
                 "_type",
+                "_simulation_folder",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -836,6 +858,8 @@ class Diagnostic:
                 result._data_generator = lambda index: gen_diag_div(
                     original_generator(index), other_generator(index)
                 )
+                
+            result.created_diagnostic_name = "MISC"
 
             return result
 
@@ -856,6 +880,7 @@ class Diagnostic:
                 "_maxiter",
                 "_tunits",
                 "_type",
+                "_simulation_folder",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -880,6 +905,8 @@ class Diagnostic:
                 result._data_generator = lambda index: gen_scalar_pow(
                     original_generator(index), other
                 )
+                
+            result.created_diagnostic_name = "MISC"
 
             return result
 
@@ -914,6 +941,9 @@ class Diagnostic:
                 "_dim",
                 "_ndump",
                 "_maxiter",
+                "_tunits",
+                "_type",
+                "_simulation_folder",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -937,6 +967,8 @@ class Diagnostic:
                 result._data_generator = lambda index: gen_scalar_rdiv(
                     other, original_generator(index)
                 )
+                
+            result.created_diagnostic_name = "MISC"
 
             return result
 
@@ -954,6 +986,9 @@ class Diagnostic:
                 "_dim",
                 "_ndump",
                 "_maxiter",
+                "_tunits",
+                "_type",
+                "_simulation_folder",
             ]:
                 if hasattr(self, attr):
                     setattr(result, attr, getattr(self, attr))
@@ -979,27 +1014,52 @@ class Diagnostic:
                 result._data_generator = lambda index: gen_diag_div(
                     original_generator(index), other_generator(index)
                 )
+                
+            result.created_diagnostic_name = "MISC"
 
             return result
 
-    def to_h5(self, folder, savename=None, index=None, all=False, verbose=False):
+    def to_h5(self, savename=None, index=None, all=False, verbose=False, path=None):
         """
         Save the diagnostic data to HDF5 files.
 
         Parameters
         ----------
-        folder : str
-            The folder to save the HDF5 files.
         savename : str, optional
             The name of the HDF5 file. If None, uses the diagnostic name.
         index : int, or list of ints, optional
             The index or indices of the data to save.
         all : bool, optional
             If True, save all data. Default is False.
+        verbose : bool, optional
+            If True, print messages about the saving process.
+        path : str, optional
+            The path to save the HDF5 files. If None, uses the default save path (in simulation folder).
         """
+        if folder is None:
+            folder = self._simulation_folder
+            self._save_path = folder + f"/MS/MISC/{self._default_save}/{savename}"
+        else:
+            self._save_path = folder
+        # Check if is has attribute created_diagnostic_name or postprocess_name
         if savename is None:
             print(f"No savename provided. Using {self._name}.")
             savename = self._name
+        
+        if hasattr(self, "created_diagnostic_name"):
+            self._default_save = self.created_diagnostic_name
+        elif hasattr(self, "postprocess_name"):
+            self._default_save = self.postprocess_name
+        else:
+            self._default_save = "DIR_" + self._name
+
+        if not os.path.exists(self._save_path):
+            os.makedirs(self._save_path)
+            if verbose:
+                print(f"Created folder {self._save_path}")
+        
+        if verbose:
+            print(f"Save Path: {self._save_path}")
 
         def savefile(filename, i):
             with h5py.File(filename, 'w') as f:
@@ -1056,15 +1116,15 @@ class Diagnostic:
 
         if all == False:
             if isinstance(index, int):
-                filename = folder + f"/{savename}-{index:06d}.h5"
+                filename = self._save_path + f"/{savename}-{index:06d}.h5"
                 savefile(filename, index)
             elif isinstance(index, list) or isinstance(index, tuple):
                 for i in index:
-                    filename = folder + f"/{savename}-{i:06d}.h5"
+                    filename = self._save_path + f"/{savename}-{i:06d}.h5"
                     savefile(filename, i)
         elif all == True:
             for i in range(self._maxiter):
-                filename = folder + f"/{savename}-{i:06d}.h5"
+                filename = self._save_path + f"/{savename}-{i:06d}.h5"
                 savefile(filename, i)
         else:
             raise ValueError("index should be an int, slice, or list of ints, or all should be True")

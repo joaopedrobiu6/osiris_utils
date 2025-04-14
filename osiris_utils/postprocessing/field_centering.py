@@ -75,6 +75,8 @@ class FieldCentering_Diagnostic(Diagnostic):
         else:
             super().__init__(None)
         
+        self.postprocess_name = "FLD_CTR"
+
         if diagnostic._name not in OSIRIS_FLD:
             raise ValueError(f"Does it make sense to center {diagnostic._name} field? Only {OSIRIS_FLD} are supported.")
         

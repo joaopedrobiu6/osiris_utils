@@ -67,6 +67,8 @@ class PressureCorrection_Diagnostic(Diagnostic):
         else:
             super().__init__(None)
         
+        self.postprocess_name = "P_CORR"
+
         if diagnostic._name not in OSIRIS_P:
             raise ValueError(f"Invalid pressure component {diagnostic._name}. Supported: {OSIRIS_P}")
         

@@ -87,10 +87,13 @@ class Derivative_Diagnostic(Diagnostic):
     def __init__(self, diagnostic, deriv_type, axis=None):
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, '_species'):
+            print("yo")
             super().__init__(simulation_folder=diagnostic._simulation_folder if hasattr(diagnostic, '_simulation_folder') else None, 
                              species=diagnostic._species)
         else:
             super().__init__(None)
+
+        self.postprocess_name = f"DERIV"
             
         # self._name = f"D[{diagnostic._name}, {type}]"
         self._diag = diagnostic
@@ -103,18 +106,6 @@ class Derivative_Diagnostic(Diagnostic):
         for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter', '_type']:
             if hasattr(diagnostic, attr):
                 setattr(self, attr, getattr(diagnostic, attr))
-
-    def load_metadata(self):
-        """Copy metadata from original diagnostic to ensure consistency"""
-        self._dt = self._diag._dt
-        self._dx = self._diag._dx
-        self._ndump = self._diag._ndump
-        self._axis = self._diag._axis
-        self._nx = self._diag._nx
-        self._x = self._diag._x
-        self._grid = self._diag._grid
-        self._dim = self._diag._dim
-        self._maxiter = self._diag._maxiter
 
     def load_all(self):
         """Load all data and compute the derivative"""

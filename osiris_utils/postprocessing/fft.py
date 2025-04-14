@@ -82,6 +82,8 @@ class FFT_Diagnostic(Diagnostic):
         else:
             super().__init__(None)
 
+        self.postprocess_name = f"FFT"
+
         self._name = f"FFT[{diagnostic._name}, {fft_axis}]"
         self._diag = diagnostic
         self._fft_axis = fft_axis

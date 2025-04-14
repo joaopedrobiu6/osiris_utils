@@ -69,6 +69,8 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         else:
             super().__init__(None)
         
+        self.postprocess_name = "HFL_CORR"
+
         if diagnostic._name not in OSIRIS_H:
             raise ValueError(f"Invalid heatflux component {diagnostic._name}. Supported: {OSIRIS_H}")
         
