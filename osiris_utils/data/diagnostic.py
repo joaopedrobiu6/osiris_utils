@@ -316,8 +316,17 @@ class Diagnostic:
         #     self._dx = (self._grid[:,1] - self._grid[:,0])/self._nx
         #     self._x = [np.arange(self._grid[i,0], self._grid[i,1], self._dx[i]) for i in range(self._dim)]
 
-        self._ndump = int(input_deck["time_step"][0]["ndump"])
-        
+        try:
+            if isinstance(input_deck, InputDeckIO):
+                print("The object is of type InputDeckIO or a subclass thereof.")
+                self._ndump = int(input_deck["time_step"][0]["ndump"])
+            else:
+                print("The object not type.")
+                raise TypeError("Invalid input deck type. Expected InputDeckIO.")
+        except:
+            self._ndump = 1
+            warnings.warn(f"Failed to read ndump from input deck. Defaulting to {self._ndump}. Use \"Diagnostic.dump = <value>\" to set it.")
+
         try:
             # Try files 000001, 000002, etc. until one is found
             found_file = False

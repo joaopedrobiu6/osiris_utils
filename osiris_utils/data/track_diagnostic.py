@@ -47,7 +47,9 @@ class Track_Diagnostic:
     dim : int
         The number of spatial dimensions for the simulation.
     ndump : int
-        The number of steps between data dumps.
+        The number of steps between dumps (global).
+    iter : int
+        The iteration of the first file after file 000000.
     tunits : str
         The units of time in the simulation.
     path : str
@@ -88,6 +90,7 @@ class Track_Diagnostic:
         self._labels = None
         self._dim = None
         self._ndump = None
+        self._iter = None
         self._tunits = None
         self._data = None
         self._time = None
@@ -151,6 +154,17 @@ class Track_Diagnostic:
         #     self._x = [np.arange(self._grid[i,0], self._grid[i,1], self._dx[i]) for i in range(self._dim)]
 
         try:
+            if isinstance(self._input_deck, InputDeckIO):
+                print("The object is of type InputDeckIO or a subclass thereof.")
+                self._ndump = int(self._input_deck["time_step"][0]["ndump"])
+            else:
+                print("The object not type.")
+                raise TypeError("Invalid input deck type. Expected InputDeckIO.")
+        except:
+            self._ndump = 1
+            warnings.warn(f"Failed to read ndump from input deck. Defaulting to {self._ndump}. Use \"Tracks_Diagnostic.dump = <value>\" to set it.")
+
+        try:
             dump = OsirisTrackFile(self._path)
             self._dt = dump.dt
             self._grid = dump.grid
@@ -158,7 +172,7 @@ class Track_Diagnostic:
             self._name = dump.name
             self._labels = dump.labels
             self._dim = dump.dim
-            self._ndump = dump.iter
+            self._iter = dump.iter
             self._tunits = self._units["t"]
             self._num_time_iters = dump.num_time_iters
             self._num_particles = dump.num_particles
@@ -324,7 +338,15 @@ class Track_Diagnostic:
     @ndump.setter
     def ndump(self, value):
         self._ndump = value
+        
+    @property
+    def iter(self):
+        return self._iter
 
+    @iter.setter
+    def iter(self, value):
+        self._iter = value
+    
     @property
     def tunits(self):
         return self._tunits
