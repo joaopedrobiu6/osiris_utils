@@ -45,7 +45,7 @@ class Track_Diagnostic:
     labels : list of str
         Field labels/names (LaTeX formatted, e.g., 'x_1')
     dim : int
-        The number of spatial dimensions for the diagnostic data.
+        The number of spatial dimensions for the simulation.
     ndump : int
         The number of steps between data dumps.
     tunits : str
@@ -76,14 +76,6 @@ class Track_Diagnostic:
     __getitem__(index)
         Retrieves the track data for a specific quantity found in quants.
 
-    Examples
-    --------
-    >>> track_diag = Track_Diagnostic(species="electrons", simulation_folder="path/to/simulation")
-    >>> # Print x1 data for 10 particles, for all time steps witout saving it to memory:
-    >>> print(track_diag["x1"][0:10,:])
-    >>> track_diag.load_all() # Saves data to memort
-    >>> print(track_diag["p2"][0:10,:]) # Data accessed from memory
-    >>> print(track_diag.data["p2"][0:10,:]) # Another option
     """
 
     def __init__(self, simulation_folder=None, species=None, input_deck=None):

@@ -18,7 +18,7 @@ Simulation Class
    
    The Simulation class simplifies working with multiple diagnostics from the same simulation by:
    
-   * Providing dictionary-style access to diagnostics using field/quantity names
+   * Providing dictionary-style access to diagnostics (Grid and Tracks) using field/quantity names
    * Managing the simulation path and species information centrally
    * Caching loaded diagnostics for efficient reuse
    
@@ -68,6 +68,27 @@ Simulation Class
        # Clean up to free memory
        sim.delete_diagnostic('e1')
        sim.delete_all_diagnostics()
+
+   Accessing tracks diagnostics: Tracks_Diagnostic objects do not support operations but they work similarly to the 
+   basic Diagnostic objects.
+   
+   .. code-block:: python
+        # tracks is a Tracks_Diagnostic object
+        tracks = sim["electrons"]["tracks"]
+
+        # Print all the data keys you can access
+        print(tracks.quants)
+
+        # Access x1 for first 10 particles across all timesteps (lazy)
+        print(track_diag["x1"][0:10, :])
+
+        # Load everything into memory
+        track_diag.load_all()
+
+        # Access data directly from memory
+        print(track_diag["p2"][0:10, :])
+        print(track_diag.data["p2"][0:10, :])
+
 
 Integration with Diagnostics
 ----------------------------
@@ -256,3 +277,64 @@ When creating diagnostics through operations, metadata is intelligently propagat
 **Chaining Operations**
 
 Operations can be chained to create complex derivations.
+
+
+**Track Data
+The `Track_Diagnostic` class is the equivalent to `Diagnostic', but for Osiris tracks data.
+
+Track_Diagnostic Class
+----------------------
+.. autoclass:: osiris_utils.data.track.Track_Diagnostic
+   :members:
+   :special-members: __init__, __getitem__
+   :undoc-members:
+   :noindex:
+
+   A class for accessing OSIRIS track diagnostics from HDF5 files. Handles lazy loading.
+
+   **Key Features:**
+
+   * Automatically constructs file path based on species and simulation folder
+   * Lazy loading support
+   * Interface to retrieve specific quantities from track data
+
+   **Key Attributes:**
+
+   * ``species`` – The specie for which tracking diagnostics are analyzed
+   * ``dt`` – Time step of the simulation
+   * ``grid`` – Grid boundaries for the simulation box
+   * ``units`` – Dictionary with physical units of the quantities (LaTeX formatted)
+   * ``name`` – Name of the diagnostic
+   * ``labels`` – Field labels available in the track file
+   * ``dim`` – Spatial dimensionality of the simulation
+   * ``ndump`` – Number of steps between each diagnostic dump
+   * ``tunits`` – Units of time used in the simulation
+   * ``path`` – Full path to the track file
+   * ``simulation_folder`` – Path to the root simulation directory
+   * ``all_loaded`` – Boolean indicating if all data has been loaded into memory
+   * ``data`` – Numpy array with the track diagnostic data (when loaded)
+   * ``num_time_iters`` – Number of time steps (iterations)
+   * ``num_particles`` – Number of tracked particles
+   * ``quants`` – List of track quantities available
+
+   **Usage Examples:**
+
+   .. code-block:: python
+
+        import osiris_utils as ou
+
+        # Initialize diagnostic from simulation folder and species
+        track_diag = ou.Track_Diagnostic(species=ou.Specie("electrons", -1), simulation_folder="path/to/simulation")
+
+        # Print all the data keys you can access
+        print(tracks.quants)
+
+        # Access x1 for first 10 particles across all timesteps (lazy)
+        print(track_diag["x1"][0:10, :])
+
+        # Load everything into memory
+        track_diag.load_all()
+
+        # Access data directly from memory
+        print(track_diag["p2"][0:10, :])
+        print(track_diag.data["p2"][0:10, :])
