@@ -125,10 +125,10 @@ class Derivative_Diagnostic(Diagnostic):
                 result = np.gradient(self._diag._data, self._diag._dx[0], axis=1, edge_order=2)
                     
         elif self._deriv_type == "x2":
-            result = np.gradient(self._diag._data, self._diag._dx[0], axis=2, edge_order=2)
+            result = np.gradient(self._diag._data, self._diag._dx[1], axis=2, edge_order=2)
 
         elif self._deriv_type == "x3":
-            result = np.gradient(self._diag._data, self._diag._dx[0], axis=3, edge_order=2)
+            result = np.gradient(self._diag._data, self._diag._dx[2], axis=3, edge_order=2)
 
         elif self._deriv_type == "xx":
             if len(self._axis) != 2:

@@ -162,7 +162,10 @@ class PressureCorrection_Species_Handler:
 
             n = self._species_handler["n"]
             self._j, self._k = key[-2], key[-1]
-            ufl = self._species_handler[f"ufl{self._j}"]
+            try:
+                ufl = self._species_handler[f"ufl{self._j}"]
+            except:
+                ufl = self._species_handler[f"vfl{self._j}"]
             vfl = self._species_handler[f"vfl{self._k}"]
             self._pressure_corrected[key] = PressureCorrection_Diagnostic(diag, n, ufl, vfl)
         return self._pressure_corrected[key]
