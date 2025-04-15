@@ -365,7 +365,7 @@ class Diagnostic:
             return self._data
 
         # If this is a derived diagnostic without files
-        if self._simulation_folder is None:
+        if hasattr(self, "postprocess_name") or hasattr(self, "created_diagnostic_name"):
             # If it has a data generator but no direct files
             try:
                 print(

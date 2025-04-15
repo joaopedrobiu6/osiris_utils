@@ -87,7 +87,6 @@ class Derivative_Diagnostic(Diagnostic):
     def __init__(self, diagnostic, deriv_type, axis=None):
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, '_species'):
-            print("yo")
             super().__init__(simulation_folder=diagnostic._simulation_folder if hasattr(diagnostic, '_simulation_folder') else None, 
                              species=diagnostic._species)
         else:
