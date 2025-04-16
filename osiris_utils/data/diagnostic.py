@@ -139,7 +139,9 @@ class Diagnostic:
     dim : int
         The dimension of the diagnostic.
     ndump : int
-        The number of steps between dumps.
+        The number of steps between dumps (global).
+    iter : int
+        The iteration of the first file after file 000000.
     maxiter : int
         The maximum number of iterations.
     tunits : str
@@ -196,6 +198,7 @@ class Diagnostic:
         self._label = None
         self._dim = None
         self._ndump = None
+        self._iter = None
         self._maxiter = None
         self._tunits = None
 
@@ -250,6 +253,10 @@ class Diagnostic:
             if self._species is None:
                 raise ValueError("Species not set.")
             self._get_density(self._species.name, "charge")
+        elif self._quantity == "tracks":
+            raise ValueError("For track diagnostics use class Track_Diagnostic.")
+        elif self._quantity == "raw":
+            raise ValueError("For raw diagnostics use class OsirisRawFile.")
         else:
             raise ValueError(
                 f"Invalid quantity {self._quantity}. Or it's not implemented yet (this may happen for phase space quantities)."
@@ -309,12 +316,20 @@ class Diagnostic:
         #     self._dx = (self._grid[:,1] - self._grid[:,0])/self._nx
         #     self._x = [np.arange(self._grid[i,0], self._grid[i,1], self._dx[i]) for i in range(self._dim)]
 
-        self._ndump = int(input_deck["time_step"][0]["ndump"])
-        
+        try:
+            if isinstance(input_deck, InputDeckIO):
+                self._ndump = int(input_deck["time_step"][0]["ndump"])
+            else:
+                warnings.warn(f"Invalid type for input deck : {type(input_deck)}. Expected InputDeckIO.")
+                raise TypeError(f"Invalid type for input deck : {type(input_deck)}. Expected InputDeckIO.")
+        except:
+            self._ndump = 1
+            warnings.warn(f"Failed to read ndump from input deck. Defaulting to {self._ndump}. Use \"Diagnostic.dump = <value>\" to set it.")
+
         try:
             # Try files 000001, 000002, etc. until one is found
             found_file = False
-            for file_num in range(1, self._maxiter + 1):
+            for file_num in range(1, 999999):
                 path_file = os.path.join(file_template + f"{file_num:06d}.h5")
                 if os.path.exists(path_file):
                     dump = OsirisGridFile(path_file)
@@ -328,7 +343,7 @@ class Diagnostic:
                     self._name = dump.name
                     self._label = dump.label
                     self._dim = dump.dim
-                    # self._iter = dump.iter
+                    self._iter = dump.iter
                     self._tunits = dump.time[1]
                     self._type = dump.type
                     found_file = True
@@ -387,7 +402,7 @@ class Diagnostic:
 
                 # Load data for all timesteps using the generator - this may take a while
                 self._data = np.stack(
-                    [self[i] for i in tqdm.tqdm(range(size), desc="Loading data")]
+                    [self[int(i*self._iter/self._ndump)] for i in tqdm.tqdm(range(size), desc="Loading data")]
                 )
                 self._all_loaded = True
                 return self._data
@@ -399,7 +414,7 @@ class Diagnostic:
         print("Loading all data from files. This may take a while.")
         size = len(sorted(glob.glob(f"{self._path}/*.h5")))
         self._data = np.stack(
-            [self[i] for i in tqdm.tqdm(range(size), desc="Loading data")]
+            [self[int(i*self._iter/self._ndump)] for i in tqdm.tqdm(range(size), desc="Loading data")]
         )
         self._all_loaded = True
         return self._data
@@ -424,7 +439,41 @@ class Diagnostic:
     def __getitem__(self, index):
         # For derived diagnostics with cached data
         if self._all_loaded and self._data is not None:
-            return self._data[index]
+            if isinstance(index, int):
+                # in case ndump for a specific diag is not 1, so you can alway access the data with the number on the file name
+                value=index/self._iter*self._ndump
+                if not float(value).is_integer():
+                    raise ValueError(f"Invalid index : {index}, the index should match the number on the name of the file.")
+                return self._data[int(value)]
+            elif isinstance(index, slice):
+                # in case ndump for a specific diag is not 1, so you can alway access the data with the number on the file name
+                diag_ndump =  self._iter / self._ndump
+
+                start = 0 if index.start is None else index.start / diag_ndump
+                step = diag_ndump if index.step is None else index.step / diag_ndump
+
+                if index.stop is None:
+                    if hasattr(self, "_maxiter") and self._maxiter is not None:
+                        stop = self._maxiter
+                    elif self._simulation_folder is not None and hasattr(self, "_path"):
+                        stop = len(sorted(glob.glob(f"{self._path}/*.h5")))
+                    else:
+                        stop = 100  # Default if we can't determine
+                        print(
+                            f"Warning: Could not determine iteration count for iteration, using {stop}."
+                        )
+                else:
+                    stop = index.stop / diag_ndump
+
+                if (not float(start).is_integer()) or (not float(step).is_integer()):
+                    raise ValueError(f"Invalid slice : {index}, the indexes should match the numbers on the name of the files. Example if you want to open file 000200, 000300 and 000400 use 200:401:100].")
+                indices = range(int(start), int(np.ceil(stop)), int(step))
+
+                return self._data[indices]
+            else:
+                raise ValueError(
+                    f"Cannot retrieve data for this diagnostic at index {index}."
+                )
 
         # For standard diagnostics with files
         if isinstance(index, int):
@@ -509,6 +558,7 @@ class Diagnostic:
                 "_axis",
                 "_dim",
                 "_ndump",
+                "_iter",
                 "_maxiter",
                 "_tunits",
                 "_type",
@@ -554,6 +604,7 @@ class Diagnostic:
                 "_axis",
                 "_dim",
                 "_ndump",
+                "_iter",
                 "_maxiter",
                 "_tunits",
                 "_type",
@@ -601,6 +652,7 @@ class Diagnostic:
                 "_axis",
                 "_dim",
                 "_ndump",
+                "_iter",
                 "_maxiter",
                 "_tunits",
                 "_type",
@@ -646,6 +698,7 @@ class Diagnostic:
                 "_axis",
                 "_dim",
                 "_ndump",
+                "_iter",
                 "_maxiter",
                 "_tunits",
                 "_type",
@@ -693,6 +746,7 @@ class Diagnostic:
                 "_axis",
                 "_dim",
                 "_ndump",
+                "_iter",
                 "_maxiter",
                 "_tunits",
                 "_type",
@@ -737,6 +791,7 @@ class Diagnostic:
                 "_axis",
                 "_dim",
                 "_ndump",
+                "_iter",
                 "_maxiter",
                 "_tunits",
                 "_type",
@@ -784,6 +839,7 @@ class Diagnostic:
                 "_axis",
                 "_dim",
                 "_ndump",
+                "_iter",
                 "_maxiter",
                 "_tunits",
                 "_type",
@@ -829,6 +885,7 @@ class Diagnostic:
                 "_axis",
                 "_dim",
                 "_ndump",
+                "_iter",
                 "_maxiter",
                 "_tunits",
                 "_type",
@@ -877,6 +934,7 @@ class Diagnostic:
                 "_axis",
                 "_dim",
                 "_ndump",
+                "_iter",
                 "_maxiter",
                 "_tunits",
                 "_type",
@@ -940,6 +998,7 @@ class Diagnostic:
                 "_axis",
                 "_dim",
                 "_ndump",
+                "_iter",
                 "_maxiter",
                 "_tunits",
                 "_type",
@@ -985,6 +1044,7 @@ class Diagnostic:
                 "_axis",
                 "_dim",
                 "_ndump",
+                "_iter",
                 "_maxiter",
                 "_tunits",
                 "_type",
@@ -1071,7 +1131,7 @@ class Diagnostic:
                 # Set file attributes
                 f.attrs.create("TIME", [self.time(i)[0]])
                 f.attrs.create("TIME UNITS", [np.bytes_(self.time(i)[1].encode()) if self.time(i)[1] else np.bytes_(b"")])
-                f.attrs.create("ITER", [self._ndump * i])
+                f.attrs.create("ITER", [self._iter * i])
                 f.attrs.create("NAME", [np.bytes_(self._name.encode())]) 
                 f.attrs.create("TYPE", [np.bytes_(self._type.encode())])
                 f.attrs.create("UNITS", [np.bytes_(self._units.encode()) if self._units else np.bytes_(b"")])
@@ -1185,10 +1245,7 @@ class Diagnostic:
             boundaries = self._grid
 
         # Load data
-        if self._all_loaded:
-            data = self._data[idx]
-        else:
-            data = self[idx]
+        data = self[idx]
 
         X, Y, Z = np.meshgrid(self._x[0], self._x[1], self._x[2], indexing="ij")
 
@@ -1339,9 +1396,9 @@ class Diagnostic:
     def ndump(self):
         return self._ndump
     
-    # @property
-    # def iter(self):
-    #     return self._iter
+    @property
+    def iter(self):
+        return self._iter
 
     @property
     def all_loaded(self):
@@ -1374,7 +1431,7 @@ class Diagnostic:
               f"dim: {self._dim}\n"
               f"time: {self.time(index)[0]}\n"
               f"tunits: {self.time(index)[1]}\n"
-              f"iter: {self._ndump * index}\n"
+              f"iter: {self._iter * index}\n"
               f"name: {self._name}\n"
               f"type: {self._type}\n"
               f"label: {self._label}\n"
@@ -1423,6 +1480,10 @@ class Diagnostic:
     @ndump.setter
     def ndump(self, value):
         self._ndump = value
+
+    @ndump.setter
+    def iter(self, value):
+        self._iter = value
 
     @data.setter
     def data(self, value):
