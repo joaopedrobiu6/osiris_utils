@@ -3,6 +3,7 @@ from ..data.simulation import Simulation
 from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
 
+
 from .pressure_correction import *
 
 OSIRIS_H = ["q1", "q2", "q3"]
@@ -117,7 +118,7 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         # Sum over j: vfl_j * Pji
         vfl_dot_Pji = sum(vfl_j.data * Pji.data for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list))
 
-        self._data = 2 * q - 0.5 * vfl_i * trace_P - vfl_dot_Pji
+        self._data = 2 * q - vfl_i * trace_P - 2 * vfl_dot_Pji
         self._all_loaded = True
 
 
@@ -143,7 +144,7 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         vfl_i = self._vfl_i[index]
         trace_P = sum(Pjj[index] for Pjj in self._Pjj_list)
         vfl_dot_Pji = sum(vfl_j[index] * Pji[index] for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list))
-        yield 2 * q - 0.5 * vfl_i * trace_P - vfl_dot_Pji
+        yield 2 * q -  vfl_i * trace_P - 2 * vfl_dot_Pji
         
 class HeatfluxCorrection_Species_Handler:
     """
