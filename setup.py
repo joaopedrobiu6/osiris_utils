@@ -15,7 +15,7 @@ with open(os.path.join(here, 'requirements.txt'), encoding='utf-8') as f:
 
 setup(
     name='osiris_utils',
-    version='v1.1.4',
+    version='v1.1.5',
     description=('Utilities to manipulate and visualize OSIRIS framework output data'),
     long_description=long_description,
     long_description_content_type='text/x-rst',
