@@ -170,6 +170,9 @@ class MFT_Diagnostic_Average(Diagnostic):
 
     def load_all(self):
         """Load all data and compute the average"""
+        if self._diag._all_loaded == True:
+            print("Diagnostic data already loaded ... applyting MFT")
+            self._data = self._diag._data
         if self._data is not None:
             print("Data already loaded")
             return self._data
@@ -253,6 +256,9 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
 
     def load_all(self):
         """Load all data and compute the fluctuations"""
+        if self._diag._all_loaded == True:
+            print("Diagnostic data already loaded ... applyting MFT")
+            self._data = self._diag._data
         if self._data is not None:
             print("Data already loaded")
             return self._data
