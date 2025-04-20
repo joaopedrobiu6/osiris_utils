@@ -117,6 +117,7 @@ class Derivative_Diagnostic(Diagnostic):
             self._data = self._diag._data
 
         if self._diag._all_loaded == True:
+            print("Using cached data from diagnostic")
             self._data = self._diag._data
 
         if self._deriv_type == "t":
