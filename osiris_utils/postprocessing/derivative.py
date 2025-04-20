@@ -114,38 +114,42 @@ class Derivative_Diagnostic(Diagnostic):
         
         if not hasattr(self._diag, '_data') or self._diag._data is None:
             self._diag.load_all()
+            self._data = self._diag._data
+
+        if self._diag._all_loaded == True:
+            self._data = self._diag._data
 
         if self._deriv_type == "t":
-            result = np.gradient(self._diag._data, self._diag._dt * self._diag._ndump, axis=0, edge_order=2)
+            result = np.gradient(self._data, self._diag._dt * self._diag._ndump, axis=0, edge_order=2)
 
         elif self._deriv_type == "x1":
             if self._dim == 1:
-                result = np.gradient(self._diag._data, self._diag._dx, axis=1, edge_order=2)
+                result = np.gradient(self._data, self._diag._dx, axis=1, edge_order=2)
             else:
-                result = np.gradient(self._diag._data, self._diag._dx[0], axis=1, edge_order=2)
+                result = np.gradient(self._data, self._diag._dx[0], axis=1, edge_order=2)
                     
         elif self._deriv_type == "x2":
-            result = np.gradient(self._diag._data, self._diag._dx[1], axis=2, edge_order=2)
+            result = np.gradient(self._data, self._diag._dx[1], axis=2, edge_order=2)
 
         elif self._deriv_type == "x3":
-            result = np.gradient(self._diag._data, self._diag._dx[2], axis=3, edge_order=2)
+            result = np.gradient(self._data, self._diag._dx[2], axis=3, edge_order=2)
 
         elif self._deriv_type == "xx":
             if len(self._axis) != 2:
                 raise ValueError("Axis must be a tuple with two elements.")
-            result = np.gradient(np.gradient(self._diag._data, self._diag._dx[self._axis[0]-1], axis=self._axis[0], edge_order=2), 
+            result = np.gradient(np.gradient(self._data, self._diag._dx[self._axis[0]-1], axis=self._axis[0], edge_order=2), 
                                 self._diag._dx[self._axis[1]-1], axis=self._axis[1], edge_order=2)
             
         elif self._deriv_type == "xt":
             if not isinstance(self._axis, int):
                 raise ValueError("Axis must be an integer.")
-            result = np.gradient(np.gradient(self._diag._data, self._diag._dt, axis=0, edge_order=2), 
+            result = np.gradient(np.gradient(self._data, self._diag._dt, axis=0, edge_order=2), 
                                 self._diag._dx[self._axis-1], axis=self._axis[0], edge_order=2)
             
         elif self._deriv_type == "tx":
             if not isinstance(self._axis, int):
                 raise ValueError("Axis must be an integer.")
-            result = np.gradient(np.gradient(self._diag._data, self._diag._dx[self._axis-1], axis=self._axis, edge_order=2), 
+            result = np.gradient(np.gradient(self._data, self._diag._dx[self._axis-1], axis=self._axis, edge_order=2), 
                                 self._diag._dt, axis=0, edge_order=2)
         else:
             raise ValueError("Invalid derivative type.")
