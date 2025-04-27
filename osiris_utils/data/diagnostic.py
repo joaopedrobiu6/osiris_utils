@@ -7,7 +7,6 @@ Took some inspiration from Diogo and Madox's work.
 This would be awsome to compute time derivatives.
 """
 
-from torch import isin
 import numpy as np
 import os
 import glob

@@ -1,4 +1,3 @@
-from matplotlib.style import available
 from ..data.diagnostic import *
 from ..utils import *
 from ..decks.decks import InputDeckIO
