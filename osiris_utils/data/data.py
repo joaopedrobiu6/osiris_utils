@@ -176,7 +176,12 @@ class OsirisGridFile(OsirisData):
             self._grid = np.array(grid)
             self._nx = self._file[variable_key][()].transpose().shape
             self._dx = (self.grid[:, 1] - self.grid[:, 0])/self.nx
+            
+            # There's an issue when the dimension is 3 and we want to plot a 2D phasespace. I believe this 
+            # is a problem for all cases where the dim != dim_of_phasespace
             self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
+            # self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(2)]
+
 
         self._axis = []
         for ax in axis:
