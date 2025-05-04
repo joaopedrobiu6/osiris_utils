@@ -1,15 +1,15 @@
-from ..utils import *
 from ..data.simulation import Simulation
 from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
+import numpy as np
 
-from .pressure_correction import *
+from .pressure_correction import PressureCorrection_Simulation
 
 OSIRIS_H = ["q1", "q2", "q3"]
 
 class HeatfluxCorrection_Simulation(PostProcess):
     def __init__(self, simulation):
-        super().__init__(f"HeatfluxCorrection Simulation")
+        super().__init__("HeatfluxCorrection Simulation")
         """
         Class to correct pressure tensor components by subtracting Reynolds stress.
 

@@ -1,13 +1,13 @@
-from ..utils import *
 from ..data.simulation import Simulation
 from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
+import numpy as np
 
 OSIRIS_P = ["P11", "P12", "P13", "P21", "P22", "P23", "P31", "P32", "P33"]
 
 class PressureCorrection_Simulation(PostProcess):
     def __init__(self, simulation):
-        super().__init__(f"PressureCorrection Simulation")
+        super().__init__("PressureCorrection Simulation")
         """
         Class to correct pressure tensor components by subtracting Reynolds stress.
 
@@ -164,7 +164,7 @@ class PressureCorrection_Species_Handler:
             self._j, self._k = key[-2], key[-1]
             try:
                 ufl = self._species_handler[f"ufl{self._j}"]
-            except:
+            except Exception:
                 ufl = self._species_handler[f"vfl{self._j}"]
             vfl = self._species_handler[f"vfl{self._k}"]
             self._pressure_corrected[key] = PressureCorrection_Diagnostic(diag, n, ufl, vfl)

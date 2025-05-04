@@ -1,7 +1,7 @@
-from ..utils import *
 from ..data.simulation import Simulation
 from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
+import numpy as np
 
 OSIRIS_FLD = ["e1", "e2", "e3", "b1", "b2", "b3"]
 
@@ -20,7 +20,7 @@ class FieldCentering_Simulation(PostProcess):
     """
     
     def __init__(self, simulation: Simulation):
-        super().__init__(f"FieldCentering Simulation")
+        super().__init__("FieldCentering Simulation")
         """
         Class to center the field in the simulation.
 

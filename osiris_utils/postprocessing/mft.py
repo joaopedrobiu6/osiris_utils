@@ -1,7 +1,7 @@
-from ..utils import *
 from ..data.simulation import Simulation
 from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
+import numpy as np
 
 class MeanFieldTheory_Simulation(PostProcess):
     """
@@ -155,7 +155,7 @@ class MFT_Diagnostic_Average(Diagnostic):
         if mft_axis is None:
             raise ValueError("Mean field theory axis must be specified.")
         
-        self.postprocess_name = f"MFT_AVG"
+        self.postprocess_name = "MFT_AVG"
 
         self._name = f"MFT_avg[{diagnostic._name}, {mft_axis}]"
         self._diag = diagnostic
@@ -170,7 +170,7 @@ class MFT_Diagnostic_Average(Diagnostic):
 
     def load_all(self):
         """Load all data and compute the average"""
-        if self._diag._all_loaded == True:
+        if self._diag._all_loaded is True:
             print("Diagnostic data already loaded ... applyting MFT")
             self._data = self._diag._data
         if self._data is not None:
@@ -241,7 +241,7 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
         if mft_axis is None:
             raise ValueError("Mean field theory axis must be specified.")
         
-        self.postprocess_name = f"MFT_FLT"
+        self.postprocess_name = "MFT_FLT"
 
         self._name = f"MFT_delta[{diagnostic._name}, {mft_axis}]"
         self._diag = diagnostic
@@ -256,7 +256,7 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
 
     def load_all(self):
         """Load all data and compute the fluctuations"""
-        if self._diag._all_loaded == True:
+        if self._diag._all_loaded is True:
             print("Diagnostic data already loaded ... applyting MFT")
             self._data = self._diag._data
         if self._data is not None:

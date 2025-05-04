@@ -58,7 +58,7 @@ class InputDeckIO:
             lines = f.readlines()
 
         # remove comments
-        lines = [l[: l.find("!")] if "!" in l else l for l in lines]
+        lines = [l[: l.find("!")] if "!" in l else l for l in lines]  # noqa: E741
 
         # join into single string (makes it easier to parse using regex)
         lines = "".join(lines)

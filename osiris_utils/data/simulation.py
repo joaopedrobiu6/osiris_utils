@@ -1,7 +1,6 @@
-from ..data.diagnostic import *
-from ..utils import *
+from ..data.diagnostic import Diagnostic
 from ..decks.decks import InputDeckIO
-
+import os
 
 class Simulation:
     '''
@@ -33,7 +32,7 @@ class Simulation:
         
     '''
     def __init__(self, input_deck_path):
-        folder_path = os.path.dirname(input_deck_path)
+        folder_path = os.path.dirname(input_deck_path) 
         self._input_deck_path = input_deck_path
         self._input_deck = InputDeckIO(self._input_deck_path, verbose=False)
 
@@ -76,7 +75,7 @@ class Simulation:
         original_load_all = diag.load_all
         
         def patched_load_all(*args, **kwargs):
-            result = original_load_all(*args, **kwargs)
+            result = original_load_all(*args, **kwargs)  # noqa: F841
             self._diagnostics[key] = diag
             return diag
         
@@ -150,7 +149,7 @@ class Species_Handler:
         original_load_all = diag.load_all
 
         def patched_load_all(*args, **kwargs):
-            result = original_load_all(*args, **kwargs)
+            result = original_load_all(*args, **kwargs)  # noqa: F841
             self._diagnostics[key] = diag
             return diag
         

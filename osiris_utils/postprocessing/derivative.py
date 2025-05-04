@@ -1,4 +1,4 @@
-from ..utils import *
+import numpy as np
 from ..data.simulation import Simulation
 from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
@@ -92,7 +92,7 @@ class Derivative_Diagnostic(Diagnostic):
         else:
             super().__init__(None)
 
-        self.postprocess_name = f"DERIV"
+        self.postprocess_name = "DERIV"
             
         # self._name = f"D[{diagnostic._name}, {type}]"
         self._diag = diagnostic
@@ -116,7 +116,7 @@ class Derivative_Diagnostic(Diagnostic):
             self._diag.load_all()
             self._data = self._diag._data
 
-        if self._diag._all_loaded == True:
+        if self._diag._all_loaded is True:
             print("Using cached data from diagnostic")
             self._data = self._diag._data
 

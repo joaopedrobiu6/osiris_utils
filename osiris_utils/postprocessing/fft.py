@@ -1,4 +1,3 @@
-from ..utils import *
 from ..data.simulation import Simulation
 from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
@@ -82,7 +81,7 @@ class FFT_Diagnostic(Diagnostic):
         else:
             super().__init__(None)
 
-        self.postprocess_name = f"FFT"
+        self.postprocess_name = "FFT"
 
         self._name = f"FFT[{diagnostic._name}, {fft_axis}]"
         self._diag = diagnostic
