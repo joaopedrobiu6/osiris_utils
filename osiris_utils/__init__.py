@@ -33,6 +33,9 @@ from .postprocessing.pressure_correction import PressureCorrection_Simulation, P
 
 from .postprocessing.heatflux_correction import HeatfluxCorrection_Simulation, HeatfluxCorrection_Diagnostic
 
+from .ar.ar import AnomalousResistivity
+
+
 __all__ = [
     "OsirisGridFile",
     "OsirisRawFile",
@@ -69,4 +72,5 @@ __all__ = [
     "save_data",
     "read_data",
     "courant2D",
+    "AnomalousResistivity",
 ]
