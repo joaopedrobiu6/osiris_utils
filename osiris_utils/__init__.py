@@ -33,7 +33,7 @@ from .postprocessing.pressure_correction import PressureCorrection_Simulation, P
 
 from .postprocessing.heatflux_correction import HeatfluxCorrection_Simulation, HeatfluxCorrection_Diagnostic
 
-from .ar.ar import AnomalousResistivity
+from .ar.ar import AnomalousResistivity, compute_vlasov_electric_field
 
 
 __all__ = [
@@ -73,4 +73,5 @@ __all__ = [
     "read_data",
     "courant2D",
     "AnomalousResistivity",
+    "compute_vlasov_electric_field",
 ]

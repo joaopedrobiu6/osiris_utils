@@ -166,3 +166,24 @@ class AnomalousResistivity:
     @property
     def dx(self):   
         return self._simulation["b2"].dx[0]
+    
+def compute_vlasov_electric_field(simulation, species="electrons"):
+        d_dx1 = Derivative_Simulation(simulation, "x1")
+        d_dt = Derivative_Simulation(simulation, "t")
+
+        simulation.add_diagnostic(simulation[species]["n"] * simulation[species]["T11"], "nT11")
+        simulation.add_diagnostic(simulation[species]["n"] * simulation[species]["T12"], "nT12")
+        simulation.add_diagnostic(Derivative_Diagnostic(simulation["nT11"], "x1"), "dnT11_dx1")
+        simulation.add_diagnostic(Derivative_Diagnostic(simulation["nT12"], "x2"), "dnT12_dx2")
+        simulation.add_diagnostic(d_dt[species]["vfl1"], "dvfl1_dt")
+        simulation.add_diagnostic(d_dx1[species]["vfl1"], "dvfl1_dx1")
+        
+        E_vlasov = (
+            -1 * simulation["dvfl1_dt"]
+            - 1 * simulation[species]["vfl1"]* simulation["dvfl1_dx1"]
+            - (1 / simulation[species]["n"]) * (simulation["dnT11_dx1"] + simulation["dnT12_dx2"])
+            - 1 * simulation[species]["vfl2"] * simulation["b3"]
+            + simulation[species]["vfl3"] * simulation["b2"]
+        )
+
+        return E_vlasov
