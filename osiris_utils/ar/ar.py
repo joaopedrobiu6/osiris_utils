@@ -1,4 +1,3 @@
-from ..data.simulation import Simulation
 from ..postprocessing.derivative import Derivative_Diagnostic, Derivative_Simulation
 from ..postprocessing.mft import MeanFieldTheory_Simulation, MFT_Diagnostic
 
