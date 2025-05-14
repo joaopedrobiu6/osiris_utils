@@ -267,29 +267,48 @@ class OsirisGridFile(OsirisData):
         '''
         Converts 3d EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell (the corner of the cell [1,1,1] has coordinates [1,1,1])
         '''
-        if boundary == 'periodic':
-            raise ValueError('Centering field from 3D simulations considering periodic boundary conditions is not implemented yet')
         if self.name.lower() == 'b1':
-            return 0.25 * (self.data[1:, 1:, 1:] + self.data[1:, :-1, 1:] + self.data[1:, 1:, :-1] + self.data[1:, :-1, :-1])
+            if boundary == 'periodic': 
+                return 0.5 * ( 0.5 * np.roll( (np.roll(self.data, shift=1, axis=1) + self.data), shift = 1, axis=2) + 0.5 * (np.roll(self.data, shift=1, axis=1) + self.data))
+            else:
+                return 0.25 * (self.data[1:, 1:, 1:] + self.data[1:, :-1, 1:] + self.data[1:, 1:, :-1] + self.data[1:, :-1, :-1])
         elif self.name.lower() == 'b2':
-            return 0.25 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:] + self.data[1:, 1:, :-1] + self.data[:-1, 1:, :-1])
+            if boundary == 'periodic': 
+                return 0.5 * ( 0.5 * np.roll( (np.roll(self.data, shift=1, axis=0) + self.data), shift = 1, axis=2) + 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data))
+            else:
+                return 0.25 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:] + self.data[1:, 1:, :-1] + self.data[:-1, 1:, :-1])
         elif self.name.lower() == 'b3':
-            return 0.25 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:] + self.data[1:, :-1, 1:] + self.data[:-1, :-1, 1:])
+            if boundary == 'periodic': 
+                return 0.5 * ( 0.5 * np.roll( (np.roll(self.data, shift=1, axis=0) + self.data), shift = 1, axis=1) + 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data))
+            else:
+                return 0.25 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:] + self.data[1:, :-1, 1:] + self.data[:-1, :-1, 1:])
         elif self.name.lower() == 'e1':
-            return 0.5 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:])
+            if boundary == 'periodic': 
+                return 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)
+            else:
+                return 0.5 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:])
         elif self.name.lower() == 'e2':
-            return 0.5 * (self.data[1:, 1:, 1:] + self.data[1:, :-1, 1:])
+            if boundary == 'periodic': 
+                return 0.5 * (np.roll(self.data, shift=1, axis=1) + self.data)
+            else:
+                return 0.5 * (self.data[1:, 1:, 1:] + self.data[1:, :-1, 1:])
         elif self.name.lower() == 'e3':
-            return 0.5 * (self.data[1:, 1:, 1:] + self.data[1:, 1:, :-1])
+            if boundary == 'periodic': 
+                return 0.5 * (np.roll(self.data, shift=1, axis=2) + self.data)
+            else:
+                return 0.5 * (self.data[1:, 1:, 1:] + self.data[1:, 1:, :-1])
         else:
             raise TypeError(f'This method expects magnetic or electric field grid data but received \'{self.name}\' instead')
         
-    def yeeToCellCorner(self, boundary=None):
+    def yeeToCellCorner(self, boundary:Literal["periodic", "default"] = "default"):
         ''''
         Converts EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell.'
         Can be used for 1D, 2D and 3D simulations.'
         Creates a new attribute `data_centered` with the centered data.'
         '''
+
+        if boundary not in ("periodic", "default"):
+            raise ValueError(f"Invalid boundary: {boundary}, choose 'periodic' or 'default' instead.")
         
         cases = {'b1', 'b2', 'b3', 'e1', 'e2', 'e3'}
         if self.name not in cases:
