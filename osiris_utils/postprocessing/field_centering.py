@@ -8,8 +8,11 @@ OSIRIS_FLD = ["e1", "e2", "e3", "b1", "b2", "b3"]
 
 class FieldCentering_Simulation(PostProcess):
     """
-    Class to handle the field centering on data. Works as a wrapper for the FieldCentering_Diagnostic class.
+    Class to handle the field centering on data. It converts fields from a yee mesh to the cell corners.
+    Works as a wrapper for the FieldCentering_Diagnostic class.
     Inherits from PostProcess to ensure all operation overloads work properly.
+
+    It only works for periodic boundaries, for other cases checkout OsirisGridFile.yeeToCellCorner().
     
     Parameters
     ----------
@@ -62,7 +65,8 @@ class FieldCentering_Diagnostic(Diagnostic):
     def __init__(self, diagnostic):
 
         """
-        Class to center the field in the simulation.
+        Class to center the field in the simulation. It converts fields from a yee mesh to the cell corners.
+        It only works for periodic boundaries, for other cases checkout OsirisGridFile.yeeToCellCorner().
 
         Parameters
         ----------
@@ -116,8 +120,19 @@ class FieldCentering_Diagnostic(Diagnostic):
                 result = self._diag.data
             
         elif self._dim == 3:
-            raise NotImplementedError("3D field centering is not implemented yet.")
-        
+            if self._original_name == 'b1':
+                result = 0.5 * ( 0.5 * np.roll( (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data), shift = 1, axis=2) + 0.5 * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data))
+            elif self._original_name == 'b2':
+                result = 0.5 * ( 0.5 * np.roll( (np.roll(self._diag.data, shift=1, axis=0) + self._diag.data), shift = 1, axis=2) + 0.5 * (np.roll(self._diag.data, shift=1, axis=0) + self._diag.data))
+            elif self._original_name == 'b3':
+                result = 0.5 * ( 0.5 * np.roll( (np.roll(self._diag.data, shift=1, axis=0) + self._diag.data), shift = 1, axis=1) + 0.5 * (np.roll(self._diag.data, shift=1, axis=0) + self._diag.data))
+            elif self._original_name == 'e1':
+                result = 0.5 * (np.roll(self._diag.data, shift=1, axis=0) + self._diag.data)
+            elif self._original_name == 'e2':
+                result = 0.5 * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data)
+            elif self._original_name == 'e3':
+                result = 0.5 * (np.roll(self._diag.data, shift=1, axis=2) + self._diag.data)
+
         else:
             raise ValueError(f"Unknown dimension {self._dim}.")
         
@@ -162,7 +177,18 @@ class FieldCentering_Diagnostic(Diagnostic):
                 raise ValueError(f"Unknown field {self._original_name}.")
             
         elif self._dim == 3:
-            raise NotImplementedError("3D field centering is not implemented yet.")
+            if self._original_name == 'b1':
+                yield 0.5 * ( 0.5 * np.roll( (np.roll(self._diag[index], shift=1, axis=1) + self._diag[index]), shift = 1, axis=2) + 0.5 * (np.roll(self._diag[index], shift=1, axis=1) + self._diag[index]))
+            elif self._original_name == 'b2':
+                yield 0.5 * ( 0.5 * np.roll( (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index]), shift = 1, axis=2) + 0.5 * (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index]))
+            elif self._original_name == 'b3':
+                yield 0.5 * ( 0.5 * np.roll( (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index]), shift = 1, axis=1) + 0.5 * (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index]))
+            elif self._original_name == 'e1':
+                yield 0.5 * (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index])
+            elif self._original_name == 'e2':
+                yield 0.5 * (np.roll(self._diag[index], shift=1, axis=1) + self._diag[index])
+            elif self._original_name == 'e3':
+                yield 0.5 * (np.roll(self._diag[index], shift=1, axis=2) + self._diag[index])
         
         else:
             raise ValueError(f"Unknown dimension {self._dim}.")
