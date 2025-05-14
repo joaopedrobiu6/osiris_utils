@@ -1,7 +1,5 @@
 import numpy as np
 import h5py  
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 import scipy 
 import pandas as pd
 from datetime import datetime

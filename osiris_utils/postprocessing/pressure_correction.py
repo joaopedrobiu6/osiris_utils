@@ -1,13 +1,13 @@
-from ..utils import *
 from ..data.simulation import Simulation
 from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
+import numpy as np
 
 OSIRIS_P = ["P11", "P12", "P13", "P21", "P22", "P23", "P31", "P32", "P33"]
 
 class PressureCorrection_Simulation(PostProcess):
     def __init__(self, simulation):
-        super().__init__(f"PressureCorrection Simulation")
+        super().__init__("PressureCorrection Simulation")
         """
         Class to correct pressure tensor components by subtracting Reynolds stress.
 
@@ -32,7 +32,7 @@ class PressureCorrection_Simulation(PostProcess):
         if key not in OSIRIS_P:
             raise ValueError(f"Invalid pressure component {key}. Supported: {OSIRIS_P}.")
         if key not in self._pressure_corrected:
-            print("Wierd that it got here - pressure is always species dependent on OSIRIS")
+            print("Weird that it got here - pressure is always species dependent on OSIRIS")
             self._pressure_corrected[key] = PressureCorrection_Diagnostic(self._simulation[key], self._simulation)
         return self._pressure_corrected[key]
 
@@ -67,6 +67,8 @@ class PressureCorrection_Diagnostic(Diagnostic):
         else:
             super().__init__(None)
         
+        self.postprocess_name = "P_CORR"
+
         if diagnostic._name not in OSIRIS_P:
             raise ValueError(f"Invalid pressure component {diagnostic._name}. Supported: {OSIRIS_P}")
         
@@ -108,9 +110,9 @@ class PressureCorrection_Diagnostic(Diagnostic):
         self._all_loaded = True
 
         # Unload the data to save memory
-        self._n.unload()
-        self._ufl_j.unload()
-        self._vfl_k.unload()
+        # self._n.unload()
+        # self._ufl_j.unload()
+        # self._vfl_k.unload()
 
         return self._data
     
@@ -134,10 +136,10 @@ class PressureCorrection_Diagnostic(Diagnostic):
         
 class PressureCorrection_Species_Handler:
     """
-    Class to handle derivatives for a species.
-    Acts as a wrapper for the Derivative_Diagnostic class.
+    Class to handle pressure correction for a species.
+    Acts as a wrapper for the PressureCorrection_Diagnostic class.
 
-    Not intended to be used directly, but through the Derivative_Simulation class.
+    Not intended to be used directly, but through the PressureCorrection_Simulation class.
 
     Parameters
     ----------
@@ -160,7 +162,10 @@ class PressureCorrection_Species_Handler:
 
             n = self._species_handler["n"]
             self._j, self._k = key[-2], key[-1]
-            ufl = self._species_handler[f"ufl{self._j}"]
+            try:
+                ufl = self._species_handler[f"ufl{self._j}"]
+            except Exception:
+                ufl = self._species_handler[f"vfl{self._j}"]
             vfl = self._species_handler[f"vfl{self._k}"]
             self._pressure_corrected[key] = PressureCorrection_Diagnostic(diag, n, ufl, vfl)
         return self._pressure_corrected[key]

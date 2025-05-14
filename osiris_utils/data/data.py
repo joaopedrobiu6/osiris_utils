@@ -80,7 +80,8 @@ class OsirisData():
         filename : str
             The path to the HDF5 file.
         '''
-        if self._verbose: print(f'Opening file > {filename}')
+        if self._verbose: 
+            print(f'Opening file > {filename}') 
 
         if filename.endswith('.h5'):
             self._file = h5py.File(filename, 'r')
@@ -94,7 +95,8 @@ class OsirisData():
         '''
         Close the HDF5 file.
         '''
-        if self._verbose: print('Closing file')
+        if self._verbose: 
+            print('Closing file') 
         if self._file:
             self._file.close()
         
@@ -172,11 +174,17 @@ class OsirisGridFile(OsirisData):
             self._x = np.arange(self.grid[0], self.grid[1], self.dx)
         else: 
             grid = []
-            for ax in axis: grid.append(self._file['AXIS/' + ax][()])
+            for ax in axis: 
+                grid.append(self._file['AXIS/' + ax][()])
             self._grid = np.array(grid)
             self._nx = self._file[variable_key][()].transpose().shape
             self._dx = (self.grid[:, 1] - self.grid[:, 0])/self.nx
+            
+            # There's an issue when the dimension is 3 and we want to plot a 2D phasespace. I believe this 
+            # is a problem for all cases where the dim != dim_of_phasespace
             self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
+            # self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(2)]
+
 
         self._axis = []
         for ax in axis:
@@ -213,11 +221,15 @@ class OsirisGridFile(OsirisData):
         '''
 
         if self.name.lower() in ['b2', 'b3', 'e1']:
-            if boundary == 'periodic': return 0.5 * (np.roll(self.data, shift=1) + self.data) 
-            else: return 0.5 * (self.data[1:] + self.data[:-1])
+            if boundary == 'periodic': 
+                return 0.5 * (np.roll(self.data, shift=1) + self.data) 
+            else: 
+                return 0.5 * (self.data[1:] + self.data[:-1])
         elif self.name.lower() in ['b1', 'e2', 'e3']:
-            if boundary == 'periodic': return self.data 
-            else: return  self.data[1:]
+            if boundary == 'periodic': 
+                return self.data 
+            else: 
+                return  self.data[1:]
         else: 
             raise TypeError(f'This method expects magnetic or electric field grid data but received \'{self.name}\' instead')
     
@@ -228,19 +240,25 @@ class OsirisGridFile(OsirisData):
         '''
 
         if self.name.lower() in ['e1', 'b2']:
-            if boundary == 'periodic': return 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)
-            else: return 0.5 * (self.data[1:, 1:] + self.data[:-1, 1:])
+            if boundary == 'periodic': 
+                return 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)
+            else: 
+                return 0.5 * (self.data[1:, 1:] + self.data[:-1, 1:])
         elif self.name.lower() in ['e2', 'b1']:
-            if boundary == 'periodic': return 0.5 * (np.roll(self.data, shift=1, axis=1) + self.data)
-            else: return 0.5 * (self.data[1:, 1:] + self.data[1:, :-1])
+            if boundary == 'periodic': 
+                return 0.5 * (np.roll(self.data, shift=1, axis=1) + self.data)
+            else: 
+                return 0.5 * (self.data[1:, 1:] + self.data[1:, :-1])
         elif self.name.lower() in ['b3']:
             if boundary == 'periodic': 
                return 0.5 * (np.roll((0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)), shift=1, axis=1) + (0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)))
             else:
                 return 0.25 * (self.data[1:, 1:] + self.data[:-1, 1:] + self.data[1:, :-1] + self.data[:-1, :-1])
         elif self.name.lower() in ['e3']:
-            if boundary == 'periodic': return self.data
-            else: return self.data[1:, 1:]
+            if boundary == 'periodic': 
+                return self.data
+            else: 
+                return self.data[1:, 1:]
         else:
             raise TypeError(f'This method expects magnetic or electric field grid data but received \'{self.name}\' instead')
         
@@ -334,7 +352,7 @@ class OsirisGridFile(OsirisData):
 
     def __str__(self):
         # write me a template to print with the name, label, units, time, iter, grid, nx, dx, axis, dt, dim in a logical way
-        return rf'{self.name}' + f'\n' + rf'Time: [{self.time[0]} {self.time[1]}], dt = {self.dt}' + f'\n' + f'Iteration: {self.iter}' + f'\n' + f'Grid: {self.grid}' + f'\n' + f'dx: {self.dx}' + f'\n' + f'Dimensions: {self.dim}D'
+        return rf'{self.name}' + '\n' + rf'Time: [{self.time[0]} {self.time[1]}], dt = {self.dt}' + '\n' + f'Iteration: {self.iter}' + '\n' + f'Grid: {self.grid}' + '\n' + f'dx: {self.dx}' + '\n' + f'Dimensions: {self.dim}D'
     
 
     def __array__(self):
@@ -405,7 +423,8 @@ class OsirisRawFile(OsirisData):
         self._data = {}
         self._axis = {}
         for key in self._file.keys():
-            if key == 'SIMULATION': continue
+            if key == 'SIMULATION': 
+                continue
 
             self.data[key] = np.array(self._file[key][()])
 
@@ -608,7 +627,7 @@ class OsirisTrackFile(OsirisData):
 
     def __str__(self):
         # write me a template to print with the name, label, units, iter, grid, nx, dx, axis, dt, dim in a logical way
-        return rf'{self.name}' + f'\n' + f'Iteration: {self.iter}' + f'\n' + f'Grid: {self.grid}' + f'\n' + f'dx: {self.dx}' + f'\n' + f'Dimensions: {self.dim}D'
+        return rf'{self.name}' + '\n' + f'Iteration: {self.iter}' + '\n' + f'Grid: {self.grid}' + '\n' + f'dx: {self.dx}' + '\n' + f'Dimensions: {self.dim}D'
 
     def __array__(self):
         return np.asarray(self.data)

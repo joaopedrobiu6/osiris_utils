@@ -1,7 +1,7 @@
-from ..utils import *
 from ..data.simulation import Simulation
 from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
+import numpy as np
 
 class MeanFieldTheory_Simulation(PostProcess):
     """
@@ -66,7 +66,8 @@ class MFT_Diagnostic(Diagnostic):
     def __init__(self, diagnostic, mft_axis):
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, '_species'):
-            super().__init__(species=diagnostic._species)
+            super().__init__(simulation_folder=diagnostic._simulation_folder if hasattr(diagnostic, '_simulation_folder') else None, 
+                             species=diagnostic._species)
         else:
             super().__init__(None)
             
@@ -80,7 +81,7 @@ class MFT_Diagnostic(Diagnostic):
         self._components = {}
         
         # Copy all relevant attributes from diagnostic
-        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter', '_type']:
+        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter', '_tunits', '_type']:
             if hasattr(diagnostic, attr):
                 setattr(self, attr, getattr(diagnostic, attr))
 
@@ -146,13 +147,16 @@ class MFT_Diagnostic_Average(Diagnostic):
     def __init__(self, diagnostic, mft_axis):
         # Initialize with the same species as the diagnostic
         if hasattr(diagnostic, '_species'):
-            super().__init__(species=diagnostic._species)
+            super().__init__(simulation_folder=diagnostic._simulation_folder if hasattr(diagnostic, '_simulation_folder') else None, 
+                             species=diagnostic._species)
         else:
             super().__init__(None)
             
         if mft_axis is None:
             raise ValueError("Mean field theory axis must be specified.")
         
+        self.postprocess_name = "MFT_AVG"
+
         self._name = f"MFT_avg[{diagnostic._name}, {mft_axis}]"
         self._diag = diagnostic
         self._mft_axis = mft_axis
@@ -166,6 +170,9 @@ class MFT_Diagnostic_Average(Diagnostic):
 
     def load_all(self):
         """Load all data and compute the average"""
+        if self._diag._all_loaded is True:
+            print("Diagnostic data already loaded ... applyting MFT")
+            self._data = self._diag._data
         if self._data is not None:
             print("Data already loaded")
             return self._data
@@ -226,13 +233,16 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
     def __init__(self, diagnostic, mft_axis):
         # Initialize with the same species as the diagnostic
         if hasattr(diagnostic, '_species'):
-            super().__init__(species=diagnostic._species)
+            super().__init__(simulation_folder=diagnostic._simulation_folder if hasattr(diagnostic, '_simulation_folder') else None, 
+                             species=diagnostic._species)
         else:
             super().__init__(None)
             
         if mft_axis is None:
             raise ValueError("Mean field theory axis must be specified.")
         
+        self.postprocess_name = "MFT_FLT"
+
         self._name = f"MFT_delta[{diagnostic._name}, {mft_axis}]"
         self._diag = diagnostic
         self._mft_axis = mft_axis
@@ -246,6 +256,9 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
 
     def load_all(self):
         """Load all data and compute the fluctuations"""
+        if self._diag._all_loaded is True:
+            print("Diagnostic data already loaded ... applyting MFT")
+            self._data = self._diag._data
         if self._data is not None:
             print("Data already loaded")
             return self._data

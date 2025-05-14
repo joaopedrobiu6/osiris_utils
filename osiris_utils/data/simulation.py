@@ -1,9 +1,7 @@
-from matplotlib.style import available
-from ..data.diagnostic import *
-from ..data.track_diagnostic import *
-from ..utils import *
+from ..data.diagnostic import Diagnostic
+from ..data.track_diagnostic import Track_Diagnostic
 from ..decks.decks import InputDeckIO
-
+import os
 
 class Simulation:
     '''
@@ -35,7 +33,7 @@ class Simulation:
         
     '''
     def __init__(self, input_deck_path):
-        folder_path = os.path.dirname(input_deck_path)
+        folder_path = os.path.dirname(input_deck_path) 
         self._input_deck_path = input_deck_path
         self._input_deck = InputDeckIO(self._input_deck_path, verbose=False)
 
@@ -81,7 +79,7 @@ class Simulation:
             original_load_all = diag.load_all
             
             def patched_load_all(*args, **kwargs):
-                result = original_load_all(*args, **kwargs)
+                result = original_load_all(*args, **kwargs)  # noqa: F841
                 self._diagnostics[key] = diag
                 return diag
             
@@ -131,6 +129,10 @@ class Simulation:
     @property
     def species(self):
         return self._species
+    
+    @property
+    def loaded_diagnostics(self):
+        return self._diagnostics
 
 # This is to handle species related diagnostics
 class Species_Handler:
@@ -154,7 +156,7 @@ class Species_Handler:
         original_load_all = diag.load_all
 
         def patched_load_all(*args, **kwargs):
-            result = original_load_all(*args, **kwargs)
+            result = original_load_all(*args, **kwargs)  # noqa: F841
             self._diagnostics[key] = diag
             return diag
         
@@ -194,3 +196,26 @@ class Species_Handler:
             self._diagnostics[name] = diagnostic
         else:
             raise ValueError("Only Diagnostic objects are supported for now")
+        
+    def delete_diagnostic(self, key):
+        """
+        Delete a diagnostic.
+        """
+        if key in self._diagnostics:
+            del self._diagnostics[key]
+        else:
+            print(f"Diagnostic {key} not found in species {self._species_name}")
+            return None
+
+    def delete_all_diagnostics(self):
+        """
+        Delete all diagnostics.
+        """
+        self._diagnostics = {}
+
+    @property
+    def species(self):
+        return self._species_name
+    @property
+    def loaded_diagnostics(self):
+        return self._diagnostics

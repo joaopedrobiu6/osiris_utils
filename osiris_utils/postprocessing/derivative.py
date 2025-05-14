@@ -1,4 +1,4 @@
-from ..utils import *
+import numpy as np
 from ..data.simulation import Simulation
 from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
@@ -91,6 +91,8 @@ class Derivative_Diagnostic(Diagnostic):
                              species=diagnostic._species)
         else:
             super().__init__(None)
+
+        self.postprocess_name = "DERIV"
             
         # self._name = f"D[{diagnostic._name}, {type}]"
         self._diag = diagnostic
@@ -104,18 +106,6 @@ class Derivative_Diagnostic(Diagnostic):
             if hasattr(diagnostic, attr):
                 setattr(self, attr, getattr(diagnostic, attr))
 
-    def load_metadata(self):
-        """Copy metadata from original diagnostic to ensure consistency"""
-        self._dt = self._diag._dt
-        self._dx = self._diag._dx
-        self._ndump = self._diag._ndump
-        self._axis = self._diag._axis
-        self._nx = self._diag._nx
-        self._x = self._diag._x
-        self._grid = self._diag._grid
-        self._dim = self._diag._dim
-        self._maxiter = self._diag._maxiter
-
     def load_all(self):
         """Load all data and compute the derivative"""
         if self._data is not None:
@@ -124,38 +114,43 @@ class Derivative_Diagnostic(Diagnostic):
         
         if not hasattr(self._diag, '_data') or self._diag._data is None:
             self._diag.load_all()
+            self._data = self._diag._data
+
+        if self._diag._all_loaded is True:
+            print("Using cached data from diagnostic")
+            self._data = self._diag._data
 
         if self._deriv_type == "t":
-            result = np.gradient(self._diag._data, self._diag._dt * self._diag._ndump, axis=0, edge_order=2)
+            result = np.gradient(self._data, self._diag._dt * self._diag._ndump, axis=0, edge_order=2)
 
         elif self._deriv_type == "x1":
             if self._dim == 1:
-                result = np.gradient(self._diag._data, self._diag._dx, axis=1, edge_order=2)
+                result = np.gradient(self._data, self._diag._dx, axis=1, edge_order=2)
             else:
-                result = np.gradient(self._diag._data, self._diag._dx[0], axis=1, edge_order=2)
+                result = np.gradient(self._data, self._diag._dx[0], axis=1, edge_order=2)
                     
         elif self._deriv_type == "x2":
-            result = np.gradient(self._diag._data, self._diag._dx[0], axis=2, edge_order=2)
+            result = np.gradient(self._data, self._diag._dx[1], axis=2, edge_order=2)
 
         elif self._deriv_type == "x3":
-            result = np.gradient(self._diag._data, self._diag._dx[0], axis=3, edge_order=2)
+            result = np.gradient(self._data, self._diag._dx[2], axis=3, edge_order=2)
 
         elif self._deriv_type == "xx":
             if len(self._axis) != 2:
                 raise ValueError("Axis must be a tuple with two elements.")
-            result = np.gradient(np.gradient(self._diag._data, self._diag._dx[self._axis[0]-1], axis=self._axis[0], edge_order=2), 
+            result = np.gradient(np.gradient(self._data, self._diag._dx[self._axis[0]-1], axis=self._axis[0], edge_order=2), 
                                 self._diag._dx[self._axis[1]-1], axis=self._axis[1], edge_order=2)
             
         elif self._deriv_type == "xt":
             if not isinstance(self._axis, int):
                 raise ValueError("Axis must be an integer.")
-            result = np.gradient(np.gradient(self._diag._data, self._diag._dt, axis=0, edge_order=2), 
+            result = np.gradient(np.gradient(self._data, self._diag._dt, axis=0, edge_order=2), 
                                 self._diag._dx[self._axis-1], axis=self._axis[0], edge_order=2)
             
         elif self._deriv_type == "tx":
             if not isinstance(self._axis, int):
                 raise ValueError("Axis must be an integer.")
-            result = np.gradient(np.gradient(self._diag._data, self._diag._dx[self._axis-1], axis=self._axis, edge_order=2), 
+            result = np.gradient(np.gradient(self._data, self._diag._dx[self._axis-1], axis=self._axis, edge_order=2), 
                                 self._diag._dt, axis=0, edge_order=2)
         else:
             raise ValueError("Invalid derivative type.")

@@ -2,7 +2,7 @@ import sys
 import os
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QPushButton, 
                               QFileDialog, QMessageBox, QComboBox, QHBoxLayout,
-                              QVBoxLayout, QLabel, QLineEdit, QFrame, QDoubleSpinBox)
+                              QVBoxLayout, QLabel, QLineEdit)
 from PySide6.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
