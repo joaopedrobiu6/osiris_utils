@@ -11,6 +11,26 @@ class AnomalousResistivity:
     ----------
     simulation : Simulation
         The simulation object containing the data.
+    species : str, optional
+
+    Attributes
+    ----------
+    simulation : Simulation
+        The simulation object containing the data.
+    species : str
+        The species for which the anomalous resistivity is computed.
+    terms_dict : dict
+        Dictionary containing the computed terms for the anomalous resistivity.
+    mft : MeanFieldTheory_Simulation
+        The mean field theory simulation object.
+    x : float
+        The x-coordinate of the simulation.
+    dx : float
+        The spatial step size in the x-direction.
+    e_vlasov : Diagnostic
+        The Vlasov electric field diagnostic.
+    dnT11_dx1 : Diagnostic
+
     """
  
     def __init__(self, simulation, species="electrons"):
@@ -25,7 +45,7 @@ class AnomalousResistivity:
         self._simulation = simulation
         self.species = species
         self.compute_vlasov_electric_field()
-        self.terms_dict = self.compute_mean_field_terms()
+        self._terms_dict = self.compute_mean_field_terms()
 
     def compute_vlasov_electric_field(self):
         d_dx1 = Derivative_Simulation(self._simulation, "x1")
@@ -127,28 +147,45 @@ class AnomalousResistivity:
                 - 1 * term10_mft["avg"]
                 )
 
-        terms_dict = {
+        #   LHS = (
+        #     self.sim_mft["e_vlasov"]["avg"]
+        #     + self.sim_mft["dvfl1_dt"]["avg"]
+        #     + self.sim_mft[self.species]["vfl1"]["avg"]*self.sim_mft["dvfl1_dx1"]["avg"]
+        #     + self.sim_mft[self.species]["vfl2"]["avg"]*self.sim_mft["b3"]["avg"]
+        #     - self.sim_mft[self.species]["vfl3"]["avg"]*self.sim_mft["b2"]["avg"]
+        #     + (1/(self.sim_mft[self.species]["n"]["avg"]))*(self.dnT11_dx_avg)
+        # )
+
+        self._terms_dict = {
+            "e_vlasov_avg": self.sim_mft["e_vlasov"]["avg"],
+            "vfl1_avg": self.sim_mft[self.species]["vfl1"]["avg"],
+            "vfl2_avg": self.sim_mft[self.species]["vfl2"]["avg"],
+            "vfl3_avg": self.sim_mft[self.species]["vfl3"]["avg"],
+            "b2_avg": self.sim_mft["b2"]["avg"],
+            "b3_avg": self.sim_mft["b3"]["avg"],
+            "n_avg": self.sim_mft[self.species]["n"]["avg"],
+            "dvfl1_dt_avg": self.sim_mft["dvfl1_dt"]["avg"],
+            "dvfl1_dx1_avg": self.sim_mft["dvfl1_dx1"]["avg"],
+            "dnT11_dx1_avg": self.dnT11_dx_avg,
             "LHS": LHS,
             "eta": eta,
             "eta_dom": eta_dom,
-            "term1": term1_mft,
-            "term2": term2_mft,
-            "term3": term3_mft,
-            "term4": term4_mft,
-            "term5": term5_mft,
-            "term6": term6_mft,
-            "term7": term7_mft,
-            "term8": term8_mft,
-            "term9": term9_mft,
-            "term10": term10_mft
+            "term1": term1_mft["avg"],
+            "term2": term2_mft["avg"],
+            "term3": term3_mft["avg"],
+            "term4": term4_mft["avg"],
+            "term5": term5_mft["avg"],
+            "term6": term6_mft["avg"],
+            "term7": term7_mft["avg"],
+            "term8": term8_mft["avg"],
+            "term9": term9_mft["avg"],
+            "term10": term10_mft["avg"]
         }
 
-        return terms_dict
+        return self._terms_dict
 
     def __getitem__(self, item):
-        return self.terms_dict[item]
-        if item == "mft":
-            return self.sim_mft
+        return self._terms_dict[item]
 
     @property
     def simulation(self):
@@ -165,6 +202,10 @@ class AnomalousResistivity:
     @property
     def dx(self):   
         return self._simulation["b2"].dx[0]
+    
+    @property
+    def terms_dict(self):
+        return self.terms_dict
     
 def compute_vlasov_electric_field(simulation, species="electrons"):
         d_dx1 = Derivative_Simulation(simulation, "x1")
