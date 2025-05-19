@@ -50,7 +50,7 @@ OSIRIS_FLD = [
     "b3",
     "part_e1",
     "part_e2",
-    "epart_3",
+    "part_e3",
     "part_b1",
     "part_b2",
     "part_b3",
