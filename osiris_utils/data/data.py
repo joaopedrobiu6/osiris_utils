@@ -215,9 +215,9 @@ class OsirisGridFile(OsirisData):
     
     
 
-    def _yeeToCellCorner1d(self, boundary):
+    def _yeeToCellCenter1d(self, boundary):
         '''
-        Converts 1d EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell (the corner of the cell [1] has coordinates [1])
+        Converts 1d EM fields from a staggered Yee mesh to a grid with field values centered on the Center of the cell
         '''
 
         if self.name.lower() in ['b2', 'b3', 'e1']:
@@ -234,9 +234,9 @@ class OsirisGridFile(OsirisData):
             raise TypeError(f'This method expects magnetic or electric field grid data but received \'{self.name}\' instead')
     
 
-    def _yeeToCellCorner2d(self, boundary):
+    def _yeeToCellCenter2d(self, boundary):
         '''
-        Converts 2d EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell (the corner of the cell [1,1] has coordinates [1,1])
+        Converts 2d EM fields from a staggered Yee mesh to a grid with field values centered on the Center of the cell
         '''
 
         if self.name.lower() in ['e1', 'b2']:
@@ -263,9 +263,9 @@ class OsirisGridFile(OsirisData):
             raise TypeError(f'This method expects magnetic or electric field grid data but received \'{self.name}\' instead')
         
 
-    def _yeeToCellCorner3d(self, boundary):
+    def _yeeToCellCenter3d(self, boundary):
         '''
-        Converts 3d EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell (the corner of the cell [1,1,1] has coordinates [1,1,1])
+        Converts 3d EM fields from a staggered Yee mesh to a grid with field values centered on the Center of the cell
         '''
         if self.name.lower() == 'b1':
             if boundary == 'periodic': 
@@ -300,9 +300,9 @@ class OsirisGridFile(OsirisData):
         else:
             raise TypeError(f'This method expects magnetic or electric field grid data but received \'{self.name}\' instead')
         
-    def yeeToCellCorner(self, boundary:Literal["periodic", "default"] = "default"):
+    def yeeToCellCenter(self, boundary:Literal["periodic", "default"] = "default"):
         ''''
-        Converts EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell.'
+        Converts EM fields from a staggered Yee mesh to a grid with field values centered on the center of the cell.'
         Can be used for 1D, 2D and 3D simulations.'
         Creates a new attribute `data_centered` with the centered data.'
         '''
@@ -315,13 +315,13 @@ class OsirisGridFile(OsirisData):
             raise TypeError(f'This method expects magnetic or electric field grid data but received \'{self.name}\' instead')
         
         if self.dim == 1:
-            self.data_centered = self._yeeToCellCorner1d(boundary)
+            self.data_centered = self._yeeToCellCenter1d(boundary)
             return self.data_centered
         elif self.dim == 2:
-            self.data_centered = self._yeeToCellCorner2d(boundary)
+            self.data_centered = self._yeeToCellCenter2d(boundary)
             return self.data_centered
         elif self.dim == 3:
-            self.data_centered = self._yeeToCellCorner3d(boundary)
+            self.data_centered = self._yeeToCellCenter3d(boundary)
             return self.data_centered
         else:
             raise ValueError(f'Dimension {self.dim} is not supported')

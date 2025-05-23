@@ -6,11 +6,11 @@ from ..data.diagnostic import OSIRIS_FLD
 
 class FieldCentering_Simulation(PostProcess):
     """
-    Class to handle the field centering on data. It converts fields from a yee mesh to the cell corners.
+    Class to handle the field centering on data.It converts fields from the Osiris yee mesh to the center of the cells.
     Works as a wrapper for the FieldCentering_Diagnostic class.
     Inherits from PostProcess to ensure all operation overloads work properly.
 
-    It only works for periodic boundaries, for other cases checkout OsirisGridFile.yeeToCellCorner().
+    It only works for periodic boundaries.
     
     Parameters
     ----------
@@ -63,8 +63,8 @@ class FieldCentering_Diagnostic(Diagnostic):
     def __init__(self, diagnostic):
 
         """
-        Class to center the field in the simulation. It converts fields from a yee mesh to the cell corners.
-        It only works for periodic boundaries, for other cases checkout OsirisGridFile.yeeToCellCorner().
+        Class to center the field in the simulation. It converts fields from the Osiris yee mesh to the center of the cells.
+        It only works for periodic boundaries.
 
         Parameters
         ----------
@@ -118,18 +118,19 @@ class FieldCentering_Diagnostic(Diagnostic):
                 result = self._diag.data
             
         elif self._dim == 3:
+            # TODO test this
             if self._original_name in ['b1', 'part_b1', 'ext_b1']:
-                result = 0.5 * ( 0.5 * np.roll( (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data), shift = 1, axis=2) + 0.5 * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data))
+                result = 0.5 * ( 0.5 * np.roll( (np.roll(self._diag.data, shift=1, axis=2) + self._diag.data), shift = 1, axis=3) + 0.5 * (np.roll(self._diag.data, shift=1, axis=2) + self._diag.data))
             elif self._original_name in ['b2', 'part_b2', 'ext_b2']:
-                result = 0.5 * ( 0.5 * np.roll( (np.roll(self._diag.data, shift=1, axis=0) + self._diag.data), shift = 1, axis=2) + 0.5 * (np.roll(self._diag.data, shift=1, axis=0) + self._diag.data))
+                result = 0.5 * ( 0.5 * np.roll( (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data), shift = 1, axis=3) + 0.5 * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data))
             elif self._original_name in ['b3', 'part_b3', 'ext_b3']:
-                result = 0.5 * ( 0.5 * np.roll( (np.roll(self._diag.data, shift=1, axis=0) + self._diag.data), shift = 1, axis=1) + 0.5 * (np.roll(self._diag.data, shift=1, axis=0) + self._diag.data))
+                result = 0.5 * ( 0.5 * np.roll( (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data), shift = 1, axis=2) + 0.5 * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data))
             elif self._original_name in ['e1', 'part_e1', 'ext_e1']:
-                result = 0.5 * (np.roll(self._diag.data, shift=1, axis=0) + self._diag.data)
-            elif self._original_name in ['e2', 'part_e2', 'ext_e2']:
                 result = 0.5 * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data)
-            elif self._original_name in ['e3', 'part_e3', 'ext_e3']:
+            elif self._original_name in ['e2', 'part_e2', 'ext_e2']:
                 result = 0.5 * (np.roll(self._diag.data, shift=1, axis=2) + self._diag.data)
+            elif self._original_name in ['e3', 'part_e3', 'ext_e3']:
+                result = 0.5 * (np.roll(self._diag.data, shift=1, axis=3) + self._diag.data)
 
         else:
             raise ValueError(f"Unknown dimension {self._dim}.")
