@@ -7,7 +7,6 @@ from .utils import (
     read_data,
     courant2D,
 )
-from .gui.gui import LAVA_Qt, LAVA
 from .data.data import OsirisGridFile, OsirisRawFile, OsirisData, OsirisHIST, OsirisTrackFile
 from .data.simulation import Simulation, Species_Handler
 from .data.diagnostic import Diagnostic
@@ -63,8 +62,6 @@ __all__ = [
     "PressureCorrection_Diagnostic",
     "HeatfluxCorrection_Simulation",
     "HeatfluxCorrection_Diagnostic",
-    "LAVA_Qt",
-    "LAVA",
     "time_estimation",
     "filesize_estimation",
     "transverse_average",
