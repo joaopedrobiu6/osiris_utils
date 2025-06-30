@@ -7,7 +7,7 @@ from .utils import (
     read_data,
     courant2D,
 )
-from .gui.gui import LAVA_Qt, LAVA
+
 from .data.data import OsirisGridFile, OsirisRawFile, OsirisData, OsirisHIST, OsirisTrackFile
 from .data.simulation import Simulation, Species_Handler
 from .data.diagnostic import Diagnostic
@@ -17,11 +17,11 @@ from .decks.species import Specie
 
 from .postprocessing.postprocess import PostProcess
 from .postprocessing.derivative import Derivative_Simulation, Derivative_Diagnostic
-from .postprocessing.fft import FFT_Diagnostic, FastFourierTransform_Simulation
+from .postprocessing.fft import FFT_Diagnostic, FFT_Simulation
 
 from .postprocessing.mft_for_gridfile import MFT_Single
 from .postprocessing.mft import (
-    MeanFieldTheory_Simulation,
+    MFT_Simulation,
     MFT_Diagnostic,
     MFT_Diagnostic_Average,
     MFT_Diagnostic_Fluctuations,
@@ -34,23 +34,26 @@ from .postprocessing.pressure_correction import PressureCorrection_Simulation, P
 from .postprocessing.heatflux_correction import HeatfluxCorrection_Simulation, HeatfluxCorrection_Diagnostic
 
 __all__ = [
+    # Data Singles 
     "OsirisGridFile",
     "OsirisRawFile",
     "OsirisData",
     "OsirisHIST",
     "OsirisTrackFile",
+    # Data Diagnostic and Simulation
     "Simulation",
-    "Species_Handler",
-    "Specie",
     "Diagnostic",
+    "Species_Handler",
+    # Decks
+    "Specie",
     "InputDeckIO",
+    # PostProcessing
     "PostProcess",
     "Derivative_Simulation",
     "Derivative_Diagnostic",
     "FFT_Diagnostic",
-    "FastFourierTransform_Simulation",
-    "MFT_Single",
-    "MeanFieldTheory_Simulation",
+    "FFT_Simulation",
+    "MFT_Simulation",
     "MFT_Diagnostic",
     "MFT_Diagnostic_Average",
     "MFT_Diagnostic_Fluctuations",
@@ -60,8 +63,9 @@ __all__ = [
     "PressureCorrection_Diagnostic",
     "HeatfluxCorrection_Simulation",
     "HeatfluxCorrection_Diagnostic",
-    "LAVA_Qt",
-    "LAVA",
+    # Single file MFT
+    "MFT_Single",
+    # Utilities
     "time_estimation",
     "filesize_estimation",
     "transverse_average",
