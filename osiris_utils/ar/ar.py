@@ -1,7 +1,7 @@
 from ..postprocessing.derivative import Derivative_Diagnostic, Derivative_Simulation
-from ..postprocessing.mft import MeanFieldTheory_Simulation, MFT_Diagnostic
+from ..postprocessing.mft import MFT_Simulation, MFT_Diagnostic
 
-class AnomalousResistivity:
+class AR:
     """
     Class to compute the anomalous resistivity from the shock simulation data.
     This class computes the Vlasov electric field and the mean field terms
@@ -69,7 +69,7 @@ class AnomalousResistivity:
         self._simulation.add_diagnostic(E_vlasov, "e_vlasov")
 
     def compute_mean_field_terms(self):
-        self.sim_mft = MeanFieldTheory_Simulation(self._simulation, mft_axis=2)
+        self.sim_mft = MFT_Simulation(self._simulation, mft_axis=2)
         self.dnT11_dx_avg = Derivative_Diagnostic(self.sim_mft[self.species]["n"]["avg"] * self.sim_mft[self.species]["T11"]["avg"], "x1")
 
         LHS = (
