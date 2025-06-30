@@ -33,6 +33,8 @@ from .postprocessing.pressure_correction import PressureCorrection_Simulation, P
 
 from .postprocessing.heatflux_correction import HeatfluxCorrection_Simulation, HeatfluxCorrection_Diagnostic
 
+from .gui.gui import LAVA_Qt, LAVA
+
 __all__ = [
     # Data Singles 
     "OsirisGridFile",
@@ -73,4 +75,7 @@ __all__ = [
     "save_data",
     "read_data",
     "courant2D",
+    # GUI
+    "LAVA_Qt",
+    "LAVA",
 ]

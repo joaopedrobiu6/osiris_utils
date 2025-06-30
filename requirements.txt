@@ -4,3 +4,4 @@ pandas
 scipy
 h5py
 tqdm
+PySide6
