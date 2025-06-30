@@ -247,12 +247,12 @@ Spectral Analysis with Fast Fourier Transform
 
 .. _fft-api:
 
-The `FastFourierTransform_Simulation` module provides tools for performing spectral analysis on simulation diagnostics using the Fast Fourier Transform (FFT).
+The `FFT_Simulation` module provides tools for performing spectral analysis on simulation diagnostics using the Fast Fourier Transform (FFT).
 
-FastFourierTransform_Simulation Class
+FFT_Simulation Class
 -------------------------------------
 
-.. autoclass:: osiris_utils.postprocessing.fft.FastFourierTransform_Simulation
+.. autoclass:: osiris_utils.postprocessing.fft.FFT_Simulation
    :members:
    :special-members: __init__, __getitem__
    :show-inheritance:
@@ -278,13 +278,13 @@ FastFourierTransform_Simulation Class
    .. code-block:: python
    
        from osiris_utils.data import Simulation
-       from osiris_utils.postprocessing import FastFourierTransform_Simulation
+       from osiris_utils.postprocessing import FFT_Simulation
        
        # Create a simulation interface
        sim = Simulation('/path/to/input/deck')
        
        # Create an FFT processor for the first spatial dimension
-       fft = FastFourierTransform_Simulation(sim, 1)
+       fft = FFT_Simulation(sim, 1)
        
        # Get the power spectrum of E1
        e1_spectrum = fft['e1']
@@ -374,7 +374,7 @@ This example shows how to compute and visualize a dispersion relation:
 .. code-block:: python
 
     from osiris_utils.data import Simulation
-    from osiris_utils.postprocessing import FastFourierTransform_Simulation
+    from osiris_utils.postprocessing import FFT_Simulation
     import numpy as np
     import matplotlib.pyplot as plt
     
@@ -383,7 +383,7 @@ This example shows how to compute and visualize a dispersion relation:
     
     # Create FFT processor for both time and space
     # We'll do a 2D FFT - time (axis 0) and x1 (axis 1)
-    fft_processor = FastFourierTransform_Simulation(sim, (0, 1))
+    fft_processor = FFT_Simulation(sim, (0, 1))
     
     # Get E1 field and compute its FFT
     e1_fft = fft_processor['e1']
@@ -437,10 +437,10 @@ Mean Field Theory Analysis
 
 The Mean Field Theory (MFT) module provides tools for decomposing simulation data into average (mean) and fluctuation components, a fundamental approach in plasma physics analysis.
 
-MeanFieldTheory_Simulation Class
+MFT_Simulation Class
 --------------------------------
 
-.. autoclass:: osiris_utils.postprocessing.mft.MeanFieldTheory_Simulation
+.. autoclass:: osiris_utils.postprocessing.mft.MFT_Simulation
    :members:
    :special-members: __init__, __getitem__
    :show-inheritance:
@@ -448,7 +448,7 @@ MeanFieldTheory_Simulation Class
 
    Post-processor for performing mean field decomposition of diagnostic data.
    
-   The MeanFieldTheory_Simulation class provides a convenient interface for separating plasma quantities into their average and fluctuating components along a specified axis.
+   The MFT_Simulation class provides a convenient interface for separating plasma quantities into their average and fluctuating components along a specified axis.
    
    **Key Features:**
    
@@ -464,13 +464,13 @@ MeanFieldTheory_Simulation Class
    .. code-block:: python
    
        from osiris_utils.data import Simulation
-       from osiris_utils.postprocessing import MeanFieldTheory_Simulation
+       from osiris_utils.postprocessing import MFT_Simulation
        
        # Create a simulation interface
        sim = Simulation('/path/to/input/deck')
        
        # Create MFT analyzer for x₁ direction (axis=1)
-       mft = MeanFieldTheory_Simulation(sim, 1)
+       mft = MFT_Simulation(sim, 1)
        
        # Get MFT decomposition of electric field E₁
        mft_e1 = mft['e1']

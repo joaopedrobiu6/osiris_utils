@@ -3,9 +3,9 @@ from .postprocess import PostProcess
 from ..data.diagnostic import Diagnostic
 import numpy as np
 
-class MeanFieldTheory_Simulation(PostProcess):
+class MFT_Simulation(PostProcess):
     """
-    Class to compute the mean field theory of a diagnostic. Works as a wrapper for the MFT_Diagnostic class.
+    Class to compute the Mean Field Theory approximation of a diagnostic. Works as a wrapper for the MFT_Diagnostic class.
     Inherits from PostProcess to ensure all operation overloads work properly.
 
     Parameters

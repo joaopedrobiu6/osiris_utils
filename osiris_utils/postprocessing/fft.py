@@ -5,7 +5,7 @@ import numpy as np
 import tqdm as tqdm
 
 
-class FastFourierTransform_Simulation(PostProcess):
+class FFT_Simulation(PostProcess):
     """
     Class to handle the Fast Fourier Transform on data. Works as a wrapper for the FFT_Diagnostic class.
     Inherits from PostProcess to ensure all operation overloads work properly.

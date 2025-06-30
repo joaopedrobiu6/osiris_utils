@@ -407,46 +407,83 @@ class Diagnostic:
         """
         self._data = next(self._data_generator(index))
 
+    # def __getitem__(self, index):
+    #     # For derived diagnostics with cached data
+    #     if self._all_loaded and self._data is not None:
+    #         return self._data[index]
+
+    #     # For standard diagnostics with files
+    #     if isinstance(index, int):
+    #         if self._simulation_folder is not None and hasattr(self, "_data_generator"):
+    #             return next(self._data_generator(index))
+
+    #         # For derived diagnostics with custom generators
+    #         if hasattr(self, "_data_generator") and callable(self._data_generator):
+    #             return next(self._data_generator(index))
+
+    #     elif isinstance(index, slice):
+    #         start = 0 if index.start is None else index.start
+    #         step = 1 if index.step is None else index.step
+
+    #         if index.stop is None:
+    #             if hasattr(self, "_maxiter") and self._maxiter is not None:
+    #                 stop = self._maxiter
+    #             elif self._simulation_folder is not None and hasattr(self, "_path"):
+    #                 stop = len(sorted(glob.glob(f"{self._path}/*.h5")))
+    #             else:
+    #                 stop = 100  # Default if we can't determine
+    #                 print(
+    #                     f"Warning: Could not determine iteration count for iteration, using {stop}."
+    #                 )
+    #         else:
+    #             stop = index.stop
+
+    #         indices = range(start, stop, step)
+    #         if self._simulation_folder is not None and hasattr(self, "_data_generator"):
+    #             return np.stack([next(self._data_generator(i)) for i in indices])
+    #         elif hasattr(self, "_data_generator") and callable(self._data_generator):
+    #             return np.stack([next(self._data_generator(i)) for i in indices])
+
+    #     # If we get here, we don't know how to get data for this index
+    #     raise ValueError(
+    #         f"Cannot retrieve data for this diagnostic at index {index}. No data loaded and no generator available."
+    #     )
+    
     def __getitem__(self, index):
-        # For derived diagnostics with cached data
         if self._all_loaded and self._data is not None:
             return self._data[index]
 
-        # For standard diagnostics with files
-        if isinstance(index, int):
-            if self._simulation_folder is not None and hasattr(self, "_data_generator"):
-                return next(self._data_generator(index))
+        data_gen = getattr(self, "_data_generator", None)
+        has_gen = callable(data_gen)
 
-            # For derived diagnostics with custom generators
-            if hasattr(self, "_data_generator") and callable(self._data_generator):
-                return next(self._data_generator(index))
+        if isinstance(index, int):
+            if has_gen:
+                try:
+                    return next(data_gen(index))
+                except Exception as e:
+                    raise RuntimeError(f"Error loading data at index {index}: {e}")
 
         elif isinstance(index, slice):
-            start = 0 if index.start is None else index.start
-            step = 1 if index.step is None else index.step
-
-            if index.stop is None:
-                if hasattr(self, "_maxiter") and self._maxiter is not None:
-                    stop = self._maxiter
-                elif self._simulation_folder is not None and hasattr(self, "_path"):
-                    stop = len(sorted(glob.glob(f"{self._path}/*.h5")))
-                else:
-                    stop = 100  # Default if we can't determine
-                    print(
-                        f"Warning: Could not determine iteration count for iteration, using {stop}."
-                    )
-            else:
-                stop = index.stop
-
+            start = index.start or 0
+            step = index.step or 1
+            stop = (
+                index.stop
+                if index.stop is not None
+                else self._maxiter
+            )
             indices = range(start, stop, step)
-            if self._simulation_folder is not None and hasattr(self, "_data_generator"):
-                return np.stack([next(self._data_generator(i)) for i in indices])
-            elif hasattr(self, "_data_generator") and callable(self._data_generator):
-                return np.stack([next(self._data_generator(i)) for i in indices])
 
-        # If we get here, we don't know how to get data for this index
+            if has_gen:
+                data_list = []
+                for i in indices:
+                    try:
+                        data_list.append(next(data_gen(i)))
+                    except Exception as e:
+                        raise RuntimeError(f"Error loading slice at index {i}: {e}")
+                return np.stack(data_list)
+
         raise ValueError(
-            f"Cannot retrieve data for this diagnostic at index {index}. No data loaded and no generator available."
+            f"Cannot retrieve data for index {index}. No data loaded and no generator available."
         )
 
     def __iter__(self):
