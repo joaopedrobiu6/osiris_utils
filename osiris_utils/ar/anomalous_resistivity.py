@@ -54,7 +54,7 @@ class TermFactory:
     def create_velocity_derivative_term(self):
         """Create velocity * velocity_derivative term."""
         return (self.sim_mft[self.species]["vfl1"]["delta"] * 
-                self.sim_mft["dvfl1_dx1"]["delta"])
+                self.sim_mft[self.species]["dvfl1_dx1"]["delta"])
 
 class AnomalousResistivityABC(ABC):
     """
@@ -195,7 +195,7 @@ class AnomalousResistivity(AnomalousResistivityABC):
             terms.append(-1 * self._simulation[self.species]["vfl1"] * self._simulation[self.species]["dvfl1_dx1"])
 
         if self._config.include_pressure:
-            pressure_term = -(1 / self._simulation[self.species]["n"]) * (
+            pressure_term = (-1 / self._simulation[self.species]["n"]) * (
                 self._simulation[self.species]["dnT11_dx1"] + self._simulation[self.species]["dnT12_dx2"]
             )
             terms.append(pressure_term)
@@ -243,6 +243,7 @@ class AnomalousResistivity(AnomalousResistivityABC):
     def _compute_lhs(self):
         """Compute the left-hand side of the equation."""
         terms = []
+        terms.append(self.sim_mft["e_vlasov"]["avg"])
         if self._config.include_time_derivative:
             terms.append(self.sim_mft[self.species]["dvfl1_dt"]["avg"])
         if self._config.include_convection:
@@ -338,8 +339,8 @@ class AnomalousResistivity(AnomalousResistivityABC):
             "b2_avg": self.sim_mft["b2"]["avg"],
             "b3_avg": self.sim_mft["b3"]["avg"],
             "n_avg": self.sim_mft[self.species]["n"]["avg"],
-            "dvfl1_dt_avg": self.sim_mft["dvfl1_dt"]["avg"],
-            "dvfl1_dx1_avg": self.sim_mft["dvfl1_dx1"]["avg"],
+            "dvfl1_dt_avg": self.sim_mft[self.species]["dvfl1_dt"]["avg"],
+            "dvfl1_dx1_avg": self.sim_mft[self.species]["dvfl1_dx1"]["avg"],
             "dnT11_dx1_avg": self.dnT11_dx_avg,
         }
 
