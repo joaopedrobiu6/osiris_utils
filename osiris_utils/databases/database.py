@@ -108,6 +108,8 @@ class DatabaseCreator:
 
         np.save(os.path.join(self.save_folder, "input_tensor.npy"), data_array)
 
+        del data_array
+
     def _validate_and_clean_data(self, data):
         """
         Check for NaN and inf values and replace them with zeros.
@@ -146,6 +148,8 @@ class DatabaseCreator:
         # Validate and clean the entire array at once
         data_array_output = self._validate_and_clean_data(data_array_output)
         np.save(os.path.join(self.save_folder, "eta_tensor.npy"), data_array_output)
+
+        del data_array_output
 
     def create_database(self):
         """
