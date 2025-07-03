@@ -35,7 +35,7 @@ from .postprocessing.heatflux_correction import HeatfluxCorrection_Simulation, H
 
 from .ar.ar import AR, compute_vlasov_electric_field
 from .ar.anomalous_resistivity import AnomalousResistivityABC, AnomalousResistivity, AnomalousResistivityConfig, TermType, TermFactory, vlasov_electric_field
-
+from .databases.database import DatabaseCreator
 
 
 __all__ = [
@@ -88,4 +88,6 @@ __all__ = [
     "TermType",
     "TermFactory",
     "vlasov_electric_field",
+    # databases
+    "DatabaseCreator"
 ]
