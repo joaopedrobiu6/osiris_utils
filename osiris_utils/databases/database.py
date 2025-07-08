@@ -34,7 +34,7 @@ class DatabaseCreator:
         self.initial_iter = initial_iter
         self.final_iter = final_iter
         self.T = final_iter - initial_iter
-        self.X = self.simulation["e1"].grid[0][1]
+        self.X = self.simulation["e1"].nx[0]
 
     def _input_database(self):
 
@@ -73,7 +73,7 @@ class DatabaseCreator:
             sim_mft[self.species]["n"]["avg"] * sim_mft[self.species]["T11"]["avg"], "x1"
         )
 
-        data_array = np.empty((self.T, self.F_in, self.X), dtype=np.float32)
+        data_array = np.empty((int(self.T), int(self.F_in), int(self.X)), dtype=np.float32)
 
         for i, t_idx in enumerate(tqdm.tqdm(range(self.initial_iter, self.final_iter))):
             feature_list = [
@@ -135,7 +135,7 @@ class DatabaseCreator:
     def _output_database(self):
         self.ar = ou.AnomalousResistivity(self.simulation, self.species)
         # Pre-allocate array: shape = [T, F, X]
-        data_array_output = np.empty((self.T, self.F_out, self.X), dtype=np.float32)
+        data_array_output =  np.empty((int(self.T), int(self.F_out), int(self.X)), dtype=np.float32)
 
         for i, t_idx in enumerate(tqdm.tqdm(range(self.initial_iter, self.final_iter))):
             feature_list = [
