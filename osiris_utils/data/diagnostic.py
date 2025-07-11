@@ -1280,11 +1280,10 @@ class Diagnostic:
         cbar = plt.colorbar(sc, ax=ax, shrink=0.6)
 
         # Labels
-        # TODO try to use a latex label instaead of _name
-        cbar.set_label(r"${}$".format(self._name) + r"$\  [{}]$".format(self._units))
+        cbar.set_label(r"${}$".format(self._label) + r"$\  [{}]$".format(self._units))
         ax.set_title(
             r"$t={:.2f}$".format(self.time(idx)[0])
-            + r"$\  [{}]$".format(self.time(idx)[1])
+            + r"$\  [{}]$".format(self._tunits)
         )
         ax.set_xlabel(
             r"${}$".format(self.axis[0]["long_name"])
