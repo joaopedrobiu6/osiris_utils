@@ -1,23 +1,23 @@
 build_info = {
-  "version": "4.4.4-293-g983d5d2-dirty",
+  "version": "4.4.4-292-gfe9aada-dirty",
   "branch": "dev",
   "dimensions": "1",
   "precision": "DOUBLE",
   "build_type": "production",
-  "system": "macosx-m1.gnu",
+  "system": "linux.gnu",
   "build_tool": "make",
   "build_flags": {
-    "FPP"  :"/opt/homebrew/bin/mpicc -C -E -x assembler-with-cpp -D__HAS_MPI_IN_PLACE__ -D_OPENMP -DHDF5",
-    "FPPF" :"-DP_X_DIM=1 -DOS_REV=\"4.4.4-293-g983d5d2-dirty\" -DFORTRANSINGLEUNDERSCORE -DPRECISION_DOUBLE -DENABLE_RAD -DENABLE_TILES -DENABLE_PGC -DENABLE_QED -DENABLE_SHEAR -DENABLE_CYLMODES -DENABLE_QEDCYL -DENABLE_RADCYL -DENABLE_OVERDENSE -DENABLE_OVERDENSE_CYL -DENABLE_NEUTRAL_SPIN -DENABLE_XXFEL -DENABLE_GR",
-    "F90"  :"gfortran",
-    "F90F" :"-pipe -ffree-line-length-none -fno-range-check -lgcc_s.1.1 --openmp -Ofast -march=native -I/opt/homebrew/Cellar/open-mpi/5.0.7/include -Wl,-flat_namespace -I/opt/homebrew/Cellar/open-mpi/5.0.7/lib -I/usr/local/.hdf5/include",
-    "CF"   :"-Ofast -mcpu=apple-m1 -std=c99  -DFORTRANSINGLEUNDERSCORE -DPRECISION_DOUBLE -D__MACH_TIMER__",
-    "cc"   :"/opt/homebrew/bin/mpicc ",
-    "LDF"  :" -L/usr/local/.hdf5/lib -lhdf5_fortran -lhdf5 -lz -lm -I/opt/homebrew/Cellar/open-mpi/5.0.7/include -Wl,-flat_namespace -I/opt/homebrew/Cellar/open-mpi/5.0.7/lib -L/opt/homebrew/Cellar/open-mpi/5.0.7/lib -lmpi_usempif08 -lmpi_usempi_ignore_tkr -lmpi_mpifh -lmpi ",
+    "FPP"  :"gcc -C -E -x assembler-with-cpp -D_OPENMP -DHDF5",
+    "FPPF" :"-DP_X_DIM=1 -DOS_REV=\"4.4.4-292-gfe9aada-dirty\" -DFORTRANSINGLEUNDERSCORE -DPRECISION_DOUBLE -DENABLE_RAD -DENABLE_TILES -DENABLE_PGC -DENABLE_QED -DENABLE_SHEAR -DENABLE_CYLMODES -DENABLE_QEDCYL -DENABLE_RADCYL -DENABLE_OVERDENSE -DENABLE_OVERDENSE_CYL -DENABLE_NEUTRAL_SPIN -DENABLE_XXFEL -DENABLE_GR",
+    "F90"  :"gfortran -Wa,-q -cpp",
+    "F90F" :"-pipe -ffree-line-length-none -fno-range-check --openmp -Ofast -march=native -I/home/exxxx5/openmpi/include -I/home/exxxx5/openmpi/lib -I/home/exxxx5/hdf5/include",
+    "CF"   :"-Ofast -march=native -std=c99 -I/home/exxxx5/openmpi/include -DFORTRANSINGLEUNDERSCORE -DPRECISION_DOUBLE",
+    "cc"   :"gcc -Wa,-q",
+    "LDF"  :" -L/home/exxxx5/hdf5/lib -lhdf5_fortran -lhdf5 -lm -I/home/exxxx5/openmpi/include -I/home/exxxx5/openmpi/lib -L/home/exxxx5/openmpi/lib -Wl,-rpath -Wl,/home/exxxx5/openmpi/lib -Wl,--enable-new-dtags -lmpi_usempif08 -lmpi_usempi_ignore_tkr -lmpi_mpifh -lmpi ",
    }
 }
 run_info = {
-  "input_deck_crc":         3871076978.,
+  "input_deck_crc":         1125643521.,
   "input_deck": """
 simulation
 {
@@ -91,6 +91,7 @@ species
 	num_par_max = 2048,
 	rqm = -1.0,
 	num_par_x(1:1) = 64,
+  	add_tag = .true.,
 }
 
 udist
@@ -110,10 +111,17 @@ spe_bound
 }
 
 diag_species
-{
+{	
+	ndump_fac_raw = 1,
 	ndump_fac_ene = 1,
 	ndump_fac_temp = 1,
 	ndump_fac = 1,
+
+	ndump_fac_tracks = 100,
+	niter_tracks = 1,
+	file_tags = "file_tags.tags",
+	ifdmp_tracks_efl(1:3) = .true., .true., .true.,
+	ifdmp_tracks_bfl(1:3) = .true., .true., .true.,
 
 	reports = "charge",
   	rep_udist = "vfl1", "T11",

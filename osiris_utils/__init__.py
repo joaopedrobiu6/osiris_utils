@@ -11,6 +11,7 @@ from .utils import (
 from .data.data import OsirisGridFile, OsirisRawFile, OsirisData, OsirisHIST, OsirisTrackFile
 from .data.simulation import Simulation, Species_Handler
 from .data.diagnostic import Diagnostic
+from .data.track_diagnostic import Track_Diagnostic
 
 from .decks.decks import InputDeckIO
 from .decks.species import Specie
