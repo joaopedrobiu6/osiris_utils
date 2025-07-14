@@ -151,14 +151,28 @@ class DatabaseCreator:
 
         del data_array_output
 
-    def create_database(self):
+    def create_database(self, database="both"):
         """
         Create the input and output databases.
         """
         if not os.path.exists(self.save_folder):
             os.makedirs(self.save_folder)
 
-        self._input_database()
-        self._output_database()
+        if database == "both":
+            print("Creating input and output databases...")
+            self._input_database()
+            print("Input database created.")
+            self._output_database()
+            print("Output database created.")
+        elif database == "input":
+            print("Creating input database...")
+            self._input_database()
+            print("Input database created.")
+        elif database == "output":
+            print("Creating output database...")
+            self._output_database()
+            print("Output database created.")
+        else:
+            raise ValueError("Invalid database type. Choose 'input', 'output', or 'both'.")
 
         print(f"Databases created and saved in {self.save_folder}")
