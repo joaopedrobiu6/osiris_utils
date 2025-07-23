@@ -32,7 +32,7 @@ jobs:
       - name: Static type check (mypy)
         run: |
           python -m pip install mypy types-tqdm types-Pillow
-          mypy osiris_utils
+          mypy 
 
 
       - name: Run test suite
