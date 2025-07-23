@@ -39,7 +39,7 @@ Quick-start
 
 .. image:: https://mybinder.org/badge_logo.svg
    :target: https://mybinder.org/v2/gh/joaopedrobiu6/osiris_utils/main?filepath=examples%2Fquick_start.ipynb
-   :alt: Launch quick‑start on Binder
+   :alt: Launch quick-start on Binder
 
 .. code-block:: bash
 
@@ -49,7 +49,7 @@ Quick-start
    cd osiris_utils
    python examples/quick_start.py examples/example_data/thermal.1d
 
-.. image:: docs/_static/quick_start_ez.png
+.. image:: _static/quick_start_ez.png
    :alt: Example Ez plot produced by the quick-start
    :width: 400px
 

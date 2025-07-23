@@ -8,7 +8,7 @@ OSIRIS Utils Documentation
 .. toctree::
    :maxdepth: 1
 
-   Quick-start notebook <../examples/quick_start.ipynb>
+   .. nbinclude:: ../../examples/quick_start.ipynb
    
 .. toctree::
    :maxdepth: 2
