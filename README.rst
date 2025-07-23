@@ -34,6 +34,25 @@ Finally, you can install it in editor mode if you want to contribute to the code
     git clone https://github.com/joaopedrobiu6/osiris_utils.git
     pip install -e .
 
+Quick-start
+-----------
+
+.. image:: https://mybinder.org/badge_logo.svg
+   :target: https://mybinder.org/v2/gh/joaopedrobiu6/osiris_utils/main?filepath=examples%2Fquick_start.ipynb
+   :alt: Launch quick‑start on Binder
+
+.. code-block:: bash
+
+   pip install osiris_utils              # from PyPI
+   python -m pip install matplotlib      # plotting backend (optional)
+   git clone https://github.com/joaopedrobiu6/osiris_utils  # sample data
+   cd osiris_utils
+   python examples/quick_start.py examples/example_data/thermal.1d
+
+.. image:: docs/_static/quick_start_ez.png
+   :alt: Example Ez plot produced by the quick-start
+   :width: 400px
+
 Documentation
 -------------
 

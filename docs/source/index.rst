@@ -4,6 +4,11 @@ OSIRIS Utils Documentation
 ==========================
 
 .. include:: ../../README.rst
+
+.. toctree::
+   :maxdepth: 1
+
+   Quick-start notebook <../examples/quick_start.ipynb>
    
 .. toctree::
    :maxdepth: 2
