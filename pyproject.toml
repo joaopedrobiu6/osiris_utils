@@ -62,12 +62,13 @@ dev  = [
   "types-Pillow",
 ]
 docs = [
-  "sphinx>=8",
-  "nbsphinx>=1.4",
-  "ipykernel",
-  "sphinx_copybutton<=0.5.2",
-  "sphinx-rtd-theme<3.0.3",
-  "sphinx-github-style<=1.2.2"
+    "sphinx>=8",
+    "nbsphinx>=0.9,<1.0",   # ← pin to the current major line
+    "ipykernel",
+    "myst-parser",
+    "sphinx_copybutton<=0.5.2",
+    "sphinx-rtd-theme<3.0.3",
+    "sphinx-github-style<=1.2.2"
 ]
 plot = ["seaborn>=0.13"]
 
