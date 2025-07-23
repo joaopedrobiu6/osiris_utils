@@ -95,6 +95,23 @@ fallback_version = "0.0.0"
   "docs/_static/*.png"
 ]
 
+[tool.ruff]
+line-length = 120          # instead of 88
+target-version = "py310"   # matches your min python
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]      # keep core errors, flakes, import-sort, bug-bear
+ignore = [
+    "E501",   # line too long (handled by black anyway)
+    "C901",   # complexity too high
+    "B028", "B904"
+]
+# Option: add per-file ignores for legacy modules
+per-file-ignores = { "osiris_utils/data/*.py" = ["ALL"] }
+
+[tool.ruff.format]
+quote-style = "preserve"   # follow black
+
 # ------------------------------  cibuildwheel  ----------------------------- #
 #  • builds wheels on CI when a git tag is pushed (see .github/workflows/*.yml)
 #  • Linux x86-64 only by default - extend matrix as needed
