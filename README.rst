@@ -1,6 +1,7 @@
 OSIRIS_UTILS
 ============
 |Pypi|
+
 .. image:: https://github.com/joaopedrobiu6/osiris_utils/actions/workflows/ci.yml/badge.svg
    :target: https://github.com/joaopedrobiu6/osiris_utils/actions
    :alt: CI status
