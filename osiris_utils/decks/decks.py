@@ -281,7 +281,7 @@ class InputDeckIO:
                 # If neither exists, raise an informative error
                 raise KeyError(
                     "Could not find 'num_species' or 'num_cathode' in the particles section"
-                )
+                ) from None
 
     @property
     def species(self):
