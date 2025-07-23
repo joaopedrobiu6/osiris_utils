@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 
 import h5py
@@ -6,7 +8,7 @@ import pandas as pd
 import scipy
 
 
-def courant2D(dx, dy):
+def courant2D(dx: float, dy: float) -> float:
     """
     Compute the Courant number for a 2D simulation.
 
@@ -26,7 +28,7 @@ def courant2D(dx, dy):
     return dt
 
 
-def time_estimation(n_cells, ppc, t_steps, n_cpu, push_time=1e-7, hours=False):
+def time_estimation(n_cells: int, ppc: int, t_steps: int, n_cpu: int, push_time: float = 1e-7, hours: bool = False) -> float:
     """
     Estimate the simulation time.
 
@@ -57,11 +59,11 @@ def time_estimation(n_cells, ppc, t_steps, n_cpu, push_time=1e-7, hours=False):
         return time
 
 
-def filesize_estimation(n_gridpoints):
+def filesize_estimation(n_gridpoints: int) -> float:
     return n_gridpoints * 4 / (1024**2)
 
 
-def transverse_average(data):
+def transverse_average(data: np.ndarray) -> np.ndarray:
     """
     Computes the transverse average of a 2D array.
 
@@ -84,7 +86,7 @@ def transverse_average(data):
     return np.mean(data, axis=1)
 
 
-def integrate(array, dx):
+def integrate(array: np.ndarray, dx: float) -> np.ndarray:
     """
     Integrate a 1D from the left to the right. This may be changed in the future to allow
     for integration in both directions or for other more general cases.
@@ -112,7 +114,7 @@ def integrate(array, dx):
     return np.flip(int)
 
 
-def save_data(data, savename, option="numpy"):
+def save_data(data: np.ndarray, savename: str, option: str = "numpy"):
     """
     Save the data to a .txt (with Numpy) or .csv (with Pandas) file.
 
@@ -133,7 +135,7 @@ def save_data(data, savename, option="numpy"):
         raise ValueError("Option must be 'numpy' or 'pandas'.")
 
 
-def read_data(filename, option="numpy"):
+def read_data(filename: str, option: str = "numpy") -> np.ndarray:
     """
     Read the data from a .txt file.
 
@@ -151,7 +153,7 @@ def read_data(filename, option="numpy"):
     return np.loadtxt(filename) if option == "numpy" else pd.read_csv(filename).values
 
 
-def convert_tracks(filename_in):
+def convert_tracks(filename_in: str) -> str:
     """
     Converts a new OSIRIS track file aka IDL-formatted aka tracks-2 to an older format that is more human-readable.
     In the old format, each particle is stored in a separate folder, with datasets for each quantity.
@@ -245,7 +247,7 @@ def convert_tracks(filename_in):
     return filename_out
 
 
-def create_file_tags(filename, tags_array):
+def create_file_tags(filename: str, tags_array: np.ndarray) -> str:
     """
     Function to write a file_tags file from a (number_of_tags, 2) NumPy array of tags.
     this file is used to choose particles for the OSIRIS track diagnostic.
