@@ -7,17 +7,17 @@ Took some inspiration from Diogo and Madox's work.
 This would be awsome to compute time derivatives.
 """
 
-import numpy as np
-import os
 import glob
-import h5py
-
-from .data import OsirisGridFile
-import tqdm
-import matplotlib.pyplot as plt
+import os
 import warnings
 from typing import Literal
 
+import h5py
+import matplotlib.pyplot as plt
+import numpy as np
+import tqdm
+
+from .data import OsirisGridFile
 
 OSIRIS_DENSITY = ["n"]
 OSIRIS_SPECIE_REPORTS = ["charge", "q1", "q2", "q3", "j1", "j2", "j3"]
@@ -166,7 +166,7 @@ class Diagnostic:
         Plot a 3D scatter plot of the diagnostic data.
     time(index)
         Get the time for a given index.
-        
+
     """
 
     def __init__(self, simulation_folder=None, species=None, input_deck=None):
@@ -296,7 +296,7 @@ class Diagnostic:
         #     self._x = [np.arange(self._grid[i,0], self._grid[i,1], self._dx[i]) for i in range(self._dim)]
 
         self._ndump = int(input_deck["time_step"][0]["ndump"])
-        
+
         try:
             # Try files 000001, 000002, etc. until one is found
             found_file = False
@@ -319,11 +319,15 @@ class Diagnostic:
                     self._type = dump.type
                     found_file = True
                     break
-            
+
             if not found_file:
-                warnings.warn(f"No valid data files found in {self._path} to read metadata from.")
+                warnings.warn(
+                    f"No valid data files found in {self._path} to read metadata from."
+                )
         except Exception as e:
-            warnings.warn(f"Error loading diagnostic attributes: {str(e)}. Please verify it there's any file in the folder.")
+            warnings.warn(
+                f"Error loading diagnostic attributes: {str(e)}. Please verify it there's any file in the folder."
+            )
 
     def _data_generator(self, index):
         if self._simulation_folder is None:
@@ -351,7 +355,9 @@ class Diagnostic:
             return self._data
 
         # If this is a derived diagnostic without files
-        if hasattr(self, "postprocess_name") or hasattr(self, "created_diagnostic_name"):
+        if hasattr(self, "postprocess_name") or hasattr(
+            self, "created_diagnostic_name"
+        ):
             # If it has a data generator but no direct files
             try:
                 print(
@@ -448,7 +454,7 @@ class Diagnostic:
     #     raise ValueError(
     #         f"Cannot retrieve data for this diagnostic at index {index}. No data loaded and no generator available."
     #     )
-    
+
     def __getitem__(self, index):
         if self._all_loaded and self._data is not None:
             return self._data[index]
@@ -466,11 +472,7 @@ class Diagnostic:
         elif isinstance(index, slice):
             start = index.start or 0
             step = index.step or 1
-            stop = (
-                index.stop
-                if index.stop is not None
-                else self._maxiter
-            )
+            stop = index.stop if index.stop is not None else self._maxiter
             indices = range(start, stop, step)
 
             if has_gen:
@@ -562,7 +564,7 @@ class Diagnostic:
                 )
 
             result.created_diagnostic_name = "MISC"
-    
+
             return result
 
         elif isinstance(other, Diagnostic):
@@ -657,7 +659,6 @@ class Diagnostic:
             return result
 
         elif isinstance(other, Diagnostic):
-
             result = Diagnostic(species=self._species)
 
             for attr in [
@@ -743,7 +744,7 @@ class Diagnostic:
                 result._data_generator = lambda index: gen_scalar_mul(
                     original_generator(index), other
                 )
-                
+
             result.created_diagnostic_name = "MISC"
 
             return result
@@ -789,7 +790,7 @@ class Diagnostic:
                 result._data_generator = lambda index: gen_diag_mul(
                     original_generator(index), other_generator(index)
                 )
-                
+
             result.created_diagnostic_name = "MISC"
 
             return result
@@ -834,13 +835,12 @@ class Diagnostic:
                 result._data_generator = lambda index: gen_scalar_div(
                     original_generator(index), other
                 )
-                
+
             result.created_diagnostic_name = "MISC"
 
             return result
 
         elif isinstance(other, Diagnostic):
-
             result = Diagnostic(species=self._species)
 
             for attr in [
@@ -881,7 +881,7 @@ class Diagnostic:
                 result._data_generator = lambda index: gen_diag_div(
                     original_generator(index), other_generator(index)
                 )
-                
+
             result.created_diagnostic_name = "MISC"
 
             return result
@@ -928,7 +928,7 @@ class Diagnostic:
                 result._data_generator = lambda index: gen_scalar_pow(
                     original_generator(index), other
                 )
-                
+
             result.created_diagnostic_name = "MISC"
 
             return result
@@ -990,13 +990,12 @@ class Diagnostic:
                 result._data_generator = lambda index: gen_scalar_rdiv(
                     other, original_generator(index)
                 )
-                
+
             result.created_diagnostic_name = "MISC"
 
             return result
 
         elif isinstance(other, Diagnostic):
-
             result = Diagnostic(species=self._species)
 
             for attr in [
@@ -1037,7 +1036,7 @@ class Diagnostic:
                 result._data_generator = lambda index: gen_diag_div(
                     original_generator(index), other_generator(index)
                 )
-                
+
             result.created_diagnostic_name = "MISC"
 
             return result
@@ -1068,7 +1067,7 @@ class Diagnostic:
         if savename is None:
             print(f"No savename provided. Using {self._name}.")
             savename = self._name
-        
+
         if hasattr(self, "created_diagnostic_name"):
             self._default_save = self.created_diagnostic_name
         elif hasattr(self, "postprocess_name"):
@@ -1080,54 +1079,93 @@ class Diagnostic:
             os.makedirs(self._save_path)
             if verbose:
                 print(f"Created folder {self._save_path}")
-        
+
         if verbose:
             print(f"Save Path: {self._save_path}")
 
         def savefile(filename, i):
-            with h5py.File(filename, 'w') as f:
+            with h5py.File(filename, "w") as f:
                 # Create SIMULATION group with attributes
                 sim_group = f.create_group("SIMULATION")
                 sim_group.attrs.create("DT", [self._dt])
                 sim_group.attrs.create("NDIMS", [self._dim])
-                
+
                 # Set file attributes
                 f.attrs.create("TIME", [self.time(i)[0]])
-                f.attrs.create("TIME UNITS", [np.bytes_(self.time(i)[1].encode()) if self.time(i)[1] else np.bytes_(b"")])
+                f.attrs.create(
+                    "TIME UNITS",
+                    [
+                        (
+                            np.bytes_(self.time(i)[1].encode())
+                            if self.time(i)[1]
+                            else np.bytes_(b"")
+                        )
+                    ],
+                )
                 f.attrs.create("ITER", [self._ndump * i])
-                f.attrs.create("NAME", [np.bytes_(self._name.encode())]) 
+                f.attrs.create("NAME", [np.bytes_(self._name.encode())])
                 f.attrs.create("TYPE", [np.bytes_(self._type.encode())])
-                f.attrs.create("UNITS", [np.bytes_(self._units.encode()) if self._units else np.bytes_(b"")])
-                f.attrs.create("LABEL", [np.bytes_(self._label.encode()) if self._label else np.bytes_(b"")])
-                
+                f.attrs.create(
+                    "UNITS",
+                    [
+                        (
+                            np.bytes_(self._units.encode())
+                            if self._units
+                            else np.bytes_(b"")
+                        )
+                    ],
+                )
+                f.attrs.create(
+                    "LABEL",
+                    [
+                        (
+                            np.bytes_(self._label.encode())
+                            if self._label
+                            else np.bytes_(b"")
+                        )
+                    ],
+                )
+
                 # Create dataset with data (transposed to match convention)
                 f.create_dataset(savename, data=self[i].T)
-                
+
                 # Create AXIS group
                 axis_group = f.create_group("AXIS")
-                
+
                 # Create axis datasets
-                axis_names = ["AXIS1", "AXIS2", "AXIS3"][:self._dim]
+                axis_names = ["AXIS1", "AXIS2", "AXIS3"][: self._dim]
                 axis_shortnames = [self._axis[i]["name"] for i in range(self._dim)]
                 axis_longnames = [self._axis[i]["long_name"] for i in range(self._dim)]
                 axis_units = [self._axis[i]["units"] for i in range(self._dim)]
-                
+
                 for i, axis_name in enumerate(axis_names):
                     # Create axis dataset
-                    axis_dataset = axis_group.create_dataset(axis_name, data=np.array(self._grid[i]))
-                    
+                    axis_dataset = axis_group.create_dataset(
+                        axis_name, data=np.array(self._grid[i])
+                    )
+
                     # Set axis attributes
-                    axis_dataset.attrs.create("NAME", [np.bytes_(axis_shortnames[i].encode())])
-                    axis_dataset.attrs.create("UNITS", [np.bytes_(axis_units[i].encode())])
-                    axis_dataset.attrs.create("LONG_NAME", [np.bytes_(axis_longnames[i].encode())])
+                    axis_dataset.attrs.create(
+                        "NAME", [np.bytes_(axis_shortnames[i].encode())]
+                    )
+                    axis_dataset.attrs.create(
+                        "UNITS", [np.bytes_(axis_units[i].encode())]
+                    )
+                    axis_dataset.attrs.create(
+                        "LONG_NAME", [np.bytes_(axis_longnames[i].encode())]
+                    )
                     axis_dataset.attrs.create("TYPE", [np.bytes_("linear".encode())])
-                
+
                 if verbose:
                     print(f"File created: {filename}")
 
-        print(f"The savename of the diagnostic is {savename}. Files will be saves as {savename}-000001.h5, {savename}-000002.h5, etc.")
-        
-        print("If you desire a different name, please set it with the 'name' method (setter).")
+        print(
+            f"The savename of the diagnostic is {savename}. Files will be saves as {savename}-000001.h5, {savename}-000002.h5, etc."
+        )
+
+        print(
+            "If you desire a different name, please set it with the 'name' method (setter)."
+        )
 
         if self._name is None:
             raise ValueError("Diagnostic name is not set. Cannot save to HDF5.")
@@ -1150,8 +1188,10 @@ class Diagnostic:
                 filename = self._save_path + f"/{savename}-{i:06d}.h5"
                 savefile(filename, i)
         else:
-            raise ValueError("index should be an int, slice, or list of ints, or all should be True")
-                    
+            raise ValueError(
+                "index should be an int, slice, or list of ints, or all should be True"
+            )
+
     def plot_3d(
         self,
         idx,
@@ -1197,7 +1237,7 @@ class Diagnostic:
         if not isinstance(boundaries, np.ndarray):
             try:
                 boundaries = np.array(boundaries)
-            except Exception: 
+            except Exception:
                 boundaries = self._grid
                 warnings.warn(
                     "boundaries cannot be accessed as a numpy array with shape (3, 2), using default instead"
@@ -1361,7 +1401,7 @@ class Diagnostic:
     @property
     def ndump(self):
         return self._ndump
-    
+
     # @property
     # def iter(self):
     #     return self._iter
@@ -1377,7 +1417,7 @@ class Diagnostic:
     @property
     def label(self):
         return self._label
-    
+
     @property
     def type(self):
         return self._type
@@ -1393,15 +1433,17 @@ class Diagnostic:
         """
         Prints the attributes of the diagnostic.
         """
-        print(f"dt: {self._dt}\n"
-              f"dim: {self._dim}\n"
-              f"time: {self.time(index)[0]}\n"
-              f"tunits: {self.time(index)[1]}\n"
-              f"iter: {self._ndump * index}\n"
-              f"name: {self._name}\n"
-              f"type: {self._type}\n"
-              f"label: {self._label}\n"
-              f"units: {self._units}")
+        print(
+            f"dt: {self._dt}\n"
+            f"dim: {self._dim}\n"
+            f"time: {self.time(index)[0]}\n"
+            f"tunits: {self.time(index)[1]}\n"
+            f"iter: {self._ndump * index}\n"
+            f"name: {self._name}\n"
+            f"type: {self._type}\n"
+            f"label: {self._label}\n"
+            f"units: {self._units}"
+        )
 
     @dx.setter
     def dx(self, value):
