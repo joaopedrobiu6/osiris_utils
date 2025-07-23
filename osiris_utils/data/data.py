@@ -203,7 +203,7 @@ class OsirisGridFile(OsirisData):
                 "units": self._file["AXIS/" + ax].attrs["UNITS"][0].decode("utf-8"),
                 "long_name": self._file["AXIS/" + ax].attrs["LONG_NAME"][0].decode("utf-8"),
                 "type": self._file["AXIS/" + ax].attrs["TYPE"][0].decode("utf-8"),
-                "plot_label": rf'${self._file["AXIS/"+ax].attrs["LONG_NAME"][0].decode("utf-8")}$ $[{self._file["AXIS/"+ax].attrs["UNITS"][0].decode("utf-8")}]$',
+                "plot_label": rf'${self._file["AXIS/" + ax].attrs["LONG_NAME"][0].decode("utf-8")}$ $[{self._file["AXIS/" + ax].attrs["UNITS"][0].decode("utf-8")}]$',
             }
             self._axis.append(axis_data)
 
@@ -777,9 +777,7 @@ def reorder_track_data(unordered_data, indexes, field_names):
         for time_iter in range(num_time_iter):
             index = indexes[particle][time_iter]
             if len(unordered_data[index]) != len(field_names):
-                raise ValueError(
-                    f"Data at index {index} has {len(unordered_data[index])} elements, " f"but {len(field_names)} are expected."
-                )
+                raise ValueError(f"Data at index {index} has {len(unordered_data[index])} elements, but {len(field_names)} are expected.")
             data_sorted[particle, time_iter] = tuple(unordered_data[index])
 
     return data_sorted
