@@ -29,7 +29,12 @@ class Specie:
         Specie mass in units of the electron mass.
     """
 
-    def __init__(self, name, rqm, q: int = 1):
+    def __init__(
+        self,
+        name: str,
+        rqm: float,
+        q: int = 1,
+    ):
         self._name = name
         self._rqm = rqm
         self._q = q
@@ -39,17 +44,17 @@ class Specie:
         return f"Specie(name={self._name}, rqm={self._rqm}, q={self._q}, m={self._m})"
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self._name
 
     @property
-    def rqm(self):
+    def rqm(self) -> float:
         return self._rqm
 
     @property
-    def q(self):
+    def q(self) -> int:
         return self._q
 
     @property
-    def m(self):
+    def m(self) -> float:
         return self._m
