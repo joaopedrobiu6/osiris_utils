@@ -49,10 +49,6 @@ Quick-start
    cd osiris_utils
    python examples/quick_start.py examples/example_data/thermal.1d
 
-.. image:: docs/source/_static/quick_start_ez.png
-   :alt: Example Ez plot produced by the quick-start
-   :width: 400px
-
 Documentation
 -------------
 

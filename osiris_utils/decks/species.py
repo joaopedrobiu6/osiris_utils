@@ -35,7 +35,7 @@ class Specie:
         self._q = q
         self._m = rqm * q
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Specie(name={self._name}, rqm={self._rqm}, q={self._q}, m={self._m})"
 
     @property
