@@ -34,6 +34,21 @@ Finally, you can install it in editor mode if you want to contribute to the code
     git clone https://github.com/joaopedrobiu6/osiris_utils.git
     pip install -e .
 
+Quick-start
+-----------
+
+.. code-block:: bash
+
+   pip install osiris_utils              # from PyPI
+   python -m pip install matplotlib      # plotting backend (optional)
+   git clone https://github.com/joaopedrobiu6/osiris_utils  # sample data
+   cd osiris_utils
+   python examples/quick_start.py examples/example_data/thermal.1d
+
+.. image:: docs/_static/quick_start_ez.png
+   :alt: Example Ez plot produced by the quick-start
+   :width: 400px
+
 Documentation
 -------------
 
