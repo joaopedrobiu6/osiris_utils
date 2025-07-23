@@ -53,7 +53,7 @@ class InputDeckIO:
         self._dim = self._get_dim()
         self._species = self._get_species()
 
-    def _parse_input_deck(self, verbose: bool) -> List[List[str, dict]]:
+    def _parse_input_deck(self, verbose: bool) -> List[List[str, Dict[str, str]]]:
         section_list = []
 
         if verbose:
