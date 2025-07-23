@@ -84,7 +84,7 @@ class InputDeckIO:
             )
 
         # parse section information
-        for section, info in zip(section_names, section_infos):
+        for section, info in zip(section_names, section_infos, strict=False):
             if verbose:
                 print(f"Reading {section}")
 

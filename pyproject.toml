@@ -96,7 +96,7 @@ fallback_version = "0.0.0"
 ]
 
 [tool.ruff]
-line-length = 120          # instead of 88
+line-length = 140          # instead of 88
 target-version = "py310"   # matches your min python
 
 [tool.ruff.lint]
@@ -111,6 +111,9 @@ per-file-ignores = { "osiris_utils/data/*.py" = ["ALL"] }
 
 [tool.ruff.format]
 quote-style = "preserve"   # follow black
+
+[tool.ruff.lint.mccabe]
+max-complexity = 25
 
 # ------------------------------  cibuildwheel  ----------------------------- #
 #  • builds wheels on CI when a git tag is pushed (see .github/workflows/*.yml)

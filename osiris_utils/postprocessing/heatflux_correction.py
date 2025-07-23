@@ -145,7 +145,7 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         # Sum over j: vfl_j * Pji
         vfl_dot_Pji = sum(
             vfl_j.data * Pji.data
-            for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list)
+            for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list, strict=False)
         )
 
         self._data = 2 * q - 0.5 * vfl_i * trace_P - vfl_dot_Pji
@@ -176,7 +176,7 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         trace_P = sum(Pjj[index] for Pjj in self._Pjj_list)
         vfl_dot_Pji = sum(
             vfl_j[index] * Pji[index]
-            for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list)
+            for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list, strict=False)
         )
         yield 2 * q - 0.5 * vfl_i * trace_P - vfl_dot_Pji
 
