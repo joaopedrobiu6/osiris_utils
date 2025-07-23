@@ -215,21 +215,6 @@ To create a tag file directly from raw data, see :class:`osiris_utils.data.data.
    **Notes:**  
    - The function generates the `file_tags` file in a format that can be used by the OSIRIS track diagnostic.
 
-Visualization & GUI
--------------------
-
-Interactive Visualization
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: osiris_utils.gui.gui.LAVA
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :noindex:
-
-   LAVA (Lightweight Analysis and Visualization Application) provides interactive 
-   visualization capabilities for OSIRIS data.
-
 Physics & Analysis
 ------------------
 

@@ -1,11 +1,12 @@
-from ..data.simulation import Simulation
-from .postprocess import PostProcess
-from ..data.diagnostic import Diagnostic
 import numpy as np
 
+from ..data.diagnostic import Diagnostic
+from ..data.simulation import Simulation
+from .postprocess import PostProcess
 from .pressure_correction import PressureCorrection_Simulation
 
 OSIRIS_H = ["q1", "q2", "q3"]
+
 
 class HeatfluxCorrection_Simulation(PostProcess):
     def __init__(self, simulation):
@@ -38,7 +39,6 @@ class HeatfluxCorrection_Simulation(PostProcess):
             self._heatflux_corrected[key] = HeatfluxCorrection_Diagnostic(self._simulation[key], self._simulation)
         return self._heatflux_corrected[key]
 
-    
     def delete_all(self):
         self._heatflux_corrected = {}
 
@@ -47,14 +47,14 @@ class HeatfluxCorrection_Simulation(PostProcess):
             del self._heatflux_corrected[key]
         else:
             print(f"Heatflux {key} not found in simulation")
-    
+
     def process(self, diagnostic):
         """Apply heatflux correction to a diagnostic"""
         return HeatfluxCorrection_Diagnostic(diagnostic, self._simulation)
-    
+
+
 class HeatfluxCorrection_Diagnostic(Diagnostic):
     def __init__(self, diagnostic, vfl_i, Pjj_list, vfl_j_list, Pji_list):
-
         """
         Class to correct the pressure in the simulation.
 
@@ -63,17 +63,19 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         diagnostic : Diagnostic
             The diagnostic object.
         """
-        if hasattr(diagnostic, '_species'):
-            super().__init__(simulation_folder=diagnostic._simulation_folder if hasattr(diagnostic, '_simulation_folder') else None, 
-                             species=diagnostic._species)
+        if hasattr(diagnostic, "_species"):
+            super().__init__(
+                simulation_folder=(diagnostic._simulation_folder if hasattr(diagnostic, "_simulation_folder") else None),
+                species=diagnostic._species,
+            )
         else:
             super().__init__(None)
-        
+
         self.postprocess_name = "HFL_CORR"
 
         if diagnostic._name not in OSIRIS_H:
             raise ValueError(f"Invalid heatflux component {diagnostic._name}. Supported: {OSIRIS_H}")
-        
+
         self._diag = diagnostic
 
         # The density and velocities are now passed as arguments (so it can doesn't depend on the simulation)
@@ -82,7 +84,18 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         self._vfl_j_list = vfl_j_list
         self._Pji_list = Pji_list
 
-        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter', '_type']:
+        for attr in [
+            "_dt",
+            "_dx",
+            "_ndump",
+            "_axis",
+            "_nx",
+            "_x",
+            "_grid",
+            "_dim",
+            "_maxiter",
+            "_type",
+        ]:
             if hasattr(diagnostic, attr):
                 setattr(self, attr, getattr(diagnostic, attr))
 
@@ -95,14 +108,13 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
     def load_all(self):
         if self._data is not None:
             return self._data
-        
-        if not hasattr(self._diag, '_data') or self._diag._data is None:
+
+        if not hasattr(self._diag, "_data") or self._diag._data is None:
             self._diag.load_all()
 
         print(f"Loading {self._species._name} {self._original_name} diagnostic")
-        
+
         self._vfl_i.load_all()
-        
 
         for vfl_j in self._vfl_j_list:
             vfl_j.load_all()
@@ -113,23 +125,22 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
 
         q = self._diag.data
         vfl_i = self._vfl_i.data
-        
+
         trace_P = sum(Pjj.data for Pjj in self._Pjj_list)
 
         # Sum over j: vfl_j * Pji
-        vfl_dot_Pji = sum(vfl_j.data * Pji.data for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list))
+        vfl_dot_Pji = sum(vfl_j.data * Pji.data for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list, strict=False))
 
         self._data = 2 * q - 0.5 * vfl_i * trace_P - vfl_dot_Pji
         self._all_loaded = True
 
-
         return self._data
-    
+
     def __getitem__(self, index):
         """Get data at a specific index"""
         if self._all_loaded and self._data is not None:
             return self._data[index]
-        
+
         if isinstance(index, int):
             return next(self._data_generator(index))
         elif isinstance(index, slice):
@@ -144,9 +155,10 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         q = self._diag[index]
         vfl_i = self._vfl_i[index]
         trace_P = sum(Pjj[index] for Pjj in self._Pjj_list)
-        vfl_dot_Pji = sum(vfl_j[index] * Pji[index] for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list))
+        vfl_dot_Pji = sum(vfl_j[index] * Pji[index] for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list, strict=False))
         yield 2 * q - 0.5 * vfl_i * trace_P - vfl_dot_Pji
-        
+
+
 class HeatfluxCorrection_Species_Handler:
     """
     Class to handle heatflux correction for a species.
@@ -161,6 +173,7 @@ class HeatfluxCorrection_Species_Handler:
     simulation : Simulation
         The simulation object.
     """
+
     def __init__(self, species_handler, simulation):
         self._species_handler = species_handler
         self._simulation = simulation
@@ -173,7 +186,7 @@ class HeatfluxCorrection_Species_Handler:
             # Velocities alwayes depend on the species so this can be done here
 
             i = int(key[-1])  # Get i from 'q1', 'q2', etc.
-            
+
             vfl_i = self._species_handler[f"vfl{i}"]
 
             # Load trace(P): sum over Pjj
@@ -183,11 +196,5 @@ class HeatfluxCorrection_Species_Handler:
             vfl_j_list = [self._species_handler[f"vfl{j}"] for j in range(1, diag._dim + 1)]
             Pji_list = [PressureCorrection_Simulation(self._simulation)[diag._species._name][f"P{j}{i}"] for j in range(1, diag._dim + 1)]
 
-            self._heatflux_corrected[key] = HeatfluxCorrection_Diagnostic(
-                diag,
-                vfl_i,
-                Pjj_list,
-                vfl_j_list,
-                Pji_list
-            )
+            self._heatflux_corrected[key] = HeatfluxCorrection_Diagnostic(diag, vfl_i, Pjj_list, vfl_j_list, Pji_list)
         return self._heatflux_corrected[key]

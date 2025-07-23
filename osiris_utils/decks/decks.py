@@ -1,6 +1,7 @@
-import re
 import ast
 import copy
+import re
+
 import numpy as np
 
 from .species import Specie
@@ -48,7 +49,6 @@ class InputDeckIO:
         self._species = self._get_species()
 
     def _parse_input_deck(self, verbose):
-
         section_list = []
 
         if verbose:
@@ -64,9 +64,7 @@ class InputDeckIO:
         lines = "".join(lines)
 
         # remove tabs/spaces/paragraphs (except spaces inside "")
-        lines = re.sub(
-            r'"[^"]*"|(\s+)', lambda x: "" if x.group(1) else x.group(0), lines
-        )
+        lines = re.sub(r'"[^"]*"|(\s+)', lambda x: "" if x.group(1) else x.group(0), lines)
 
         # split sections
         # get name before brackets
@@ -84,7 +82,7 @@ class InputDeckIO:
             )
 
         # parse section information
-        for section, info in zip(section_names, section_infos):
+        for section, info in zip(section_names, section_infos, strict=False):
             if verbose:
                 print(f"Reading {section}")
 
@@ -149,9 +147,7 @@ class InputDeckIO:
                 dim = i
                 break
         if dim is None:
-            raise RuntimeError(
-                "Error parsing grid dimension. Grid dimension could not be estabilished."
-            )
+            raise RuntimeError("Error parsing grid dimension. Grid dimension could not be estabilished.")
         return dim
 
     def _get_species(self):
@@ -166,20 +162,11 @@ class InputDeckIO:
             s_qreal = np.ones(len(s_names))
         # check if we have information for all species
         if len(s_names) != self.n_species:
-            raise RuntimeError(
-                "Number of specie names does not match number of species: "
-                f"{len(s_names)} != {len(self.n_species)}."
-            )
+            raise RuntimeError("Number of specie names does not match number of species: " f"{len(s_names)} != {len(self.n_species)}.")
         if len(s_rqm) != self.n_species:
-            raise RuntimeError(
-                "Number of specie rqm does not match number of species: "
-                f"{len(s_rqm)} != {len(self.n_species)}."
-            )
+            raise RuntimeError("Number of specie rqm does not match number of species: " f"{len(s_rqm)} != {len(self.n_species)}.")
         if len(s_qreal) != self.n_species:
-            raise RuntimeError(
-                "Number of specie rqm does not match number of species: "
-                f"{len(s_qreal)} != {len(self.n_species)}."
-            )
+            raise RuntimeError("Number of specie rqm does not match number of species: " f"{len(s_qreal)} != {len(self.n_species)}.")
 
         return {
             ast.literal_eval(s_names[i]): Specie(
@@ -206,10 +193,7 @@ class InputDeckIO:
 
         for i in i_sections:
             if not unexistent_ok and param not in self._sections[i][1]:
-                raise KeyError(
-                    f'"{param}" not yet inside section "{section}" '
-                    "(set unexistent_ok=True to ignore)."
-                )
+                raise KeyError(f'"{param}" not yet inside section "{section}" ' "(set unexistent_ok=True to ignore).")
             if isinstance(value, str):
                 self._sections[i][1][param] = str(f'"{value}"')
             elif isinstance(value, list):
@@ -279,9 +263,7 @@ class InputDeckIO:
                 return int(self["particles"][0]["num_cathode"])
             except (KeyError, IndexError):
                 # If neither exists, raise an informative error
-                raise KeyError(
-                    "Could not find 'num_species' or 'num_cathode' in the particles section"
-                )
+                raise KeyError("Could not find 'num_species' or 'num_cathode' in the particles section") from None
 
     @property
     def species(self):

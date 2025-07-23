@@ -1,9 +1,11 @@
-from ..data.simulation import Simulation
-from .postprocess import PostProcess
-from ..data.diagnostic import Diagnostic
 import numpy as np
 
+from ..data.diagnostic import Diagnostic
+from ..data.simulation import Simulation
+from .postprocess import PostProcess
+
 OSIRIS_P = ["P11", "P12", "P13", "P21", "P22", "P23", "P31", "P32", "P33"]
+
 
 class PressureCorrection_Simulation(PostProcess):
     def __init__(self, simulation):
@@ -36,7 +38,6 @@ class PressureCorrection_Simulation(PostProcess):
             self._pressure_corrected[key] = PressureCorrection_Diagnostic(self._simulation[key], self._simulation)
         return self._pressure_corrected[key]
 
-    
     def delete_all(self):
         self._pressure_corrected = {}
 
@@ -45,14 +46,14 @@ class PressureCorrection_Simulation(PostProcess):
             del self._pressure_corrected[key]
         else:
             print(f"Pressure {key} not found in simulation")
-    
+
     def process(self, diagnostic):
         """Apply pressure correction to a diagnostic"""
         return PressureCorrection_Diagnostic(diagnostic, self._simulation)
-    
+
+
 class PressureCorrection_Diagnostic(Diagnostic):
     def __init__(self, diagnostic, n, ufl_j, vfl_k):
-
         """
         Class to correct the pressure in the simulation.
 
@@ -61,17 +62,19 @@ class PressureCorrection_Diagnostic(Diagnostic):
         diagnostic : Diagnostic
             The diagnostic object.
         """
-        if hasattr(diagnostic, '_species'):
-            super().__init__(simulation_folder=diagnostic._simulation_folder if hasattr(diagnostic, '_simulation_folder') else None, 
-                             species=diagnostic._species)
+        if hasattr(diagnostic, "_species"):
+            super().__init__(
+                simulation_folder=(diagnostic._simulation_folder if hasattr(diagnostic, "_simulation_folder") else None),
+                species=diagnostic._species,
+            )
         else:
             super().__init__(None)
-        
+
         self.postprocess_name = "P_CORR"
 
         if diagnostic._name not in OSIRIS_P:
             raise ValueError(f"Invalid pressure component {diagnostic._name}. Supported: {OSIRIS_P}")
-        
+
         self._diag = diagnostic
 
         # The density and velocities are now passed as arguments (so it can doesn't depend on the simulation)
@@ -79,7 +82,18 @@ class PressureCorrection_Diagnostic(Diagnostic):
         self._ufl_j = ufl_j
         self._vfl_k = vfl_k
 
-        for attr in ['_dt', '_dx', '_ndump', '_axis', '_nx', '_x', '_grid', '_dim', '_maxiter', '_type']:
+        for attr in [
+            "_dt",
+            "_dx",
+            "_ndump",
+            "_axis",
+            "_nx",
+            "_x",
+            "_grid",
+            "_dim",
+            "_maxiter",
+            "_type",
+        ]:
             if hasattr(diagnostic, attr):
                 setattr(self, attr, getattr(diagnostic, attr))
 
@@ -92,8 +106,8 @@ class PressureCorrection_Diagnostic(Diagnostic):
     def load_all(self):
         if self._data is not None:
             return self._data
-        
-        if not hasattr(self._diag, '_data') or self._diag._data is None:
+
+        if not hasattr(self._diag, "_data") or self._diag._data is None:
             self._diag.load_all()
 
         print(f"Loading {self._species._name} {self._original_name} diagnostic")
@@ -105,7 +119,7 @@ class PressureCorrection_Diagnostic(Diagnostic):
         n = self._n.data
         u = self._ufl_j.data
         v = self._vfl_k.data
-        
+
         self._data = self._diag.data - n * v * u
         self._all_loaded = True
 
@@ -115,12 +129,12 @@ class PressureCorrection_Diagnostic(Diagnostic):
         # self._vfl_k.unload()
 
         return self._data
-    
+
     def __getitem__(self, index):
         """Get data at a specific index"""
         if self._all_loaded and self._data is not None:
             return self._data[index]
-        
+
         if isinstance(index, int):
             return next(self._data_generator(index))
         elif isinstance(index, slice):
@@ -132,8 +146,9 @@ class PressureCorrection_Diagnostic(Diagnostic):
             raise ValueError("Invalid index type. Use int or slice.")
 
     def _data_generator(self, index):
-        yield self._diag[index] - self._n[index] * self._vfl_k[index] * self._ufl_j[index]
-        
+        yield (self._diag[index] - self._n[index] * self._vfl_k[index] * self._ufl_j[index])
+
+
 class PressureCorrection_Species_Handler:
     """
     Class to handle pressure correction for a species.
@@ -150,6 +165,7 @@ class PressureCorrection_Species_Handler:
     axis : int or tuple
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
     """
+
     def __init__(self, species_handler):
         self._species_handler = species_handler
         self._pressure_corrected = {}
