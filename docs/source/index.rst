@@ -4,6 +4,16 @@ OSIRIS Utils Documentation
 ==========================
 
 .. include:: ../../README.rst
+
+.. toctree::
+   :maxdepth: 1
+
+   Quick-start notebook <../examples/quick_start.ipynb>
+   
+.. image:: https://mybinder.org/badge_logo.svg
+   :target: https://mybinder.org/v2/gh/joaopedrobiu6/osiris_utils/main?filepath=examples%2Fquick_start.ipynb
+   :alt: Launch quick‑start on Binder
+
    
 .. toctree::
    :maxdepth: 2

@@ -37,3 +37,13 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with: { python-version: '3.11' }
+      - run: |
+          pip install -e '.[dev]' myst-nb sphinx
+          make -C docs html

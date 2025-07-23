@@ -1,1 +1,3 @@
 include requirements.txt
+recursive-include examples/example_data *
+recursive-include docs/_static *.png
