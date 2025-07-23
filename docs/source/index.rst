@@ -10,11 +10,6 @@ OSIRIS Utils Documentation
 
    Quick-start notebook <../examples/quick_start.ipynb>
    
-.. image:: https://mybinder.org/badge_logo.svg
-   :target: https://mybinder.org/v2/gh/joaopedrobiu6/osiris_utils/main?filepath=examples%2Fquick_start.ipynb
-   :alt: Launch quick‑start on Binder
-
-   
 .. toctree::
    :maxdepth: 2
    :caption: Simulation and Diagnostic API:

@@ -37,6 +37,10 @@ Finally, you can install it in editor mode if you want to contribute to the code
 Quick-start
 -----------
 
+.. image:: https://mybinder.org/badge_logo.svg
+   :target: https://mybinder.org/v2/gh/joaopedrobiu6/osiris_utils/main?filepath=examples%2Fquick_start.ipynb
+   :alt: Launch quick‑start on Binder
+
 .. code-block:: bash
 
    pip install osiris_utils              # from PyPI
