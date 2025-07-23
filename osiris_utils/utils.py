@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import cast
 
 import h5py
 import numpy as np
@@ -25,7 +26,7 @@ def courant2D(dx: float, dy: float) -> float:
         The limit for dt.
     """
     dt = 1 / (np.sqrt(1 / dx**2 + 1 / dy**2))
-    return dt
+    return cast(float, dt)
 
 
 def time_estimation(n_cells: int, ppc: int, t_steps: int, n_cpu: int, push_time: float = 1e-7, hours: bool = False) -> float:
@@ -83,7 +84,7 @@ def transverse_average(data: np.ndarray) -> np.ndarray:
 
     if len(data.shape) != 2:
         raise ValueError("The input data must be a 2D array.")
-    return np.mean(data, axis=1)
+    return cast(np.ndarray, np.mean(data, axis=1))
 
 
 def integrate(array: np.ndarray, dx: float) -> np.ndarray:
@@ -111,10 +112,10 @@ def integrate(array: np.ndarray, dx: float) -> np.ndarray:
     flip_array = np.flip(array)
     # int = -scipy.integrate.cumulative_trapezoid(flip_array, dx = dx, initial = flip_array[0])
     int = -scipy.integrate.cumulative_simpson(flip_array, dx=dx, initial=0)
-    return np.flip(int)
+    return cast(np.ndarray, np.flip(int))
 
 
-def save_data(data: np.ndarray, savename: str, option: str = "numpy"):
+def save_data(data: np.ndarray, savename: str, option: str = "numpy") -> None:
     """
     Save the data to a .txt (with Numpy) or .csv (with Pandas) file.
 
