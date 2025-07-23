@@ -26,6 +26,9 @@ jobs:
           # install the package and dev extras in one shot
           pip install .[dev]
 
+      - name: Run pre-commit
+        uses: pre-commit/action@v3.0.1
+
       - name: Run test suite
         run: |
           pytest --cov=osiris_utils --cov-report=term-missing

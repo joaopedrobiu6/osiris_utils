@@ -1,6 +1,7 @@
-import re
 import ast
 import copy
+import re
+
 import numpy as np
 
 from .species import Specie
@@ -48,7 +49,6 @@ class InputDeckIO:
         self._species = self._get_species()
 
     def _parse_input_deck(self, verbose):
-
         section_list = []
 
         if verbose:
