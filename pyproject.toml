@@ -55,7 +55,6 @@ dev  = [
   "pytest-cov",
   "pre-commit>=3.7",
   "ruff>=0.4",
-  "black>=24.4",
   "isort>=5.13",
   "mypy>=1.10",
   "types-tqdm",
@@ -94,10 +93,6 @@ fallback_version = "0.0.0"
   "examples/example_data/**",
   "docs/_static/*.png"
 ]
-
-[tool.black]
-line-length = 140
-target-version = ["py310"]
 
 [tool.ruff]
 line-length = 140          # instead of 88
