@@ -75,13 +75,7 @@ OSIRIS_PHA = [
     "gammax2",
     "gammax3",
 ]  # there may be more that I don't know
-OSIRIS_ALL = (
-    OSIRIS_DENSITY
-    + OSIRIS_SPECIE_REPORTS
-    + OSIRIS_SPECIE_REP_UDIST
-    + OSIRIS_FLD
-    + OSIRIS_PHA
-)
+OSIRIS_ALL = OSIRIS_DENSITY + OSIRIS_SPECIE_REPORTS + OSIRIS_SPECIE_REP_UDIST + OSIRIS_FLD + OSIRIS_PHA
 
 
 def which_quantities():
@@ -189,9 +183,7 @@ class Diagnostic:
         if simulation_folder:
             self._simulation_folder = simulation_folder
             if not os.path.isdir(simulation_folder):
-                raise FileNotFoundError(
-                    f"Simulation folder {simulation_folder} not found."
-                )
+                raise FileNotFoundError(f"Simulation folder {simulation_folder} not found.")
         else:
             self._simulation_folder = None
 
@@ -216,9 +208,7 @@ class Diagnostic:
         self._quantity = quantity
 
         if self._quantity not in OSIRIS_ALL:
-            raise ValueError(
-                f"Invalid quantity {self._quantity}. Use which_quantities() to see the available quantities."
-            )
+            raise ValueError(f"Invalid quantity {self._quantity}. Use which_quantities() to see the available quantities.")
         if self._quantity in OSIRIS_SPECIE_REP_UDIST:
             if self._species is None:
                 raise ValueError("Species not set.")
@@ -244,9 +234,7 @@ class Diagnostic:
 
     def _get_moment(self, species, moment):
         if self._simulation_folder is None:
-            raise ValueError(
-                "Simulation folder not set. If you're using CustomDiagnostic, this method is not available."
-            )
+            raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/UDIST/{species}/{moment}/"
         self._file_template = glob.glob(f"{self._path}/*.h5")[0][:-9]
         self._maxiter = len(glob.glob(f"{self._path}/*.h5"))
@@ -254,9 +242,7 @@ class Diagnostic:
 
     def _get_field(self, field):
         if self._simulation_folder is None:
-            raise ValueError(
-                "Simulation folder not set. If you're using CustomDiagnostic, this method is not available."
-            )
+            raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/FLD/{field}/"
         self._file_template = glob.glob(f"{self._path}/*.h5")[0][:-9]
         self._maxiter = len(glob.glob(f"{self._path}/*.h5"))
@@ -264,9 +250,7 @@ class Diagnostic:
 
     def _get_density(self, species, quantity):
         if self._simulation_folder is None:
-            raise ValueError(
-                "Simulation folder not set. If you're using CustomDiagnostic, this method is not available."
-            )
+            raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/DENSITY/{species}/{quantity}/"
         self._file_template = glob.glob(f"{self._path}/*.h5")[0][:-9]
         self._maxiter = len(glob.glob(f"{self._path}/*.h5"))
@@ -274,17 +258,13 @@ class Diagnostic:
 
     def _get_phase_space(self, species, type):
         if self._simulation_folder is None:
-            raise ValueError(
-                "Simulation folder not set. If you're using CustomDiagnostic, this method is not available."
-            )
+            raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/PHA/{type}/{species}/"
         self._file_template = glob.glob(f"{self._path}/*.h5")[0][:-9]
         self._maxiter = len(glob.glob(f"{self._path}/*.h5"))
         self._load_attributes(self._file_template, self._input_deck)
 
-    def _load_attributes(
-        self, file_template, input_deck
-    ):  # this will be replaced by reading the input deck
+    def _load_attributes(self, file_template, input_deck):  # this will be replaced by reading the input deck
         # This can go wrong! NDUMP
         # if input_deck is not None:
         #     self._dt = float(input_deck["time_step"][0]["dt"])
@@ -321,24 +301,16 @@ class Diagnostic:
                     break
 
             if not found_file:
-                warnings.warn(
-                    f"No valid data files found in {self._path} to read metadata from."
-                )
+                warnings.warn(f"No valid data files found in {self._path} to read metadata from.")
         except Exception as e:
-            warnings.warn(
-                f"Error loading diagnostic attributes: {str(e)}. Please verify it there's any file in the folder."
-            )
+            warnings.warn(f"Error loading diagnostic attributes: {str(e)}. Please verify it there's any file in the folder.")
 
     def _data_generator(self, index):
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set.")
         file = os.path.join(self._file_template + f"{index:06d}.h5")
         data_object = OsirisGridFile(file)
-        yield (
-            data_object.data
-            if self._quantity not in OSIRIS_DENSITY
-            else self._species.rqm * data_object.data
-        )
+        yield (data_object.data if self._quantity not in OSIRIS_DENSITY else self._species.rqm * data_object.data)
 
     def load_all(self):
         """
@@ -355,14 +327,10 @@ class Diagnostic:
             return self._data
 
         # If this is a derived diagnostic without files
-        if hasattr(self, "postprocess_name") or hasattr(
-            self, "created_diagnostic_name"
-        ):
+        if hasattr(self, "postprocess_name") or hasattr(self, "created_diagnostic_name"):
             # If it has a data generator but no direct files
             try:
-                print(
-                    "This appears to be a derived diagnostic. Loading data from generators..."
-                )
+                print("This appears to be a derived diagnostic. Loading data from generators...")
                 # Get the maximum size from the diagnostic attributes
                 if hasattr(self, "_maxiter") and self._maxiter is not None:
                     size = self._maxiter
@@ -373,14 +341,10 @@ class Diagnostic:
                     else:
                         # Default to a reasonable number if we can't determine
                         size = 100
-                        print(
-                            f"Warning: Could not determine timestep count, using {size}."
-                        )
+                        print(f"Warning: Could not determine timestep count, using {size}.")
 
                 # Load data for all timesteps using the generator - this may take a while
-                self._data = np.stack(
-                    [self[i] for i in tqdm.tqdm(range(size), desc="Loading data")]
-                )
+                self._data = np.stack([self[i] for i in tqdm.tqdm(range(size), desc="Loading data")])
                 self._all_loaded = True
                 return self._data
 
@@ -390,9 +354,7 @@ class Diagnostic:
         # Original implementation for file-based diagnostics
         print("Loading all data from files. This may take a while.")
         size = len(sorted(glob.glob(f"{self._path}/*.h5")))
-        self._data = np.stack(
-            [self[i] for i in tqdm.tqdm(range(size), desc="Loading data")]
-        )
+        self._data = np.stack([self[i] for i in tqdm.tqdm(range(size), desc="Loading data")])
         self._all_loaded = True
         return self._data
 
@@ -484,9 +446,7 @@ class Diagnostic:
                         raise RuntimeError(f"Error loading slice at index {i}: {e}")
                 return np.stack(data_list)
 
-        raise ValueError(
-            f"Cannot retrieve data for index {index}. No data loaded and no generator available."
-        )
+        raise ValueError(f"Cannot retrieve data for index {index}. No data loaded and no generator available.")
 
     def __iter__(self):
         # If this is a file-based diagnostic
@@ -508,18 +468,14 @@ class Diagnostic:
                     max_iter = self._diag._maxiter
                 else:
                     max_iter = 100  # Default if we can't determine
-                    print(
-                        f"Warning: Could not determine iteration count for iteration, using {max_iter}."
-                    )
+                    print(f"Warning: Could not determine iteration count for iteration, using {max_iter}.")
 
             for i in range(max_iter):
                 yield next(self._data_generator(i))
 
         # If we don't know how to handle this
         else:
-            raise ValueError(
-                "Cannot iterate over this diagnostic. No data loaded and no generator available."
-            )
+            raise ValueError("Cannot iterate over this diagnostic. No data loaded and no generator available.")
 
     def __add__(self, other):
         if isinstance(other, (int, float, np.ndarray)):
@@ -559,9 +515,7 @@ class Diagnostic:
                         yield val + scalar
 
                 original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_add(
-                    original_generator(index), other
-                )
+                result._data_generator = lambda index: gen_scalar_add(original_generator(index), other)
 
             result.created_diagnostic_name = "MISC"
 
@@ -605,9 +559,7 @@ class Diagnostic:
 
                 original_generator = self._data_generator
                 other_generator = other._data_generator
-                result._data_generator = lambda index: gen_diag_add(
-                    original_generator(index), other_generator(index)
-                )
+                result._data_generator = lambda index: gen_diag_add(original_generator(index), other_generator(index))
 
             result.created_diagnostic_name = "MISC"
 
@@ -650,9 +602,7 @@ class Diagnostic:
                         yield val - scalar
 
                 original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_sub(
-                    original_generator(index), other
-                )
+                result._data_generator = lambda index: gen_scalar_sub(original_generator(index), other)
 
             result.created_diagnostic_name = "MISC"
 
@@ -696,9 +646,7 @@ class Diagnostic:
 
                 original_generator = self._data_generator
                 other_generator = other._data_generator
-                result._data_generator = lambda index: gen_diag_sub(
-                    original_generator(index), other_generator(index)
-                )
+                result._data_generator = lambda index: gen_diag_sub(original_generator(index), other_generator(index))
 
             result.created_diagnostic_name = "MISC"
 
@@ -741,9 +689,7 @@ class Diagnostic:
                         yield val * scalar
 
                 original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_mul(
-                    original_generator(index), other
-                )
+                result._data_generator = lambda index: gen_scalar_mul(original_generator(index), other)
 
             result.created_diagnostic_name = "MISC"
 
@@ -787,9 +733,7 @@ class Diagnostic:
 
                 original_generator = self._data_generator
                 other_generator = other._data_generator
-                result._data_generator = lambda index: gen_diag_mul(
-                    original_generator(index), other_generator(index)
-                )
+                result._data_generator = lambda index: gen_diag_mul(original_generator(index), other_generator(index))
 
             result.created_diagnostic_name = "MISC"
 
@@ -832,9 +776,7 @@ class Diagnostic:
                         yield val / scalar
 
                 original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_div(
-                    original_generator(index), other
-                )
+                result._data_generator = lambda index: gen_scalar_div(original_generator(index), other)
 
             result.created_diagnostic_name = "MISC"
 
@@ -878,9 +820,7 @@ class Diagnostic:
 
                 original_generator = self._data_generator
                 other_generator = other._data_generator
-                result._data_generator = lambda index: gen_diag_div(
-                    original_generator(index), other_generator(index)
-                )
+                result._data_generator = lambda index: gen_diag_div(original_generator(index), other_generator(index))
 
             result.created_diagnostic_name = "MISC"
 
@@ -925,9 +865,7 @@ class Diagnostic:
                         yield val**scalar
 
                 original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_pow(
-                    original_generator(index), other
-                )
+                result._data_generator = lambda index: gen_scalar_pow(original_generator(index), other)
 
             result.created_diagnostic_name = "MISC"
 
@@ -935,16 +873,12 @@ class Diagnostic:
 
         # power by another diagnostic
         elif isinstance(other, Diagnostic):
-            raise ValueError(
-                "Power by another diagnostic is not supported. Why would you do that?"
-            )
+            raise ValueError("Power by another diagnostic is not supported. Why would you do that?")
 
     def __radd__(self, other):
         return self + other
 
-    def __rsub__(
-        self, other
-    ):  # I don't know if this is correct because I'm not sure if the order of the subtraction is correct
+    def __rsub__(self, other):  # I don't know if this is correct because I'm not sure if the order of the subtraction is correct
         return -self + other
 
     def __rmul__(self, other):
@@ -987,9 +921,7 @@ class Diagnostic:
                         yield scalar / val
 
                 original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_rdiv(
-                    other, original_generator(index)
-                )
+                result._data_generator = lambda index: gen_scalar_rdiv(other, original_generator(index))
 
             result.created_diagnostic_name = "MISC"
 
@@ -1033,9 +965,7 @@ class Diagnostic:
 
                 original_generator = self._data_generator
                 other_generator = other._data_generator
-                result._data_generator = lambda index: gen_diag_div(
-                    original_generator(index), other_generator(index)
-                )
+                result._data_generator = lambda index: gen_diag_div(original_generator(index), other_generator(index))
 
             result.created_diagnostic_name = "MISC"
 
@@ -1094,36 +1024,18 @@ class Diagnostic:
                 f.attrs.create("TIME", [self.time(i)[0]])
                 f.attrs.create(
                     "TIME UNITS",
-                    [
-                        (
-                            np.bytes_(self.time(i)[1].encode())
-                            if self.time(i)[1]
-                            else np.bytes_(b"")
-                        )
-                    ],
+                    [(np.bytes_(self.time(i)[1].encode()) if self.time(i)[1] else np.bytes_(b""))],
                 )
                 f.attrs.create("ITER", [self._ndump * i])
                 f.attrs.create("NAME", [np.bytes_(self._name.encode())])
                 f.attrs.create("TYPE", [np.bytes_(self._type.encode())])
                 f.attrs.create(
                     "UNITS",
-                    [
-                        (
-                            np.bytes_(self._units.encode())
-                            if self._units
-                            else np.bytes_(b"")
-                        )
-                    ],
+                    [(np.bytes_(self._units.encode()) if self._units else np.bytes_(b""))],
                 )
                 f.attrs.create(
                     "LABEL",
-                    [
-                        (
-                            np.bytes_(self._label.encode())
-                            if self._label
-                            else np.bytes_(b"")
-                        )
-                    ],
+                    [(np.bytes_(self._label.encode()) if self._label else np.bytes_(b""))],
                 )
 
                 # Create dataset with data (transposed to match convention)
@@ -1140,32 +1052,20 @@ class Diagnostic:
 
                 for i, axis_name in enumerate(axis_names):
                     # Create axis dataset
-                    axis_dataset = axis_group.create_dataset(
-                        axis_name, data=np.array(self._grid[i])
-                    )
+                    axis_dataset = axis_group.create_dataset(axis_name, data=np.array(self._grid[i]))
 
                     # Set axis attributes
-                    axis_dataset.attrs.create(
-                        "NAME", [np.bytes_(axis_shortnames[i].encode())]
-                    )
-                    axis_dataset.attrs.create(
-                        "UNITS", [np.bytes_(axis_units[i].encode())]
-                    )
-                    axis_dataset.attrs.create(
-                        "LONG_NAME", [np.bytes_(axis_longnames[i].encode())]
-                    )
+                    axis_dataset.attrs.create("NAME", [np.bytes_(axis_shortnames[i].encode())])
+                    axis_dataset.attrs.create("UNITS", [np.bytes_(axis_units[i].encode())])
+                    axis_dataset.attrs.create("LONG_NAME", [np.bytes_(axis_longnames[i].encode())])
                     axis_dataset.attrs.create("TYPE", [np.bytes_("linear".encode())])
 
                 if verbose:
                     print(f"File created: {filename}")
 
-        print(
-            f"The savename of the diagnostic is {savename}. Files will be saves as {savename}-000001.h5, {savename}-000002.h5, etc."
-        )
+        print(f"The savename of the diagnostic is {savename}. Files will be saves as {savename}-000001.h5, {savename}-000002.h5, etc.")
 
-        print(
-            "If you desire a different name, please set it with the 'name' method (setter)."
-        )
+        print("If you desire a different name, please set it with the 'name' method (setter).")
 
         if self._name is None:
             raise ValueError("Diagnostic name is not set. Cannot save to HDF5.")
@@ -1188,9 +1088,7 @@ class Diagnostic:
                 filename = self._save_path + f"/{savename}-{i:06d}.h5"
                 savefile(filename, i)
         else:
-            raise ValueError(
-                "index should be an int, slice, or list of ints, or all should be True"
-            )
+            raise ValueError("index should be an int, slice, or list of ints, or all should be True")
 
     def plot_3d(
         self,
@@ -1239,9 +1137,7 @@ class Diagnostic:
                 boundaries = np.array(boundaries)
             except Exception:
                 boundaries = self._grid
-                warnings.warn(
-                    "boundaries cannot be accessed as a numpy array with shape (3, 2), using default instead"
-                )
+                warnings.warn("boundaries cannot be accessed as a numpy array with shape (3, 2), using default instead")
 
         if boundaries.shape != (3, 2):
             warnings.warn("boundaries should have shape (3, 2), using default instead")
@@ -1322,22 +1218,10 @@ class Diagnostic:
         # Labels
         # TODO try to use a latex label instaead of _name
         cbar.set_label(r"${}$".format(self._name) + r"$\  [{}]$".format(self._units))
-        ax.set_title(
-            r"$t={:.2f}$".format(self.time(idx)[0])
-            + r"$\  [{}]$".format(self.time(idx)[1])
-        )
-        ax.set_xlabel(
-            r"${}$".format(self.axis[0]["long_name"])
-            + r"$\  [{}]$".format(self.axis[0]["units"])
-        )
-        ax.set_ylabel(
-            r"${}$".format(self.axis[1]["long_name"])
-            + r"$\  [{}]$".format(self.axis[1]["units"])
-        )
-        ax.set_zlabel(
-            r"${}$".format(self.axis[2]["long_name"])
-            + r"$\  [{}]$".format(self.axis[2]["units"])
-        )
+        ax.set_title(r"$t={:.2f}$".format(self.time(idx)[0]) + r"$\  [{}]$".format(self.time(idx)[1]))
+        ax.set_xlabel(r"${}$".format(self.axis[0]["long_name"]) + r"$\  [{}]$".format(self.axis[0]["units"]))
+        ax.set_ylabel(r"${}$".format(self.axis[1]["long_name"]) + r"$\  [{}]$".format(self.axis[1]["units"]))
+        ax.set_zlabel(r"${}$".format(self.axis[2]["long_name"]) + r"$\  [{}]$".format(self.axis[2]["units"]))
 
         return fig, ax
 
@@ -1345,9 +1229,7 @@ class Diagnostic:
     @property
     def data(self):
         if self._data is None:
-            raise ValueError(
-                "Data not loaded into memory. Use get_* method with load_all=True or access via generator/index."
-            )
+            raise ValueError("Data not loaded into memory. Use get_* method with load_all=True or access via generator/index.")
         return self._data
 
     @property

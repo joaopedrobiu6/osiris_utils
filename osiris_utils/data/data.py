@@ -51,9 +51,7 @@ class OsirisData:
         elif self._filename.endswith("_ene"):
             self._open_hist_file(self._filename)
         else:
-            raise ValueError(
-                "The file should be an HDF5 file with the extension .h5, or a HIST file ending with _ene."
-            )
+            raise ValueError("The file should be an HDF5 file with the extension .h5, or a HIST file ending with _ene.")
 
     def _load_basic_attributes(self, f: h5py.File) -> None:
         """Load common attributes from HDF5 file"""
@@ -96,9 +94,7 @@ class OsirisData:
             raise ValueError("The file should be an HDF5 file with the extension .h5")
 
     def _open_hist_file(self, filename):
-        self._df = pd.read_csv(
-            filename, sep=r"\s+", comment="!", header=0, engine="python"
-        )
+        self._df = pd.read_csv(filename, sep=r"\s+", comment="!", header=0, engine="python")
 
     def _close_file(self):
         """
@@ -197,10 +193,7 @@ class OsirisGridFile(OsirisData):
 
             # There's an issue when the dimension is 3 and we want to plot a 2D phasespace. I believe this
             # is a problem for all cases where the dim != dim_of_phasespace
-            self._x = [
-                np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i])
-                for i in range(self.dim)
-            ]
+            self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
             # self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(2)]
 
         self._axis = []
@@ -208,11 +201,9 @@ class OsirisGridFile(OsirisData):
             axis_data = {
                 "name": self._file["AXIS/" + ax].attrs["NAME"][0].decode("utf-8"),
                 "units": self._file["AXIS/" + ax].attrs["UNITS"][0].decode("utf-8"),
-                "long_name": self._file["AXIS/" + ax]
-                .attrs["LONG_NAME"][0]
-                .decode("utf-8"),
+                "long_name": self._file["AXIS/" + ax].attrs["LONG_NAME"][0].decode("utf-8"),
                 "type": self._file["AXIS/" + ax].attrs["TYPE"][0].decode("utf-8"),
-                "plot_label": rf'${self._file["AXIS/"+ax].attrs["LONG_NAME"][0].decode("utf-8")}$ $[{self._file["AXIS/"+ax].attrs["UNITS"][0].decode("utf-8")}]$',
+                "plot_label": rf'${self._file["AXIS/" + ax].attrs["LONG_NAME"][0].decode("utf-8")}$ $[{self._file["AXIS/" + ax].attrs["UNITS"][0].decode("utf-8")}]$',
             }
             self._axis.append(axis_data)
 
@@ -251,9 +242,7 @@ class OsirisGridFile(OsirisData):
             else:
                 return self.data[1:]
         else:
-            raise TypeError(
-                f"This method expects magnetic or electric field grid data but received '{self.name}' instead"
-            )
+            raise TypeError(f"This method expects magnetic or electric field grid data but received '{self.name}' instead")
 
     def _yeeToCellCenter2d(self, boundary):
         """
@@ -281,21 +270,14 @@ class OsirisGridFile(OsirisData):
                     + (0.5 * (np.roll(self.data, shift=1, axis=0) + self.data))
                 )
             else:
-                return 0.25 * (
-                    self.data[1:, 1:]
-                    + self.data[:-1, 1:]
-                    + self.data[1:, :-1]
-                    + self.data[:-1, :-1]
-                )
+                return 0.25 * (self.data[1:, 1:] + self.data[:-1, 1:] + self.data[1:, :-1] + self.data[:-1, :-1])
         elif self.name.lower() in ["e3"]:
             if boundary == "periodic":
                 return self.data
             else:
                 return self.data[1:, 1:]
         else:
-            raise TypeError(
-                f"This method expects magnetic or electric field grid data but received '{self.name}' instead"
-            )
+            raise TypeError(f"This method expects magnetic or electric field grid data but received '{self.name}' instead")
 
     def _yeeToCellCenter3d(self, boundary):
         """
@@ -313,12 +295,7 @@ class OsirisGridFile(OsirisData):
                     + 0.5 * (np.roll(self.data, shift=1, axis=1) + self.data)
                 )
             else:
-                return 0.25 * (
-                    self.data[1:, 1:, 1:]
-                    + self.data[1:, :-1, 1:]
-                    + self.data[1:, 1:, :-1]
-                    + self.data[1:, :-1, :-1]
-                )
+                return 0.25 * (self.data[1:, 1:, 1:] + self.data[1:, :-1, 1:] + self.data[1:, 1:, :-1] + self.data[1:, :-1, :-1])
         elif self.name.lower() == "b2":
             if boundary == "periodic":
                 return 0.5 * (
@@ -331,12 +308,7 @@ class OsirisGridFile(OsirisData):
                     + 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)
                 )
             else:
-                return 0.25 * (
-                    self.data[1:, 1:, 1:]
-                    + self.data[:-1, 1:, 1:]
-                    + self.data[1:, 1:, :-1]
-                    + self.data[:-1, 1:, :-1]
-                )
+                return 0.25 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:] + self.data[1:, 1:, :-1] + self.data[:-1, 1:, :-1])
         elif self.name.lower() == "b3":
             if boundary == "periodic":
                 return 0.5 * (
@@ -349,12 +321,7 @@ class OsirisGridFile(OsirisData):
                     + 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)
                 )
             else:
-                return 0.25 * (
-                    self.data[1:, 1:, 1:]
-                    + self.data[:-1, 1:, 1:]
-                    + self.data[1:, :-1, 1:]
-                    + self.data[:-1, :-1, 1:]
-                )
+                return 0.25 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:] + self.data[1:, :-1, 1:] + self.data[:-1, :-1, 1:])
         elif self.name.lower() == "e1":
             if boundary == "periodic":
                 return 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)
@@ -371,9 +338,7 @@ class OsirisGridFile(OsirisData):
             else:
                 return 0.5 * (self.data[1:, 1:, 1:] + self.data[1:, 1:, :-1])
         else:
-            raise TypeError(
-                f"This method expects magnetic or electric field grid data but received '{self.name}' instead"
-            )
+            raise TypeError(f"This method expects magnetic or electric field grid data but received '{self.name}' instead")
 
     def yeeToCellCenter(self, boundary: Literal["periodic", "default"] = "default"):
         """'
@@ -383,15 +348,11 @@ class OsirisGridFile(OsirisData):
         """
 
         if boundary not in ("periodic", "default"):
-            raise ValueError(
-                f"Invalid boundary: {boundary}, choose 'periodic' or 'default' instead."
-            )
+            raise ValueError(f"Invalid boundary: {boundary}, choose 'periodic' or 'default' instead.")
 
         cases = {"b1", "b2", "b3", "e1", "e2", "e3"}
         if self.name not in cases:
-            raise TypeError(
-                f"This method expects magnetic or electric field grid data but received '{self.name}' instead"
-            )
+            raise TypeError(f"This method expects magnetic or electric field grid data but received '{self.name}' instead")
 
         if self.dim == 1:
             self.data_centered = self._yeeToCellCenter1d(boundary)
@@ -449,9 +410,7 @@ class OsirisGridFile(OsirisData):
     @property
     def FFTdata(self):
         if self._FFTdata is None:
-            raise ValueError(
-                "The FFT of the data has not been computed yet. Compute it using the FFT method."
-            )
+            raise ValueError("The FFT of the data has not been computed yet. Compute it using the FFT method.")
         return self._FFTdata
 
     # Setters
@@ -561,9 +520,7 @@ class OsirisRawFile(OsirisData):
             }
             self._axis[key] = axis_data
 
-    def raw_to_file_tags(
-        self, filename, type: Literal["all", "random"] = "all", n_tags=10, mask=None
-    ):
+    def raw_to_file_tags(self, filename, type: Literal["all", "random"] = "all", n_tags=10, mask=None):
         """
         Function to write a file_tags file from raw data.
         this file is used to choose particles for the OSIRIS track diagnostic.
@@ -594,14 +551,8 @@ class OsirisRawFile(OsirisData):
 
         if mask is not None:
             # Apply mask to select certain tags
-            if (
-                not isinstance(mask, np.ndarray)
-                or mask.dtype != bool
-                or mask.shape[0] != self.data["tag"].shape[0]
-            ):
-                raise ValueError(
-                    "Mask must be a boolean NumPy array of the same length as 'tag'."
-                )
+            if not isinstance(mask, np.ndarray) or mask.dtype != bool or mask.shape[0] != self.data["tag"].shape[0]:
+                raise ValueError("Mask must be a boolean NumPy array of the same length as 'tag'.")
             filtered_indices = np.where(mask)[0]
             filtered_tags = self.data["tag"][filtered_indices]
         else:
@@ -612,9 +563,7 @@ class OsirisRawFile(OsirisData):
         elif type == "random":
             if len(filtered_tags) < n_tags:
                 raise ValueError("Not enough tags to sample from.")
-            random_indices = np.random.choice(
-                len(filtered_tags), size=n_tags, replace=False
-            )
+            random_indices = np.random.choice(len(filtered_tags), size=n_tags, replace=False)
             tags = filtered_tags[random_indices]
         else:
             raise TypeError("Invalid type", type)
@@ -821,19 +770,14 @@ def reorder_track_data(unordered_data, indexes, field_names):
     # Initialize the sorted data structure
     num_particles = len(indexes)
     num_time_iter = len(indexes[0])
-    data_sorted = np.empty(
-        (num_particles, num_time_iter), dtype=[(name, float) for name in field_names]
-    )
+    data_sorted = np.empty((num_particles, num_time_iter), dtype=[(name, float) for name in field_names])
 
     # Fill the sorted data based on the indexes
     for particle in range(num_particles):
         for time_iter in range(num_time_iter):
             index = indexes[particle][time_iter]
             if len(unordered_data[index]) != len(field_names):
-                raise ValueError(
-                    f"Data at index {index} has {len(unordered_data[index])} elements, "
-                    f"but {len(field_names)} are expected."
-                )
+                raise ValueError(f"Data at index {index} has {len(unordered_data[index])} elements, but {len(field_names)} are expected.")
             data_sorted[particle, time_iter] = tuple(unordered_data[index])
 
     return data_sorted

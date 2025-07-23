@@ -42,9 +42,7 @@ class FieldCentering_Simulation(PostProcess):
 
     def __getitem__(self, key):
         if key not in OSIRIS_FLD:
-            raise ValueError(
-                f"Does it make sense to center {key} field? Only {OSIRIS_FLD} are supported."
-            )
+            raise ValueError(f"Does it make sense to center {key} field? Only {OSIRIS_FLD} are supported.")
         if key not in self._field_centered:
             self._field_centered[key] = FieldCentering_Diagnostic(self._simulation[key])
         return self._field_centered[key]
@@ -76,11 +74,7 @@ class FieldCentering_Diagnostic(Diagnostic):
         """
         if hasattr(diagnostic, "_species"):
             super().__init__(
-                simulation_folder=(
-                    diagnostic._simulation_folder
-                    if hasattr(diagnostic, "_simulation_folder")
-                    else None
-                ),
+                simulation_folder=(diagnostic._simulation_folder if hasattr(diagnostic, "_simulation_folder") else None),
                 species=diagnostic._species,
             )
         else:
@@ -89,9 +83,7 @@ class FieldCentering_Diagnostic(Diagnostic):
         self.postprocess_name = "FLD_CTR"
 
         if diagnostic._name not in OSIRIS_FLD:
-            raise ValueError(
-                f"Does it make sense to center {diagnostic._name} field? Only {OSIRIS_FLD} are supported."
-            )
+            raise ValueError(f"Does it make sense to center {diagnostic._name} field? Only {OSIRIS_FLD} are supported.")
 
         self._diag = diagnostic
 
@@ -134,9 +126,7 @@ class FieldCentering_Diagnostic(Diagnostic):
                 "part_e1",
                 "ext_e1",
             ]:
-                result = 0.5 * (
-                    np.roll(self._diag.data, shift=1, axis=1) + self._diag.data
-                )
+                result = 0.5 * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data)
             elif self._original_name.lower() in [
                 "b1",
                 "part_b1",
@@ -159,9 +149,7 @@ class FieldCentering_Diagnostic(Diagnostic):
                 "part_b2",
                 "ext_b2",
             ]:
-                result = 0.5 * (
-                    np.roll(self._diag.data, shift=1, axis=1) + self._diag.data
-                )
+                result = 0.5 * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data)
             elif self._original_name.lower() in [
                 "e2",
                 "part_e2",
@@ -170,26 +158,15 @@ class FieldCentering_Diagnostic(Diagnostic):
                 "part_b1",
                 "ext_b1",
             ]:
-                result = 0.5 * (
-                    np.roll(self._diag.data, shift=1, axis=2) + self._diag.data
-                )
+                result = 0.5 * (np.roll(self._diag.data, shift=1, axis=2) + self._diag.data)
             elif self._original_name.lower() in ["b3", "part_b3", "ext_b3"]:
                 result = 0.5 * (
                     np.roll(
-                        (
-                            0.5
-                            * (
-                                np.roll(self._diag.data, shift=1, axis=1)
-                                + self._diag.data
-                            )
-                        ),
+                        (0.5 * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data)),
                         shift=1,
                         axis=2,
                     )
-                    + (
-                        0.5
-                        * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data)
-                    )
+                    + (0.5 * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data))
                 )
             elif self._original_name.lower() in ["e3", "part_e3", "ext_e3"]:
                 result = self._diag.data
@@ -204,8 +181,7 @@ class FieldCentering_Diagnostic(Diagnostic):
                         shift=1,
                         axis=3,
                     )
-                    + 0.5
-                    * (np.roll(self._diag.data, shift=1, axis=2) + self._diag.data)
+                    + 0.5 * (np.roll(self._diag.data, shift=1, axis=2) + self._diag.data)
                 )
             elif self._original_name in ["b2", "part_b2", "ext_b2"]:
                 result = 0.5 * (
@@ -215,8 +191,7 @@ class FieldCentering_Diagnostic(Diagnostic):
                         shift=1,
                         axis=3,
                     )
-                    + 0.5
-                    * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data)
+                    + 0.5 * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data)
                 )
             elif self._original_name in ["b3", "part_b3", "ext_b3"]:
                 result = 0.5 * (
@@ -226,21 +201,14 @@ class FieldCentering_Diagnostic(Diagnostic):
                         shift=1,
                         axis=2,
                     )
-                    + 0.5
-                    * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data)
+                    + 0.5 * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data)
                 )
             elif self._original_name in ["e1", "part_e1", "ext_e1"]:
-                result = 0.5 * (
-                    np.roll(self._diag.data, shift=1, axis=1) + self._diag.data
-                )
+                result = 0.5 * (np.roll(self._diag.data, shift=1, axis=1) + self._diag.data)
             elif self._original_name in ["e2", "part_e2", "ext_e2"]:
-                result = 0.5 * (
-                    np.roll(self._diag.data, shift=1, axis=2) + self._diag.data
-                )
+                result = 0.5 * (np.roll(self._diag.data, shift=1, axis=2) + self._diag.data)
             elif self._original_name in ["e3", "part_e3", "ext_e3"]:
-                result = 0.5 * (
-                    np.roll(self._diag.data, shift=1, axis=3) + self._diag.data
-                )
+                result = 0.5 * (np.roll(self._diag.data, shift=1, axis=3) + self._diag.data)
 
         else:
             raise ValueError(f"Unknown dimension {self._dim}.")
@@ -260,9 +228,7 @@ class FieldCentering_Diagnostic(Diagnostic):
             start = 0 if index.start is None else index.start
             step = 1 if index.step is None else index.step
             stop = self._diag._maxiter if index.stop is None else index.stop
-            return np.array(
-                [next(self._data_generator(i)) for i in range(start, stop, step)]
-            )
+            return np.array([next(self._data_generator(i)) for i in range(start, stop, step)])
         else:
             raise ValueError("Invalid index type. Use int or slice.")
 
@@ -304,9 +270,7 @@ class FieldCentering_Diagnostic(Diagnostic):
                 "part_b2",
                 "ext_b2",
             ]:
-                yield 0.5 * (
-                    np.roll(self._diag[index], shift=1, axis=0) + self._diag[index]
-                )
+                yield 0.5 * (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index])
             elif self._original_name in [
                 "e2",
                 "part_e2",
@@ -315,29 +279,15 @@ class FieldCentering_Diagnostic(Diagnostic):
                 "part_b1",
                 "ext_b1",
             ]:
-                yield 0.5 * (
-                    np.roll(self._diag[index], shift=1, axis=1) + self._diag[index]
-                )
+                yield 0.5 * (np.roll(self._diag[index], shift=1, axis=1) + self._diag[index])
             elif self._original_name in ["b3", "part_b3", "ext_b3"]:
                 yield 0.5 * (
                     np.roll(
-                        (
-                            0.5
-                            * (
-                                np.roll(self._diag[index], shift=1, axis=0)
-                                + self._diag[index]
-                            )
-                        ),
+                        (0.5 * (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index])),
                         shift=1,
                         axis=1,
                     )
-                    + (
-                        0.5
-                        * (
-                            np.roll(self._diag[index], shift=1, axis=0)
-                            + self._diag[index]
-                        )
-                    )
+                    + (0.5 * (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index]))
                 )
             elif self._original_name in ["e3", "part_e3", "ext_e3"]:
                 yield self._diag[index]
@@ -349,56 +299,38 @@ class FieldCentering_Diagnostic(Diagnostic):
                 yield 0.5 * (
                     0.5
                     * np.roll(
-                        (
-                            np.roll(self._diag[index], shift=1, axis=1)
-                            + self._diag[index]
-                        ),
+                        (np.roll(self._diag[index], shift=1, axis=1) + self._diag[index]),
                         shift=1,
                         axis=2,
                     )
-                    + 0.5
-                    * (np.roll(self._diag[index], shift=1, axis=1) + self._diag[index])
+                    + 0.5 * (np.roll(self._diag[index], shift=1, axis=1) + self._diag[index])
                 )
             elif self._original_name in ["b2", "part_b2", "ext_b2"]:
                 yield 0.5 * (
                     0.5
                     * np.roll(
-                        (
-                            np.roll(self._diag[index], shift=1, axis=0)
-                            + self._diag[index]
-                        ),
+                        (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index]),
                         shift=1,
                         axis=2,
                     )
-                    + 0.5
-                    * (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index])
+                    + 0.5 * (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index])
                 )
             elif self._original_name in ["b3", "part_b3", "ext_b3"]:
                 yield 0.5 * (
                     0.5
                     * np.roll(
-                        (
-                            np.roll(self._diag[index], shift=1, axis=0)
-                            + self._diag[index]
-                        ),
+                        (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index]),
                         shift=1,
                         axis=1,
                     )
-                    + 0.5
-                    * (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index])
+                    + 0.5 * (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index])
                 )
             elif self._original_name in ["e1", "part_e1", "ext_e1"]:
-                yield 0.5 * (
-                    np.roll(self._diag[index], shift=1, axis=0) + self._diag[index]
-                )
+                yield 0.5 * (np.roll(self._diag[index], shift=1, axis=0) + self._diag[index])
             elif self._original_name in ["e2", "part_e2", "ext_e2"]:
-                yield 0.5 * (
-                    np.roll(self._diag[index], shift=1, axis=1) + self._diag[index]
-                )
+                yield 0.5 * (np.roll(self._diag[index], shift=1, axis=1) + self._diag[index])
             elif self._original_name in ["e3", "part_e3", "ext_e3"]:
-                yield 0.5 * (
-                    np.roll(self._diag[index], shift=1, axis=2) + self._diag[index]
-                )
+                yield 0.5 * (np.roll(self._diag[index], shift=1, axis=2) + self._diag[index])
 
         else:
             raise ValueError(f"Unknown dimension {self._dim}.")

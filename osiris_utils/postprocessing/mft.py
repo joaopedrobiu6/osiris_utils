@@ -31,14 +31,10 @@ class MFT_Simulation(PostProcess):
     def __getitem__(self, key):
         if key in self._simulation._species:
             if key not in self._species_handler:
-                self._species_handler[key] = MFT_Species_Handler(
-                    self._simulation[key], self._mft_axis
-                )
+                self._species_handler[key] = MFT_Species_Handler(self._simulation[key], self._mft_axis)
             return self._species_handler[key]
         if key not in self._mft_computed:
-            self._mft_computed[key] = MFT_Diagnostic(
-                self._simulation[key], self._mft_axis
-            )
+            self._mft_computed[key] = MFT_Diagnostic(self._simulation[key], self._mft_axis)
         return self._mft_computed[key]
 
     def delete_all(self):
@@ -74,11 +70,7 @@ class MFT_Diagnostic(Diagnostic):
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, "_species"):
             super().__init__(
-                simulation_folder=(
-                    diagnostic._simulation_folder
-                    if hasattr(diagnostic, "_simulation_folder")
-                    else None
-                ),
+                simulation_folder=(diagnostic._simulation_folder if hasattr(diagnostic, "_simulation_folder") else None),
                 species=diagnostic._species,
             )
         else:
@@ -126,16 +118,12 @@ class MFT_Diagnostic(Diagnostic):
         """
         if key == "avg":
             if "avg" not in self._components:
-                self._components["avg"] = MFT_Diagnostic_Average(
-                    self._diag, self._mft_axis
-                )
+                self._components["avg"] = MFT_Diagnostic_Average(self._diag, self._mft_axis)
             return self._components["avg"]
 
         elif key == "delta":
             if "delta" not in self._components:
-                self._components["delta"] = MFT_Diagnostic_Fluctuations(
-                    self._diag, self._mft_axis
-                )
+                self._components["delta"] = MFT_Diagnostic_Fluctuations(self._diag, self._mft_axis)
             return self._components["delta"]
 
         else:
@@ -148,9 +136,7 @@ class MFT_Diagnostic(Diagnostic):
             self._components["avg"] = MFT_Diagnostic_Average(self._diag, self._mft_axis)
 
         if "delta" not in self._components:
-            self._components["delta"] = MFT_Diagnostic_Fluctuations(
-                self._diag, self._mft_axis
-            )
+            self._components["delta"] = MFT_Diagnostic_Fluctuations(self._diag, self._mft_axis)
 
         # Load both components
         self._components["avg"].load_all()
@@ -180,11 +166,7 @@ class MFT_Diagnostic_Average(Diagnostic):
         # Initialize with the same species as the diagnostic
         if hasattr(diagnostic, "_species"):
             super().__init__(
-                simulation_folder=(
-                    diagnostic._simulation_folder
-                    if hasattr(diagnostic, "_simulation_folder")
-                    else None
-                ),
+                simulation_folder=(diagnostic._simulation_folder if hasattr(diagnostic, "_simulation_folder") else None),
                 species=diagnostic._species,
             )
         else:
@@ -232,9 +214,7 @@ class MFT_Diagnostic_Average(Diagnostic):
         if self._mft_axis is None:
             raise ValueError("Mean field theory axis must be specified.")
         else:
-            self._data = np.expand_dims(
-                self._diag._data.mean(axis=self._mft_axis), axis=-1
-            )
+            self._data = np.expand_dims(self._diag._data.mean(axis=self._mft_axis), axis=-1)
 
         self._all_loaded = True
         return self._data
@@ -263,9 +243,7 @@ class MFT_Diagnostic_Average(Diagnostic):
             start = 0 if index.start is None else index.start
             step = 1 if index.step is None else index.step
             stop = self._diag._maxiter if index.stop is None else index.stop
-            return np.array(
-                [next(self._data_generator(i)) for i in range(start, stop, step)]
-            )
+            return np.array([next(self._data_generator(i)) for i in range(start, stop, step)])
         else:
             raise ValueError("Invalid index type. Use int or slice.")
 
@@ -288,11 +266,7 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
         # Initialize with the same species as the diagnostic
         if hasattr(diagnostic, "_species"):
             super().__init__(
-                simulation_folder=(
-                    diagnostic._simulation_folder
-                    if hasattr(diagnostic, "_simulation_folder")
-                    else None
-                ),
+                simulation_folder=(diagnostic._simulation_folder if hasattr(diagnostic, "_simulation_folder") else None),
                 species=diagnostic._species,
             )
         else:
@@ -380,9 +354,7 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
             start = 0 if index.start is None else index.start
             step = 1 if index.step is None else index.step
             stop = self._diag._maxiter if index.stop is None else index.stop
-            return np.array(
-                [next(self._data_generator(i)) for i in range(start, stop, step)]
-            )
+            return np.array([next(self._data_generator(i)) for i in range(start, stop, step)])
         else:
             raise ValueError("Invalid index type. Use int or slice.")
 

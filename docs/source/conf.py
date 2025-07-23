@@ -26,7 +26,7 @@ sys.path.append(os.path.abspath("../.."))
 project = "osiris_utils"
 copyright = "2025, João Biu, João Cândido, Diogo Carvalho"
 author = "João Biu, João Cândido, Diogo Carvalho"
-version = "v1.1.6"
+version = "v1.1.7"
 release = version
 
 
@@ -46,10 +46,9 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx_copybutton",
     "sphinx_github_style",
-    "nbsphinx",          # or "nbsphinx"
 ]
 
-nb_execution_mode = "off"   # use stored output; avoids long CI builds
+nb_execution_mode = "off"  # use stored output; avoids long CI builds
 # options for sphinx_github_style
 top_level = "OSIRIS Utils"
 linkcode_blob = "head"

@@ -29,21 +29,13 @@ class PressureCorrection_Simulation(PostProcess):
     def __getitem__(self, key):
         if key in self._simulation._species:
             if key not in self._species_handler:
-                self._species_handler[key] = PressureCorrection_Species_Handler(
-                    self._simulation[key]
-                )
+                self._species_handler[key] = PressureCorrection_Species_Handler(self._simulation[key])
             return self._species_handler[key]
         if key not in OSIRIS_P:
-            raise ValueError(
-                f"Invalid pressure component {key}. Supported: {OSIRIS_P}."
-            )
+            raise ValueError(f"Invalid pressure component {key}. Supported: {OSIRIS_P}.")
         if key not in self._pressure_corrected:
-            print(
-                "Weird that it got here - pressure is always species dependent on OSIRIS"
-            )
-            self._pressure_corrected[key] = PressureCorrection_Diagnostic(
-                self._simulation[key], self._simulation
-            )
+            print("Weird that it got here - pressure is always species dependent on OSIRIS")
+            self._pressure_corrected[key] = PressureCorrection_Diagnostic(self._simulation[key], self._simulation)
         return self._pressure_corrected[key]
 
     def delete_all(self):
@@ -72,11 +64,7 @@ class PressureCorrection_Diagnostic(Diagnostic):
         """
         if hasattr(diagnostic, "_species"):
             super().__init__(
-                simulation_folder=(
-                    diagnostic._simulation_folder
-                    if hasattr(diagnostic, "_simulation_folder")
-                    else None
-                ),
+                simulation_folder=(diagnostic._simulation_folder if hasattr(diagnostic, "_simulation_folder") else None),
                 species=diagnostic._species,
             )
         else:
@@ -85,9 +73,7 @@ class PressureCorrection_Diagnostic(Diagnostic):
         self.postprocess_name = "P_CORR"
 
         if diagnostic._name not in OSIRIS_P:
-            raise ValueError(
-                f"Invalid pressure component {diagnostic._name}. Supported: {OSIRIS_P}"
-            )
+            raise ValueError(f"Invalid pressure component {diagnostic._name}. Supported: {OSIRIS_P}")
 
         self._diag = diagnostic
 
@@ -155,16 +141,12 @@ class PressureCorrection_Diagnostic(Diagnostic):
             start = 0 if index.start is None else index.start
             step = 1 if index.step is None else index.step
             stop = self._diag._maxiter if index.stop is None else index.stop
-            return np.array(
-                [next(self._data_generator(i)) for i in range(start, stop, step)]
-            )
+            return np.array([next(self._data_generator(i)) for i in range(start, stop, step)])
         else:
             raise ValueError("Invalid index type. Use int or slice.")
 
     def _data_generator(self, index):
-        yield (
-            self._diag[index] - self._n[index] * self._vfl_k[index] * self._ufl_j[index]
-        )
+        yield (self._diag[index] - self._n[index] * self._vfl_k[index] * self._ufl_j[index])
 
 
 class PressureCorrection_Species_Handler:
@@ -201,7 +183,5 @@ class PressureCorrection_Species_Handler:
             except Exception:
                 ufl = self._species_handler[f"vfl{self._j}"]
             vfl = self._species_handler[f"vfl{self._k}"]
-            self._pressure_corrected[key] = PressureCorrection_Diagnostic(
-                diag, n, ufl, vfl
-            )
+            self._pressure_corrected[key] = PressureCorrection_Diagnostic(diag, n, ufl, vfl)
         return self._pressure_corrected[key]

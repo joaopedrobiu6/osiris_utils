@@ -3,12 +3,8 @@ repos:
     rev: v0.4.8       # pin the latest stable
     hooks:
       - id: ruff
-        args: ["--fix"]         # auto‑apply safe fixes
+        args: ["--fix", "--select", "F,E,I,W,B,C90,TCH"]         # auto‑apply safe fixes
       - id: ruff-format
-  - repo: https://github.com/psf/black
-    rev: 24.4.2
-    hooks:
-      - id: black
   - repo: https://github.com/pycqa/isort
     rev: 6.0.1
     hooks:

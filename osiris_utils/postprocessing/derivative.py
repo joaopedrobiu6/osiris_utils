@@ -41,9 +41,7 @@ class Derivative_Simulation(PostProcess):
     def __getitem__(self, key):
         if key in self._simulation._species:
             if key not in self._species_handler:
-                self._species_handler[key] = Derivative_Species_Handler(
-                    self._simulation[key], self._deriv_type, self._axis
-                )
+                self._species_handler[key] = Derivative_Species_Handler(self._simulation[key], self._deriv_type, self._axis)
             return self._species_handler[key]
 
         if key not in self._derivatives_computed:
@@ -95,11 +93,7 @@ class Derivative_Diagnostic(Diagnostic):
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, "_species"):
             super().__init__(
-                simulation_folder=(
-                    diagnostic._simulation_folder
-                    if hasattr(diagnostic, "_simulation_folder")
-                    else None
-                ),
+                simulation_folder=(diagnostic._simulation_folder if hasattr(diagnostic, "_simulation_folder") else None),
                 species=diagnostic._species,
             )
         else:
@@ -145,17 +139,13 @@ class Derivative_Diagnostic(Diagnostic):
             self._data = self._diag._data
 
         if self._deriv_type == "t":
-            result = np.gradient(
-                self._data, self._diag._dt * self._diag._ndump, axis=0, edge_order=2
-            )
+            result = np.gradient(self._data, self._diag._dt * self._diag._ndump, axis=0, edge_order=2)
 
         elif self._deriv_type == "x1":
             if self._dim == 1:
                 result = np.gradient(self._data, self._diag._dx, axis=1, edge_order=2)
             else:
-                result = np.gradient(
-                    self._data, self._diag._dx[0], axis=1, edge_order=2
-                )
+                result = np.gradient(self._data, self._diag._dx[0], axis=1, edge_order=2)
 
         elif self._deriv_type == "x2":
             result = np.gradient(self._data, self._diag._dx[1], axis=2, edge_order=2)
@@ -214,41 +204,25 @@ class Derivative_Diagnostic(Diagnostic):
         """Generate data for a specific index on-demand"""
         if self._deriv_type == "x1":
             if self._dim == 1:
-                yield np.gradient(
-                    self._diag[index], self._diag._dx, axis=0, edge_order=2
-                )
+                yield np.gradient(self._diag[index], self._diag._dx, axis=0, edge_order=2)
             else:
-                yield np.gradient(
-                    self._diag[index], self._diag._dx[0], axis=0, edge_order=2
-                )
+                yield np.gradient(self._diag[index], self._diag._dx[0], axis=0, edge_order=2)
 
         elif self._deriv_type == "x2":
-            yield np.gradient(
-                self._diag[index], self._diag._dx[1], axis=1, edge_order=2
-            )
+            yield np.gradient(self._diag[index], self._diag._dx[1], axis=1, edge_order=2)
 
         elif self._deriv_type == "x3":
-            yield np.gradient(
-                self._diag[index], self._diag._dx[2], axis=2, edge_order=2
-            )
+            yield np.gradient(self._diag[index], self._diag._dx[2], axis=2, edge_order=2)
 
         elif self._deriv_type == "t":
             if index == 0:
-                yield (
-                    -3 * self._diag[index]
-                    + 4 * self._diag[index + 1]
-                    - self._diag[index + 2]
-                ) / (2 * self._diag._dt * self._diag._ndump)
-            elif index == self._diag._maxiter - 1:
-                yield (
-                    3 * self._diag[index]
-                    - 4 * self._diag[index - 1]
-                    + self._diag[index - 2]
-                ) / (2 * self._diag._dt * self._diag._ndump)
-            else:
-                yield (self._diag[index + 1] - self._diag[index - 1]) / (
+                yield (-3 * self._diag[index] + 4 * self._diag[index + 1] - self._diag[index + 2]) / (
                     2 * self._diag._dt * self._diag._ndump
                 )
+            elif index == self._diag._maxiter - 1:
+                yield (3 * self._diag[index] - 4 * self._diag[index - 1] + self._diag[index - 2]) / (2 * self._diag._dt * self._diag._ndump)
+            else:
+                yield (self._diag[index + 1] - self._diag[index - 1]) / (2 * self._diag._dt * self._diag._ndump)
         else:
             raise ValueError("Invalid derivative type. Use 'x1', 'x2', 'x3' or 't'.")
 
@@ -263,9 +237,7 @@ class Derivative_Diagnostic(Diagnostic):
             start = 0 if index.start is None else index.start
             step = 1 if index.step is None else index.step
             stop = self._diag._maxiter if index.stop is None else index.stop
-            return np.array(
-                [next(self._data_generator(i)) for i in range(start, stop, step)]
-            )
+            return np.array([next(self._data_generator(i)) for i in range(start, stop, step)])
         else:
             raise ValueError("Invalid index type. Use int or slice.")
 
@@ -296,7 +268,5 @@ class Derivative_Species_Handler:
     def __getitem__(self, key):
         if key not in self._derivatives_computed:
             diag = self._species_handler[key]
-            self._derivatives_computed[key] = Derivative_Diagnostic(
-                diag, self._deriv_type, self._axis
-            )
+            self._derivatives_computed[key] = Derivative_Diagnostic(diag, self._deriv_type, self._axis)
         return self._derivatives_computed[key]

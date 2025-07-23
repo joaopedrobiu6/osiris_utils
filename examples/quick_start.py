@@ -19,7 +19,9 @@ Run with:  python examples/quick_start.py  <PATH_TO_RUN>
 
 import sys
 from pathlib import Path
+
 import matplotlib.pyplot as plt
+
 import osiris_utils as ou
 
 sim_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("example_data/thermal.1d")
