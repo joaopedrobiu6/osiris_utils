@@ -26,7 +26,7 @@ sys.path.append(os.path.abspath("../.."))
 project = "osiris_utils"
 copyright = "2025, João Biu, João Cândido, Diogo Carvalho"
 author = "João Biu, João Cândido, Diogo Carvalho"
-version = "v1.1.7"
+version = "v1.1.8"
 release = version
 
 
