@@ -44,4 +44,11 @@ setup(
         'Issues Tracker': 'https://github.com/joaopedrobiu6/osiris_utils/issues',
         'Source Code': 'https://github.com/joaopedrobiu6/osiris_utils',
     },
+    extras_require={
+    "dev": [
+        "pytest>=8.1",
+        "pytest-cov",
+        # optional: "ruff", "black", "isort", "pre-commit"
+    ],
+},
 )
