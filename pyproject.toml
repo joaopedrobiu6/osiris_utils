@@ -95,6 +95,10 @@ fallback_version = "0.0.0"
   "docs/_static/*.png"
 ]
 
+[tool.black]
+line-length = 140
+target-version = ["py310"]
+
 [tool.ruff]
 line-length = 140          # instead of 88
 target-version = "py310"   # matches your min python

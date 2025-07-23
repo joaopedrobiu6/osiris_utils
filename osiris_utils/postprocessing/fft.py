@@ -33,15 +33,11 @@ class FFT_Simulation(PostProcess):
     def __getitem__(self, key):
         if key in self._simulation._species:
             if key not in self._species_handler:
-                self._species_handler[key] = FFT_Species_Handler(
-                    self._simulation[key], self._fft_axis
-                )
+                self._species_handler[key] = FFT_Species_Handler(self._simulation[key], self._fft_axis)
             return self._species_handler[key]
 
         if key not in self._fft_computed:
-            self._fft_computed[key] = FFT_Diagnostic(
-                self._simulation[key], self._fft_axis
-            )
+            self._fft_computed[key] = FFT_Diagnostic(self._simulation[key], self._fft_axis)
         return self._fft_computed[key]
 
     def delete_all(self):
@@ -84,11 +80,7 @@ class FFT_Diagnostic(Diagnostic):
     def __init__(self, diagnostic, fft_axis):
         if hasattr(diagnostic, "_species"):
             super().__init__(
-                simulation_folder=(
-                    diagnostic._simulation_folder
-                    if hasattr(diagnostic, "_simulation_folder")
-                    else None
-                ),
+                simulation_folder=(diagnostic._simulation_folder if hasattr(diagnostic, "_simulation_folder") else None),
                 species=diagnostic._species,
             )
         else:
@@ -121,9 +113,7 @@ class FFT_Diagnostic(Diagnostic):
         if isinstance(self._dx, (int, float)):
             self._kmax = np.pi / (self._dx)
         else:
-            self._kmax = np.pi / np.array(
-                [self._dx[ax - 1] for ax in self._fft_axis if ax != 0]
-            )
+            self._kmax = np.pi / np.array([self._dx[ax - 1] for ax in self._fft_axis if ax != 0])
 
     def load_all(self):
         if self._data is not None:
@@ -137,17 +127,13 @@ class FFT_Diagnostic(Diagnostic):
         # Apply appropriate windows based on which axes we're transforming
         if isinstance(self._fft_axis, (list, tuple)):
             if self._diag._data is None:
-                raise ValueError(
-                    f"Unable to load data for diagnostic {self._diag._name}. The data is None even after loading."
-                )
+                raise ValueError(f"Unable to load data for diagnostic {self._diag._name}. The data is None even after loading.")
 
             result = self._diag._data.copy()
 
             for axis in self._fft_axis:
                 if axis == 0:  # Time axis
-                    window = np.hanning(result.shape[0]).reshape(
-                        -1, *([1] * (result.ndim - 1))
-                    )
+                    window = np.hanning(result.shape[0]).reshape(-1, *([1] * (result.ndim - 1)))
                     result = result * window
                 else:  # Spatial axis
                     window = self._get_window(result.shape[axis], axis)
@@ -161,17 +147,11 @@ class FFT_Diagnostic(Diagnostic):
 
         else:
             if self._fft_axis == 0:
-                hanning_window = np.hanning(self._diag._data.shape[0]).reshape(
-                    -1, *([1] * (self._diag._data.ndim - 1))
-                )
+                hanning_window = np.hanning(self._diag._data.shape[0]).reshape(-1, *([1] * (self._diag._data.ndim - 1)))
                 data_windowed = hanning_window * self._diag._data
             else:
-                window = self._get_window(
-                    self._diag._data.shape[self._fft_axis], self._fft_axis
-                )
-                data_windowed = self._apply_window(
-                    self._diag._data, window, self._fft_axis
-                )
+                window = self._get_window(self._diag._data.shape[self._fft_axis], self._fft_axis)
+                data_windowed = self._apply_window(self._diag._data, window, self._fft_axis)
 
             with tqdm.tqdm(total=1, desc="FFT calculation") as pbar:
                 data_fft = np.fft.fft(data_windowed, axis=self._fft_axis)
@@ -190,9 +170,7 @@ class FFT_Diagnostic(Diagnostic):
         original_data = self._diag[index]
 
         if self._fft_axis == 0:
-            raise ValueError(
-                "Cannot generate FFT along time axis for a single timestep. Use load_all() instead."
-            )
+            raise ValueError("Cannot generate FFT along time axis for a single timestep. Use load_all() instead.")
 
         # For spatial FFT, we can apply a spatial window if desired
         if isinstance(self._fft_axis, (list, tuple)):
@@ -204,21 +182,13 @@ class FFT_Diagnostic(Diagnostic):
                     result = self._apply_window(result, window, axis - 1)
 
             # Compute FFT
-            result_fft = np.fft.fftn(
-                result, axes=[ax - 1 for ax in self._fft_axis if ax != 0]
-            )
-            result_fft = np.fft.fftshift(
-                result_fft, axes=[ax - 1 for ax in self._fft_axis if ax != 0]
-            )
+            result_fft = np.fft.fftn(result, axes=[ax - 1 for ax in self._fft_axis if ax != 0])
+            result_fft = np.fft.fftshift(result_fft, axes=[ax - 1 for ax in self._fft_axis if ax != 0])
 
         else:
             if self._fft_axis > 0:  # Spatial axis
-                window = self._get_window(
-                    original_data.shape[self._fft_axis - 1], self._fft_axis - 1
-                )
-                windowed_data = self._apply_window(
-                    original_data, window, self._fft_axis - 1
-                )
+                window = self._get_window(original_data.shape[self._fft_axis - 1], self._fft_axis - 1)
+                windowed_data = self._apply_window(original_data, window, self._fft_axis - 1)
 
                 result_fft = np.fft.fft(windowed_data, axis=self._fft_axis - 1)
                 result_fft = np.fft.fftshift(result_fft, axes=self._fft_axis - 1)
@@ -247,9 +217,7 @@ class FFT_Diagnostic(Diagnostic):
             start = 0 if index.start is None else index.start
             step = 1 if index.step is None else index.step
             stop = self._diag._maxiter if index.stop is None else index.stop
-            return np.array(
-                [next(self._data_generator(i)) for i in range(start, stop, step)]
-            )
+            return np.array([next(self._data_generator(i)) for i in range(start, stop, step)])
         else:
             raise ValueError("Invalid index type. Use int or slice.")
 
@@ -260,9 +228,7 @@ class FFT_Diagnostic(Diagnostic):
         if not self._all_loaded:
             raise ValueError("Load the data first using load_all() method.")
 
-        omega = np.fft.fftfreq(
-            self._data.shape[self._fft_axis], d=self._dx[self._fft_axis - 1]
-        )
+        omega = np.fft.fftfreq(self._data.shape[self._fft_axis], d=self._dx[self._fft_axis - 1])
         omega = np.fft.fftshift(omega)
         return omega
 

@@ -221,13 +221,9 @@ def convert_tracks(filename_in):
         part_number, npoints, nstart = itermap[i, :]
         track_index = int(track_indices[part_number - 1])
 
-        ordered_data[part_number - 1][track_index : track_index + npoints, 0] = (
-            nstart + np.arange(npoints) * niter
-        )
+        ordered_data[part_number - 1][track_index : track_index + npoints, 0] = nstart + np.arange(npoints) * niter
 
-        ordered_data[part_number - 1][track_index : track_index + npoints, 1:] = data[
-            data_index : data_index + npoints, :
-        ]
+        ordered_data[part_number - 1][track_index : track_index + npoints, 1:] = data[data_index : data_index + npoints, :]
 
         data_index += npoints
         track_indices[part_number - 1] += npoints
@@ -239,9 +235,7 @@ def convert_tracks(filename_in):
         group = file_out.create_group(str(i + 1))
         for j in range(nquants):
             if j == 0:
-                group.create_dataset(
-                    quants[j], data=np.array(ordered_data[i][:, j], dtype=int)
-                )
+                group.create_dataset(quants[j], data=np.array(ordered_data[i][:, j], dtype=int))
             else:
                 group.create_dataset(quants[j], data=ordered_data[i][:, j])
 
@@ -281,9 +275,7 @@ def create_file_tags(filename, tags_array):
 
     with open(filename, "w") as file:
         file.write("! particle tag list\n")
-        file.write(
-            f"! generated on {datetime.now().strftime('%a %b %d %H:%M:%S %Y')}\n"
-        )
+        file.write(f"! generated on {datetime.now().strftime('%a %b %d %H:%M:%S %Y')}\n")
         file.write("! number of tags\n")
         file.write(f"       {num_tags}\n")
         file.write("! particle tag list\n")

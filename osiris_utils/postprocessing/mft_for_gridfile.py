@@ -39,10 +39,7 @@ class MFT_Single(OsirisGridFile):
         return self._fluctuations
 
     def __str__(self):
-        return (
-            super().__str__()
-            + f"\nAverage: {self.average.shape}\nDelta: {self.delta.shape}"
-        )
+        return super().__str__() + f"\nAverage: {self.average.shape}\nDelta: {self.delta.shape}"
 
     def derivative(self, field, axis=0):
         """
