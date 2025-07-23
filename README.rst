@@ -2,6 +2,15 @@ OSIRIS_UTILS
 ============
 |Pypi|
 
+.. image:: https://github.com/joaopedrobiu6/osiris_utils/actions/workflows/ci.yml/badge.svg
+   :target: https://github.com/joaopedrobiu6/osiris_utils/actions
+   :alt: CI status
+.. image:: https://codecov.io/gh/joaopedrobiu6/osiris_utils/branch/main/graph/badge.svg
+   :target: https://codecov.io/gh/joaopedrobiu6/osiris_utils
+   :alt: Coverage
+
+
+
 This package contains a set of utilities to open and analyze OSIRIS output files, using Python. All the methods implemented are fully integrated with `NumPy`, and use `np.ndarray` as the main data structure.
 High-level functions are provided to manipulate data from OSIRIS, from reading the data of the diagnostics, to making post-processing calculations.
 

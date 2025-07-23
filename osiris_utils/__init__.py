@@ -1,3 +1,12 @@
+from importlib import metadata as _meta
+
+try:
+    # Use the version that was baked into the wheel / sdist at build time
+    __version__: str = _meta.version(__name__)
+except _meta.PackageNotFoundError:  # package is being run from a checkout
+    # Fallback for `pip install -e .` or direct source use
+    __version__ = "0.0.0.dev0"
+
 from .utils import (
     time_estimation,
     filesize_estimation,
