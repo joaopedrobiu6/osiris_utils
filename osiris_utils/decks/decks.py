@@ -1,18 +1,13 @@
-from __future__ import annotations
-
 import ast
 import copy
 import re
-from typing import Dict, List
 
 import numpy as np
 
 from .species import Specie
 
-__all__ = ["InputDeckIO", "Specie"]
 
-
-def deval(x: str) -> float:
+def deval(x):
     """
     Auxiliar to handle eval of Fortran formatted numbers (e.g. 1.4d-5)
     """
@@ -53,7 +48,7 @@ class InputDeckIO:
         self._dim = self._get_dim()
         self._species = self._get_species()
 
-    def _parse_input_deck(self, verbose: bool) -> List[List[str, Dict[str, str]]]:
+    def _parse_input_deck(self, verbose):
         section_list = []
 
         if verbose:
@@ -141,7 +136,7 @@ class InputDeckIO:
 
         return section_list
 
-    def _get_dim(self) -> int:
+    def _get_dim(self):
         dim = None
         for i in range(1, 4):
             try:
@@ -155,7 +150,7 @@ class InputDeckIO:
             raise RuntimeError("Error parsing grid dimension. Grid dimension could not be estabilished.")
         return dim
 
-    def _get_species(self) -> Dict[str, Specie]:
+    def _get_species(self):
         s_names = self.get_param("species", "name")
         s_rqm = self.get_param("species", "rqm")
         # real charge is optional in OSIRIS
@@ -182,14 +177,7 @@ class InputDeckIO:
             for i in range(self.n_species)
         }
 
-    def set_param(
-        self,
-        section: str,
-        param: str,
-        value: str | float | int | List[str | float | int],
-        i_use: int | None = None,
-        unexistent_ok: bool = False,
-    ):
+    def set_param(self, section, param, value, i_use=None, unexistent_ok=False):
         # get all sections with the same name
         # (e.g. there might be multiple 'species')
         i_sections = [i for i, m in enumerate(self._sections) if m[0] == section]
@@ -213,16 +201,12 @@ class InputDeckIO:
             else:
                 self._sections[i][1][param] = str(value)
 
-    def set_tag(
-        self,
-        tag: str,
-        value: str | float | int | List[str | float | int],
-    ):
+    def set_tag(self, tag, value):
         for im, (_, params) in enumerate(self._sections):
             for p, v in params.items():
                 self._sections[im][1][p] = v.replace(tag, str(value))
 
-    def get_param(self, section: str, param: str) -> List[str | float | int]:
+    def get_param(self, section, param):
         i_sections = [i for i, m in enumerate(self._sections) if m[0] == section]
 
         if len(i_sections) == 0:
@@ -237,7 +221,7 @@ class InputDeckIO:
 
         return values
 
-    def delete_param(self, section: str, param: str):
+    def delete_param(self, section, param):
         sections_new = []
         for m_name, m_dict in self._sections:
             if m_name == section and param in m_dict:
@@ -245,7 +229,7 @@ class InputDeckIO:
             sections_new.append([m_name, m_dict])
         self._sections = sections_new
 
-    def print_to_file(self, filename: str):
+    def print_to_file(self, filename):
         with open(filename, "w", encoding="utf-8") as f:
             for section, section_dict in self._sections:
                 f.write(f"{section}\n{{\n")
@@ -253,24 +237,24 @@ class InputDeckIO:
                     f.write(f'\t{k} = {v.replace(",", ", ")},\n')
                 f.write("}\n\n")
 
-    def __getitem__(self, section: str) -> List[Dict]:
+    def __getitem__(self, section):
         return copy.deepcopy([m[1] for m in self._sections if m[0] == section])
 
     # Getters
     @property
-    def filename(self) -> str:
+    def filename(self):
         return self._filename
 
     @property
-    def sections(self) -> List[Dict]:
+    def sections(self):
         return self._sections
 
     @property
-    def dim(self) -> int:
+    def dim(self):
         return self._dim
 
     @property
-    def n_species(self) -> int:
+    def n_species(self):
         try:
             return int(self["particles"][0]["num_species"])
         except (KeyError, IndexError):
@@ -282,5 +266,5 @@ class InputDeckIO:
                 raise KeyError("Could not find 'num_species' or 'num_cathode' in the particles section") from None
 
     @property
-    def species(self) -> Dict[str, Specie]:
+    def species(self):
         return self._species
