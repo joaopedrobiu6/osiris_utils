@@ -6,11 +6,6 @@ OSIRIS Utils Documentation
 .. include:: ../../README.rst
 
 .. toctree::
-   :maxdepth: 1
-
-   .. nbinclude:: ../../examples/quick_start.ipynb
-   
-.. toctree::
    :maxdepth: 2
    :caption: Simulation and Diagnostic API:
    :hidden:

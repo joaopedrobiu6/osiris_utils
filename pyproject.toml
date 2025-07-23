@@ -63,7 +63,6 @@ dev  = [
 ]
 docs = [
     "sphinx>=8",
-    "nbsphinx>=0.9,<1.0",   # ← pin to the current major line
     "ipykernel",
     "myst-parser",
     "sphinx-copybutton<=0.5.2",
