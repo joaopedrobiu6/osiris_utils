@@ -46,10 +46,10 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx_copybutton",
     "sphinx_github_style",
-    "nbsphinx",          # or "nbsphinx"
+    "nbsphinx",  # or "nbsphinx"
 ]
 
-nb_execution_mode = "off"   # use stored output; avoids long CI builds
+nb_execution_mode = "off"  # use stored output; avoids long CI builds
 # options for sphinx_github_style
 top_level = "OSIRIS Utils"
 linkcode_blob = "head"

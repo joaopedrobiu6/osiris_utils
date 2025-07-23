@@ -56,7 +56,10 @@ dev  = [
   "pre-commit>=3.7",
   "ruff>=0.4",
   "black>=24.4",
-  "isort>=5.13"
+  "isort>=5.13",
+  "mypy>=1.10",
+  "types-tqdm",
+  "types-Pillow",
 ]
 docs = [
   "sphinx>=8",
@@ -67,6 +70,14 @@ docs = [
   "sphinx-github-style<=1.2.2"
 ]
 plot = ["seaborn>=0.13"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true                      # enables all *safe* strict flags
+show_error_codes = true
+plugins = []
+ignore_missing_imports = true      # relax; tighten gradually
+namespace_packages = true
 
 # -----------------------  setuptools-specific knobs  ------------------------ #
 [tool.setuptools]
