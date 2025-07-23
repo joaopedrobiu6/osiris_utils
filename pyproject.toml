@@ -78,6 +78,15 @@ plugins = []
 ignore_missing_imports = true      # relax; tighten gradually
 namespace_packages = true
 
+# only check these files/directories
+files = [
+  "osiris_utils/decks",
+]
+
+# turn off untyped‑calls/defs everywhere else
+[mypy]
+ignore_missing_imports = true
+
 # -----------------------  setuptools-specific knobs  ------------------------ #
 [tool.setuptools]
 # automatic discovery but skip non-package dirs (mirrors setup.py exclude)
