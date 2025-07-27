@@ -310,7 +310,7 @@ class Diagnostic:
             raise ValueError("Simulation folder not set.")
         file = os.path.join(self._file_template + f"{index:06d}.h5")
         data_object = OsirisGridFile(file)
-        yield (data_object.data if self._quantity not in OSIRIS_DENSITY else self._species.rqm * data_object.data)
+        yield (data_object.data if self._quantity not in OSIRIS_DENSITY else np.sign(self._species.rqm) * data_object.data)
 
     def load_all(self):
         """

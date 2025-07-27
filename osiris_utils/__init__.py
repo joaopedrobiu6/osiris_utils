@@ -9,6 +9,7 @@ except _meta.PackageNotFoundError:  # package is being run from a checkout
 
 from .ar.anomalous_resistivity import (
     AnomalousResistivity,
+    AnomalousResistivity2,
     AnomalousResistivityABC,
     AnomalousResistivityConfig,
     TermFactory,
@@ -105,6 +106,7 @@ __all__ = [
     "compute_vlasov_electric_field",
     # AnomalousResistivity
     "AnomalousResistivity",
+    "AnomalousResistivity2",
     "AnomalousResistivityABC",
     "AnomalousResistivityConfig",
     "TermType",
