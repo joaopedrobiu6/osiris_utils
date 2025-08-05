@@ -899,13 +899,13 @@ class Diagnostic:
 
     def __str__(self):
         """String representation of the diagnostic."""
-        return f"Diagnostic: {self._name}, Species: {self._species}, Quantity: {self._quantity}, Path: {self._path}"
+        return f"Diagnostic: {self._name}, Species: {self._species}, Quantity: {self._quantity}"
 
     def __repr__(self):
         """Detailed string representation of the diagnostic."""
         return (
             f"Diagnostic(species={self._species}, name={self._name}, quantity={self._quantity}, "
-            f"path={self._path}, dim={self._dim}, maxiter={self._maxiter}, all_loaded={self._all_loaded})"
+            f"dim={self._dim}, maxiter={self._maxiter}, all_loaded={self._all_loaded})"
         )
 
     # Getters
