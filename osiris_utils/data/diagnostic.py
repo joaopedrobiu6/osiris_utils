@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 The utilities on data.py are cool but not useful when you want to work with whole data of a simulation instead
 of just a single file. This is what this file is for - deal with ''folders'' of data.
@@ -8,9 +10,11 @@ This would be awsome to compute time derivatives.
 """
 
 import glob
+import logging
+import operator
 import os
 import warnings
-from typing import Literal
+from typing import Any, Callable, Iterator, Optional, Tuple, Union
 
 import h5py
 import matplotlib.pyplot as plt
@@ -18,6 +22,9 @@ import numpy as np
 import tqdm
 
 from .data import OsirisGridFile
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)8s │ %(message)s")
+logger = logging.getLogger(__name__)
 
 OSIRIS_DENSITY = ["n"]
 OSIRIS_SPECIE_REPORTS = ["charge", "q1", "q2", "q3", "j1", "j2", "j3"]
@@ -76,6 +83,25 @@ OSIRIS_PHA = [
     "gammax3",
 ]  # there may be more that I don't know
 OSIRIS_ALL = OSIRIS_DENSITY + OSIRIS_SPECIE_REPORTS + OSIRIS_SPECIE_REP_UDIST + OSIRIS_FLD + OSIRIS_PHA
+
+_ATTRS_TO_CLONE = [
+    "_dx",
+    "_nx",
+    "_x",
+    "_dt",
+    "_grid",
+    "_axis",
+    "_units",
+    "_name",
+    "_label",
+    "_dim",
+    "_ndump",
+    "_maxiter",
+    "_tunits",
+    "_type",
+    "_simulation_folder",
+    "_quantity",
+]
 
 
 def which_quantities():
@@ -163,22 +189,22 @@ class Diagnostic:
 
     """
 
-    def __init__(self, simulation_folder=None, species=None, input_deck=None):
+    def __init__(self, simulation_folder: Optional[str] = None, species: Any = None, input_deck: Optional[str | None] = None) -> None:
         self._species = species if species else None
 
-        self._dx = None
-        self._nx = None
-        self._x = None
-        self._dt = None
-        self._grid = None
-        self._axis = None
-        self._units = None
-        self._name = None
-        self._label = None
-        self._dim = None
-        self._ndump = None
-        self._maxiter = None
-        self._tunits = None
+        self._dx: Optional[Union[float, np.ndarray]] = None  # grid spacing in each direction
+        self._nx: Optional[Union[int, np.ndarray]] = None  # number of grid points in each direction
+        self._x: Optional[np.ndarray] = None  # grid points
+        self._dt: Optional[float] = None  # time step
+        self._grid: Optional[np.ndarray] = None  # grid boundaries
+        self._axis: Optional[Any] = None  # axis information
+        self._units: Optional[str] = None  # units of the diagnostic
+        self._name: Optional[str] = None
+        self._label: Optional[str] = None
+        self._dim: Optional[int] = None
+        self._ndump: Optional[int] = None
+        self._maxiter: Optional[int] = None
+        self._tunits: Optional[str] = None  # time units
 
         if simulation_folder:
             self._simulation_folder = simulation_folder
@@ -186,17 +212,22 @@ class Diagnostic:
                 raise FileNotFoundError(f"Simulation folder {simulation_folder} not found.")
         else:
             self._simulation_folder = None
-
         # load input deck if available
         if input_deck:
             self._input_deck = input_deck
         else:
             self._input_deck = None
 
-        self._all_loaded = False
-        self._quantity = None
+        self._all_loaded: bool = False  # if the data is already loaded into memory
+        self._quantity: Optional[str] = None
 
-    def get_quantity(self, quantity):
+    #########################################
+    #
+    # Diagnostic metadata and attributes
+    #
+    #########################################
+
+    def get_quantity(self, quantity: str) -> None:
         """
         Get the data for a given quantity.
 
@@ -232,39 +263,43 @@ class Diagnostic:
                 f"Invalid quantity {self._quantity}. Or it's not implemented yet (this may happen for phase space quantities)."
             )
 
-    def _get_moment(self, species, moment):
+    def _scan_files(self, pattern: str) -> None:
+        """Populate _file_list and related attributes from a glob pattern."""
+        self._file_list = sorted(glob.glob(pattern))
+        if not self._file_list:
+            raise FileNotFoundError(f"No HDF5 files match {pattern}")
+        self._file_template = self._file_list[0][:-9]  # keep old “template” idea
+        self._maxiter = len(self._file_list)
+
+    def _get_moment(self, species: str, moment: str) -> None:
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/UDIST/{species}/{moment}/"
-        self._file_template = glob.glob(f"{self._path}/*.h5")[0][:-9]
-        self._maxiter = len(glob.glob(f"{self._path}/*.h5"))
+        self._scan_files(os.path.join(self._path, "*.h5"))
         self._load_attributes(self._file_template, self._input_deck)
 
-    def _get_field(self, field):
+    def _get_field(self, field: str) -> None:
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/FLD/{field}/"
-        self._file_template = glob.glob(f"{self._path}/*.h5")[0][:-9]
-        self._maxiter = len(glob.glob(f"{self._path}/*.h5"))
+        self._scan_files(os.path.join(self._path, "*.h5"))
         self._load_attributes(self._file_template, self._input_deck)
 
-    def _get_density(self, species, quantity):
+    def _get_density(self, species: str, quantity: str) -> None:
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/DENSITY/{species}/{quantity}/"
-        self._file_template = glob.glob(f"{self._path}/*.h5")[0][:-9]
-        self._maxiter = len(glob.glob(f"{self._path}/*.h5"))
+        self._scan_files(os.path.join(self._path, "*.h5"))
         self._load_attributes(self._file_template, self._input_deck)
 
-    def _get_phase_space(self, species, type):
+    def _get_phase_space(self, species: str, type: str) -> None:
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/PHA/{type}/{species}/"
-        self._file_template = glob.glob(f"{self._path}/*.h5")[0][:-9]
-        self._maxiter = len(glob.glob(f"{self._path}/*.h5"))
+        self._scan_files(os.path.join(self._path, "*.h5"))
         self._load_attributes(self._file_template, self._input_deck)
 
-    def _load_attributes(self, file_template, input_deck):  # this will be replaced by reading the input deck
+    def _load_attributes(self, file_template: str, input_deck: Optional[dict]) -> None:  # this will be replaced by reading the input deck
         # This can go wrong! NDUMP
         # if input_deck is not None:
         #     self._dt = float(input_deck["time_step"][0]["dt"])
@@ -275,7 +310,10 @@ class Diagnostic:
         #     self._dx = (self._grid[:,1] - self._grid[:,0])/self._nx
         #     self._x = [np.arange(self._grid[i,0], self._grid[i,1], self._dx[i]) for i in range(self._dim)]
 
-        self._ndump = int(input_deck["time_step"][0]["ndump"])
+        if input_deck is not None:
+            self._ndump = int(input_deck["time_step"][0]["ndump"])
+        elif input_deck is None:
+            self._ndump = 1
 
         try:
             # Try files 000001, 000002, etc. until one is found
@@ -305,150 +343,163 @@ class Diagnostic:
         except Exception as e:
             warnings.warn(f"Error loading diagnostic attributes: {str(e)}. Please verify it there's any file in the folder.")
 
-    def _data_generator(self, index):
+    ##########################################
+    #
+    # Data loading and processing
+    #
+    ##########################################
+
+    def _data_generator(self, index: int) -> None:
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set.")
-        file = os.path.join(self._file_template + f"{index:06d}.h5")
+        if self._file_list is None:
+            raise RuntimeError("File list not initialized. Call get_quantity() first.")
+        try:
+            file = self._file_list[index]
+        except IndexError:
+            raise RuntimeError(f"File index {index} out of range (max {self._maxiter - 1}).")
         data_object = OsirisGridFile(file)
-        yield (data_object.data if self._quantity not in OSIRIS_DENSITY else self._species.rqm * data_object.data)
+        yield (data_object.data if self._quantity not in OSIRIS_DENSITY else np.sign(self._species.rqm) * data_object.data)
 
-    def load_all(self):
+    def load_all(self) -> np.ndarray:
         """
-        Load all data into memory (all iterations).
+        Load all data into memory (all iterations), in a pre-allocated array.
 
         Returns
         -------
         data : np.ndarray
-            The data for all iterations. Also stored in the attribute data.
+            The data for all iterations. Also stored in self._data.
         """
-        # If data is already loaded, don't do anything
-        if self._all_loaded and self._data is not None:
-            print("Data already loaded.")
+        if getattr(self, "_all_loaded", False) and self._data is not None:
+            logger.debug("Data already loaded into memory.")
             return self._data
 
-        # If this is a derived diagnostic without files
-        if hasattr(self, "postprocess_name") or hasattr(self, "created_diagnostic_name"):
-            # If it has a data generator but no direct files
+        size = getattr(self, "_maxiter", None)
+        if size is None:
+            raise RuntimeError("Cannot determine iteration count (no _maxiter).")
+
+        try:
+            first = self[0]
+        except Exception as e:
+            raise RuntimeError(f"Failed to load first timestep: {e}")
+        slice_shape = first.shape
+        dtype = first.dtype
+
+        data = np.empty((size, *slice_shape), dtype=dtype)
+        data[0] = first
+
+        for i in tqdm.trange(1, size, desc="Loading data"):
             try:
-                print("This appears to be a derived diagnostic. Loading data from generators...")
-                # Get the maximum size from the diagnostic attributes
-                if hasattr(self, "_maxiter") and self._maxiter is not None:
-                    size = self._maxiter
-                else:
-                    # Try to infer from a related diagnostic
-                    if hasattr(self, "_diag") and hasattr(self._diag, "_maxiter"):
-                        size = self._diag._maxiter
-                    else:
-                        # Default to a reasonable number if we can't determine
-                        size = 100
-                        print(f"Warning: Could not determine timestep count, using {size}.")
-
-                # Load data for all timesteps using the generator - this may take a while
-                self._data = np.stack([self[i] for i in tqdm.tqdm(range(size), desc="Loading data")])
-                self._all_loaded = True
-                return self._data
-
+                data[i] = self[i]
             except Exception as e:
-                raise ValueError(f"Could not load derived diagnostic data: {str(e)}")
+                raise RuntimeError(f"Error loading timestep {i}: {e}")
 
-        # Original implementation for file-based diagnostics
-        print("Loading all data from files. This may take a while.")
-        size = len(sorted(glob.glob(f"{self._path}/*.h5")))
-        self._data = np.stack([self[i] for i in tqdm.tqdm(range(size), desc="Loading data")])
+        self._data = data
         self._all_loaded = True
         return self._data
 
-    def unload(self):
+    def unload(self) -> None:
         """
         Unload data from memory. This is useful to free memory when the data is not needed anymore.
         """
-        print("Unloading data from memory.")
+        logger.info("Unloading data from memory.")
         if self._all_loaded is False:
-            print("Data is not loaded.")
+            logger.warning("Data is not loaded.")
             return
         self._data = None
         self._all_loaded = False
 
-    def load(self, index):
+    ###########################################
+    #
+    # Data access and iteration
+    #
+    ###########################################
+
+    def __len__(self) -> int:
+        """Return the number of timesteps available."""
+        return getattr(self, "_maxiter", 0)
+
+    def __getitem__(self, index: int) -> np.ndarray:
         """
-        Load data for a given index into memory. Not recommended. Use load_all for all data or access via generator or index for better performance.
+        Retrieve timestep data.
+
+        Parameters
+        ----------
+        index : int or slice
+            - If int, may be negative (Python-style).
+            - If slice, supports start:stop:step. Zero-length slices return an empty array of shape (0, ...).
+
+        Returns
+        -------
+        np.ndarray
+            Array for that timestep (or stacked array for a slice).
+
+        Raises
+        ------
+        IndexError
+            If the index is out of range or no data generator is available.
+        RuntimeError
+            If loading a specific timestep fails.
         """
-        self._data = next(self._data_generator(index))
-
-    # def __getitem__(self, index):
-    #     # For derived diagnostics with cached data
-    #     if self._all_loaded and self._data is not None:
-    #         return self._data[index]
-
-    #     # For standard diagnostics with files
-    #     if isinstance(index, int):
-    #         if self._simulation_folder is not None and hasattr(self, "_data_generator"):
-    #             return next(self._data_generator(index))
-
-    #         # For derived diagnostics with custom generators
-    #         if hasattr(self, "_data_generator") and callable(self._data_generator):
-    #             return next(self._data_generator(index))
-
-    #     elif isinstance(index, slice):
-    #         start = 0 if index.start is None else index.start
-    #         step = 1 if index.step is None else index.step
-
-    #         if index.stop is None:
-    #             if hasattr(self, "_maxiter") and self._maxiter is not None:
-    #                 stop = self._maxiter
-    #             elif self._simulation_folder is not None and hasattr(self, "_path"):
-    #                 stop = len(sorted(glob.glob(f"{self._path}/*.h5")))
-    #             else:
-    #                 stop = 100  # Default if we can't determine
-    #                 print(
-    #                     f"Warning: Could not determine iteration count for iteration, using {stop}."
-    #                 )
-    #         else:
-    #             stop = index.stop
-
-    #         indices = range(start, stop, step)
-    #         if self._simulation_folder is not None and hasattr(self, "_data_generator"):
-    #             return np.stack([next(self._data_generator(i)) for i in indices])
-    #         elif hasattr(self, "_data_generator") and callable(self._data_generator):
-    #             return np.stack([next(self._data_generator(i)) for i in indices])
-
-    #     # If we get here, we don't know how to get data for this index
-    #     raise ValueError(
-    #         f"Cannot retrieve data for this diagnostic at index {index}. No data loaded and no generator available."
-    #     )
-
-    def __getitem__(self, index):
-        if self._all_loaded and self._data is not None:
+        # Quick path: all data already in memory
+        if getattr(self, "_all_loaded", False) and self._data is not None:
             return self._data[index]
 
+        # Data generator must exist
         data_gen = getattr(self, "_data_generator", None)
-        has_gen = callable(data_gen)
+        if not callable(data_gen):
+            raise IndexError(f"No data available for indexing; you did something wrong!")
 
+        # Handle int indices (including negatives)
         if isinstance(index, int):
-            if has_gen:
-                try:
-                    return next(data_gen(index))
-                except Exception as e:
-                    raise RuntimeError(f"Error loading data at index {index}: {e}")
+            if index < 0:
+                index += self._maxiter
+            if not (0 <= index < self._maxiter):
+                raise IndexError(f"Index {index} out of range (0..{self._maxiter - 1})")
+            try:
+                gen = data_gen(index)
+                return next(gen)
+            except Exception as e:
+                raise RuntimeError(f"Error loading data at index {index}: {e}")
 
-        elif isinstance(index, slice):
+        # Handle slice indices
+        if isinstance(index, slice):
             start = index.start or 0
-            step = index.step or 1
             stop = index.stop if index.stop is not None else self._maxiter
+            step = index.step or 1
+            # Normalize negatives
+            if start < 0:
+                start += self._maxiter
+            if stop < 0:
+                stop += self._maxiter
+            # Clip to bounds
+            start = max(0, min(start, self._maxiter))
+            stop = max(0, min(stop, self._maxiter))
             indices = range(start, stop, step)
 
-            if has_gen:
-                data_list = []
-                for i in indices:
-                    try:
-                        data_list.append(next(data_gen(i)))
-                    except Exception as e:
-                        raise RuntimeError(f"Error loading slice at index {i}: {e}")
-                return np.stack(data_list)
+            # Empty slice
+            if not indices:
+                # Determine single-step shape by peeking at index 0 (if possible)
+                try:
+                    dummy = next(data_gen(0))
+                    empty_shape = (0,) + dummy.shape
+                    return np.empty(empty_shape, dtype=dummy.dtype)
+                except Exception:
+                    return np.empty((0,))
 
-        raise ValueError(f"Cannot retrieve data for index {index}. No data loaded and no generator available.")
+            # Collect and stack
+            data_list = []
+            for i in indices:
+                try:
+                    data_list.append(next(data_gen(i)))
+                except Exception as e:
+                    raise RuntimeError(f"Error loading slice at index {i}: {e}")
+            return np.stack(data_list)
 
-    def __iter__(self):
+        # Unsupported index type
+        raise IndexError(f"Invalid index type {type(index)}; must be int or slice")
+
+    def __iter__(self) -> Iterator[np.ndarray]:
         # If this is a file-based diagnostic
         if self._simulation_folder is not None:
             for i in range(len(sorted(glob.glob(f"{self._path}/*.h5")))):
@@ -468,7 +519,7 @@ class Diagnostic:
                     max_iter = self._diag._maxiter
                 else:
                     max_iter = 100  # Default if we can't determine
-                    print(f"Warning: Could not determine iteration count for iteration, using {max_iter}.")
+                    logger.warning(f"Could not determine iteration count for iteration, using {max_iter}.")
 
             for i in range(max_iter):
                 yield next(self._data_generator(i))
@@ -477,501 +528,116 @@ class Diagnostic:
         else:
             raise ValueError("Cannot iterate over this diagnostic. No data loaded and no generator available.")
 
-    def __add__(self, other):
-        if isinstance(other, (int, float, np.ndarray)):
-            result = Diagnostic(species=self._species)
+    def _clone_meta(self) -> Diagnostic:
+        """
+        Create a new Diagnostic instance that carries over metadata only.
+        No data is copied, and no constructor edits are required because we
+        assign attributes dynamically.
+        """
+        clone = Diagnostic(species=getattr(self, "_species", None))  # keep species link
+        for attr in _ATTRS_TO_CLONE:
+            if hasattr(self, attr):
+                setattr(clone, attr, getattr(self, attr))
+        # If this diagnostic already discovered a _file_list via _scan_files,
+        # copy it too (harmless for virtual diags).
+        if hasattr(self, "_file_list"):
+            clone._file_list = self._file_list
+        return clone
 
-            for attr in [
-                "_dx",
-                "_nx",
-                "_x",
-                "_dt",
-                "_grid",
-                "_axis",
-                "_dim",
-                "_ndump",
-                "_maxiter",
-                "_tunits",
-                "_type",
-                "_simulation_folder",
-            ]:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
+    def _binary_op(self, other: Union["Diagnostic", int, float, np.ndarray], op_func: Callable) -> Diagnostic:
+        """
+        Universal helper for `self (op) other`.
+        - If both operands are fully loaded, does eager numpy arithmetic.
+        - Otherwise builds a lazy generator that applies op_func on each timestep.
+        """
+        # 1) Prepare the metadata clone
+        result = self._clone_meta()
+        result.created_diagnostic_name = "MISC"
 
-            # Make sure _maxiter is set even for derived diagnostics
-            if not hasattr(result, "_maxiter") or result._maxiter is None:
-                if hasattr(self, "_maxiter") and self._maxiter is not None:
-                    result._maxiter = self._maxiter
+        # 2) Determine iteration count
+        if isinstance(other, Diagnostic):
+            result._maxiter = min(self._maxiter, other._maxiter)
+        else:
+            result._maxiter = self._maxiter
 
-            # result._name = self._name + " + " + str(other) if isinstance(other, (int, float)) else self._name + " + np.ndarray"
-
-            if self._all_loaded:
-                result._data = self._data + other
-                result._all_loaded = True
-            else:
-
-                def gen_scalar_add(original_gen, scalar):
-                    for val in original_gen:
-                        yield val + scalar
-
-                original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_add(original_generator(index), other)
-
-            result.created_diagnostic_name = "MISC"
-
+        # 3) Eager path: both in RAM (or scalar/ndarray + self in RAM)
+        self_loaded = getattr(self, "_all_loaded", False)
+        other_loaded = isinstance(other, Diagnostic) and getattr(other, "_all_loaded", False)
+        if self_loaded and (other_loaded or not isinstance(other, Diagnostic)):
+            lhs = self._data
+            rhs = other._data if other_loaded else other
+            result._data = op_func(lhs, rhs)
+            result._all_loaded = True
             return result
 
-        elif isinstance(other, Diagnostic):
-            result = Diagnostic(species=self._species)
+        def _wrap(arr):
+            return lambda idx: (arr[idx],)
 
-            for attr in [
-                "_dx",
-                "_nx",
-                "_x",
-                "_dt",
-                "_grid",
-                "_axis",
-                "_dim",
-                "_ndump",
-                "_maxiter",
-                "_tunits",
-                "_type",
-                "_simulation_folder",
-            ]:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
+        gen1 = _wrap(self._data) if self_loaded else self._data_generator
+        if isinstance(other, Diagnostic):
+            gen2 = _wrap(other._data) if other_loaded else other._data_generator
+        else:
+            gen2 = other  # scalar or ndarray
 
-            if not hasattr(result, "_maxiter") or result._maxiter is None:
-                if hasattr(self, "_maxiter") and self._maxiter is not None:
-                    result._maxiter = self._maxiter
-
-            # result._name = self._name + " + " + str(other._name)
-
-            if self._all_loaded:
-                other.load_all()
-                result._data = self._data + other._data
-                result._all_loaded = True
+        def _make_gen(idx):
+            seq1 = gen1(idx)
+            if callable(gen2):
+                seq2 = gen2(idx)
+                return (op_func(a, b) for a, b in zip(seq1, seq2))
             else:
+                return (op_func(a, gen2) for a in seq1)
 
-                def gen_diag_add(original_gen1, original_gen2):
-                    for val1, val2 in zip(original_gen1, original_gen2):
-                        yield val1 + val2
+        result._data_generator = _make_gen
+        result._all_loaded = False
+        return result
 
-                original_generator = self._data_generator
-                other_generator = other._data_generator
-                result._data_generator = lambda index: gen_diag_add(original_generator(index), other_generator(index))
+    # Now define each operator in one line:
 
-            result.created_diagnostic_name = "MISC"
+    def __add__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+        return self._binary_op(other, operator.add)
 
-            return result
-
-    def __sub__(self, other):
-        if isinstance(other, (int, float, np.ndarray)):
-            result = Diagnostic(species=self._species)
-
-            for attr in [
-                "_dx",
-                "_nx",
-                "_x",
-                "_dt",
-                "_grid",
-                "_axis",
-                "_dim",
-                "_ndump",
-                "_maxiter",
-                "_tunits",
-                "_type",
-                "_simulation_folder",
-            ]:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
-
-            if not hasattr(result, "_maxiter") or result._maxiter is None:
-                if hasattr(self, "_maxiter") and self._maxiter is not None:
-                    result._maxiter = self._maxiter
-
-            # result._name = self._name + " - " + str(other) if isinstance(other, (int, float)) else self._name + " - np.ndarray"
-
-            if self._all_loaded:
-                result._data = self._data - other
-                result._all_loaded = True
-            else:
-
-                def gen_scalar_sub(original_gen, scalar):
-                    for val in original_gen:
-                        yield val - scalar
-
-                original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_sub(original_generator(index), other)
-
-            result.created_diagnostic_name = "MISC"
-
-            return result
-
-        elif isinstance(other, Diagnostic):
-            result = Diagnostic(species=self._species)
-
-            for attr in [
-                "_dx",
-                "_nx",
-                "_x",
-                "_dt",
-                "_grid",
-                "_axis",
-                "_dim",
-                "_ndump",
-                "_maxiter",
-                "_tunits",
-                "_type",
-                "_simulation_folder",
-            ]:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
-
-            if not hasattr(result, "_maxiter") or result._maxiter is None:
-                if hasattr(self, "_maxiter") and self._maxiter is not None:
-                    result._maxiter = self._maxiter
-
-            # result._name = self._name + " - " + str(other._name)
-
-            if self._all_loaded:
-                other.load_all()
-                result._data = self._data - other._data
-                result._all_loaded = True
-            else:
-
-                def gen_diag_sub(original_gen1, original_gen2):
-                    for val1, val2 in zip(original_gen1, original_gen2):
-                        yield val1 - val2
-
-                original_generator = self._data_generator
-                other_generator = other._data_generator
-                result._data_generator = lambda index: gen_diag_sub(original_generator(index), other_generator(index))
-
-            result.created_diagnostic_name = "MISC"
-
-            return result
-
-    def __mul__(self, other):
-        if isinstance(other, (int, float, np.ndarray)):
-            result = Diagnostic(species=self._species)
-
-            for attr in [
-                "_dx",
-                "_nx",
-                "_x",
-                "_dt",
-                "_grid",
-                "_axis",
-                "_dim",
-                "_ndump",
-                "_maxiter",
-                "_tunits",
-                "_type",
-                "_simulation_folder",
-            ]:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
-
-            if not hasattr(result, "_maxiter") or result._maxiter is None:
-                if hasattr(self, "_maxiter") and self._maxiter is not None:
-                    result._maxiter = self._maxiter
-
-            # result._name = self._name + " * " + str(other) if isinstance(other, (int, float)) else self._name + " * np.ndarray"
-
-            if self._all_loaded:
-                result._data = self._data * other
-                result._all_loaded = True
-            else:
-
-                def gen_scalar_mul(original_gen, scalar):
-                    for val in original_gen:
-                        yield val * scalar
-
-                original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_mul(original_generator(index), other)
-
-            result.created_diagnostic_name = "MISC"
-
-            return result
-
-        elif isinstance(other, Diagnostic):
-            result = Diagnostic(species=self._species)
-
-            for attr in [
-                "_dx",
-                "_nx",
-                "_x",
-                "_dt",
-                "_grid",
-                "_axis",
-                "_dim",
-                "_ndump",
-                "_maxiter",
-                "_tunits",
-                "_type",
-                "_simulation_folder",
-            ]:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
-
-            if not hasattr(result, "_maxiter") or result._maxiter is None:
-                if hasattr(self, "_maxiter") and self._maxiter is not None:
-                    result._maxiter = self._maxiter
-
-            # result._name = self._name + " * " + str(other._name)
-
-            if self._all_loaded:
-                other.load_all()
-                result._data = self._data * other._data
-                result._all_loaded = True
-            else:
-
-                def gen_diag_mul(original_gen1, original_gen2):
-                    for val1, val2 in zip(original_gen1, original_gen2):
-                        yield val1 * val2
-
-                original_generator = self._data_generator
-                other_generator = other._data_generator
-                result._data_generator = lambda index: gen_diag_mul(original_generator(index), other_generator(index))
-
-            result.created_diagnostic_name = "MISC"
-
-            return result
-
-    def __truediv__(self, other):
-        if isinstance(other, (int, float, np.ndarray)):
-            result = Diagnostic(species=self._species)
-
-            for attr in [
-                "_dx",
-                "_nx",
-                "_x",
-                "_dt",
-                "_grid",
-                "_axis",
-                "_dim",
-                "_ndump",
-                "_maxiter",
-                "_tunits",
-                "_type",
-                "_simulation_folder",
-            ]:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
-
-            if not hasattr(result, "_maxiter") or result._maxiter is None:
-                if hasattr(self, "_maxiter") and self._maxiter is not None:
-                    result._maxiter = self._maxiter
-
-            # result._name = self._name + " / " + str(other) if isinstance(other, (int, float)) else self._name + " / np.ndarray"
-
-            if self._all_loaded:
-                result._data = self._data / other
-                result._all_loaded = True
-            else:
-
-                def gen_scalar_div(original_gen, scalar):
-                    for val in original_gen:
-                        yield val / scalar
-
-                original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_div(original_generator(index), other)
-
-            result.created_diagnostic_name = "MISC"
-
-            return result
-
-        elif isinstance(other, Diagnostic):
-            result = Diagnostic(species=self._species)
-
-            for attr in [
-                "_dx",
-                "_nx",
-                "_x",
-                "_dt",
-                "_grid",
-                "_axis",
-                "_dim",
-                "_ndump",
-                "_maxiter",
-                "_tunits",
-                "_type",
-                "_simulation_folder",
-            ]:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
-
-            if not hasattr(result, "_maxiter") or result._maxiter is None:
-                if hasattr(self, "_maxiter") and self._maxiter is not None:
-                    result._maxiter = self._maxiter
-
-            # result._name = self._name + " / " + str(other._name)
-
-            if self._all_loaded:
-                other.load_all()
-                result._data = self._data / other._data
-                result._all_loaded = True
-            else:
-
-                def gen_diag_div(original_gen1, original_gen2):
-                    for val1, val2 in zip(original_gen1, original_gen2):
-                        yield val1 / val2
-
-                original_generator = self._data_generator
-                other_generator = other._data_generator
-                result._data_generator = lambda index: gen_diag_div(original_generator(index), other_generator(index))
-
-            result.created_diagnostic_name = "MISC"
-
-            return result
-
-    def __pow__(self, other):
-        # power by scalar
-        if isinstance(other, (int, float)):
-            result = Diagnostic(species=self._species)
-
-            for attr in [
-                "_dx",
-                "_nx",
-                "_x",
-                "_dt",
-                "_grid",
-                "_axis",
-                "_dim",
-                "_ndump",
-                "_maxiter",
-                "_tunits",
-                "_type",
-                "_simulation_folder",
-            ]:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
-
-            if not hasattr(result, "_maxiter") or result._maxiter is None:
-                if hasattr(self, "_maxiter") and self._maxiter is not None:
-                    result._maxiter = self._maxiter
-
-            # result._name = self._name + " ^(" + str(other) + ")"
-            # result._label = self._label + rf"$ ^{other}$"
-
-            if self._all_loaded:
-                result._data = self._data**other
-                result._all_loaded = True
-            else:
-
-                def gen_scalar_pow(original_gen, scalar):
-                    for val in original_gen:
-                        yield val**scalar
-
-                original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_pow(original_generator(index), other)
-
-            result.created_diagnostic_name = "MISC"
-
-            return result
-
-        # power by another diagnostic
-        elif isinstance(other, Diagnostic):
-            raise ValueError("Power by another diagnostic is not supported. Why would you do that?")
-
-    def __radd__(self, other):
+    def __radd__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
         return self + other
 
-    def __rsub__(self, other):  # I don't know if this is correct because I'm not sure if the order of the subtraction is correct
-        return -self + other
+    def __sub__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+        return self._binary_op(other, operator.sub)
 
-    def __rmul__(self, other):
+    def __rsub__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+        # swap args for reversed subtraction
+        return self._binary_op(other, lambda x, y: operator.sub(y, x))
+
+    def __mul__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+        return self._binary_op(other, operator.mul)
+
+    def __rmul__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
         return self * other
 
-    def __rtruediv__(self, other):  # division is not commutative
-        if isinstance(other, (int, float, np.ndarray)):
-            result = Diagnostic(species=self._species)
+    def __truediv__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+        return self._binary_op(other, operator.truediv)
 
-            for attr in [
-                "_dx",
-                "_nx",
-                "_x",
-                "_dt",
-                "_grid",
-                "_axis",
-                "_dim",
-                "_ndump",
-                "_maxiter",
-                "_tunits",
-                "_type",
-                "_simulation_folder",
-            ]:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
+    def __rtruediv__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+        return self._binary_op(other, lambda x, y: operator.truediv(y, x))
 
-            if not hasattr(result, "_maxiter") or result._maxiter is None:
-                if hasattr(self, "_maxiter") and self._maxiter is not None:
-                    result._maxiter = self._maxiter
+    def __neg__(self) -> Diagnostic:
+        # unary minus as multiplication by -1
+        return self._binary_op(-1, operator.mul)
 
-            # result._name = str(other) + " / " + self._name if isinstance(other, (int, float)) else "np.ndarray / " + self._name
+    def __pow__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+        """
+        Power operation. Raises the diagnostic data to the power of `other`.
+        If `other` is a Diagnostic, it raises each timestep's data to the corresponding timestep's power.
+        If `other` is a scalar or ndarray, it raises all data to that power.
+        """
+        return self._binary_op(other, operator.pow)
 
-            if self._all_loaded:
-                result._data = other / self._data
-                result._all_loaded = True
-            else:
-
-                def gen_scalar_rdiv(scalar, original_gen):
-                    for val in original_gen:
-                        yield scalar / val
-
-                original_generator = self._data_generator
-                result._data_generator = lambda index: gen_scalar_rdiv(other, original_generator(index))
-
-            result.created_diagnostic_name = "MISC"
-
-            return result
-
-        elif isinstance(other, Diagnostic):
-            result = Diagnostic(species=self._species)
-
-            for attr in [
-                "_dx",
-                "_nx",
-                "_x",
-                "_dt",
-                "_grid",
-                "_axis",
-                "_dim",
-                "_ndump",
-                "_maxiter",
-                "_tunits",
-                "_type",
-                "_simulation_folder",
-            ]:
-                if hasattr(self, attr):
-                    setattr(result, attr, getattr(self, attr))
-
-            if not hasattr(result, "_maxiter") or result._maxiter is None:
-                if hasattr(self, "_maxiter") and self._maxiter is not None:
-                    result._maxiter = self._maxiter
-
-            # result._name =  str(other._name) + " / " + self._name
-
-            if self._all_loaded:
-                other.load_all()
-                result._data = other._data / self._data
-                result._all_loaded = True
-            else:
-
-                def gen_diag_div(original_gen1, original_gen2):
-                    for val1, val2 in zip(original_gen1, original_gen2):
-                        yield val2 / val1
-
-                original_generator = self._data_generator
-                other_generator = other._data_generator
-                result._data_generator = lambda index: gen_diag_div(original_generator(index), other_generator(index))
-
-            result.created_diagnostic_name = "MISC"
-
-            return result
-
-    def to_h5(self, savename=None, index=None, all=False, verbose=False, path=None):
+    def to_h5(
+        self,
+        savename: Optional[str] = None,
+        index: Optional[Union[int, List[int]]] = None,
+        all: bool = False,
+        verbose: bool = False,
+        path: Optional[str] = None,
+    ) -> None:
         """
         Save the diagnostic data to HDF5 files.
 
@@ -995,7 +661,7 @@ class Diagnostic:
             self._save_path = path
         # Check if is has attribute created_diagnostic_name or postprocess_name
         if savename is None:
-            print(f"No savename provided. Using {self._name}.")
+            logger.warning(f"No savename provided. Using {self._name}.")
             savename = self._name
 
         if hasattr(self, "created_diagnostic_name"):
@@ -1008,10 +674,10 @@ class Diagnostic:
         if not os.path.exists(self._save_path):
             os.makedirs(self._save_path)
             if verbose:
-                print(f"Created folder {self._save_path}")
+                logger.info(f"Created folder {self._save_path}")
 
         if verbose:
-            print(f"Save Path: {self._save_path}")
+            logger.info(f"Save Path: {self._save_path}")
 
         def savefile(filename, i):
             with h5py.File(filename, "w") as f:
@@ -1061,16 +727,18 @@ class Diagnostic:
                     axis_dataset.attrs.create("TYPE", [np.bytes_("linear".encode())])
 
                 if verbose:
-                    print(f"File created: {filename}")
+                    logger.info(f"File created: {filename}")
 
-        print(f"The savename of the diagnostic is {savename}. Files will be saves as {savename}-000001.h5, {savename}-000002.h5, etc.")
+        logger.info(
+            f"The savename of the diagnostic is {savename}. Files will be saves as {savename}-000001.h5, {savename}-000002.h5, etc."
+        )
 
-        print("If you desire a different name, please set it with the 'name' method (setter).")
+        logger.info("If you desire a different name, please set it with the 'name' method (setter).")
 
         if self._name is None:
             raise ValueError("Diagnostic name is not set. Cannot save to HDF5.")
         if not os.path.exists(path):
-            print(f"Creating folder {path}...")
+            logger.info(f"Creating folder {path}...")
             os.makedirs(path)
         if not os.path.isdir(path):
             raise ValueError(f"{path} is not a directory.")
@@ -1097,6 +765,10 @@ class Diagnostic:
         boundaries: np.ndarray = None,
     ):
         """
+        *****************************************************************************************************
+        THIS SHOULD BE REMOVED FROM THE BASE CLASS AND MOVED TO A SEPARATED CLASS DESIGNATED FOR THIS PURPOSE
+        *****************************************************************************************************
+
         Plots a 3D scatter plot of the diagnostic data (grid data).
 
         Parameters
@@ -1225,97 +897,109 @@ class Diagnostic:
 
         return fig, ax
 
+    def __str__(self):
+        """String representation of the diagnostic."""
+        return f"Diagnostic: {self._name}, Species: {self._species}, Quantity: {self._quantity}"
+
+    def __repr__(self):
+        """Detailed string representation of the diagnostic."""
+        return (
+            f"Diagnostic(species={self._species}, name={self._name}, quantity={self._quantity}, "
+            f"dim={self._dim}, maxiter={self._maxiter}, all_loaded={self._all_loaded})"
+        )
+
     # Getters
     @property
-    def data(self):
+    def data(self) -> np.ndarray:
         if self._data is None:
             raise ValueError("Data not loaded into memory. Use get_* method with load_all=True or access via generator/index.")
         return self._data
 
     @property
-    def dx(self):
+    def dx(self) -> float:
         return self._dx
 
     @property
-    def nx(self):
+    def nx(self) -> int | np.ndarray:
         return self._nx
 
     @property
-    def x(self):
+    def x(self) -> np.ndarray:
         return self._x
 
     @property
-    def dt(self):
+    def dt(self) -> float:
         return self._dt
 
     @property
-    def grid(self):
+    def grid(self) -> np.ndarray:
         return self._grid
 
     @property
-    def axis(self):
+    def axis(self) -> list[dict]:
         return self._axis
 
     @property
-    def units(self):
+    def units(self) -> str:
         return self._units
 
     @property
-    def tunits(self):
+    def tunits(self) -> str:
         return self._tunits
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self._name
 
     @property
-    def dim(self):
+    def dim(self) -> int:
         return self._dim
 
     @property
-    def path(self):
-        return self
+    def path(self) -> str:
+        return self._path
 
     @property
-    def simulation_folder(self):
+    def simulation_folder(self) -> str:
         return self._simulation_folder
 
     @property
-    def ndump(self):
+    def ndump(self) -> int:
         return self._ndump
 
-    # @property
-    # def iter(self):
-    #     return self._iter
-
     @property
-    def all_loaded(self):
+    def all_loaded(self) -> bool:
         return self._all_loaded
 
     @property
-    def maxiter(self):
+    def maxiter(self) -> int:
         return self._maxiter
 
     @property
-    def label(self):
+    def label(self) -> str:
         return self._label
 
     @property
-    def type(self):
+    def type(self) -> str:
         return self._type
 
     @property
-    def quantity(self):
+    def quantity(self) -> str:
         return self._quantity
 
-    def time(self, index):
+    @property
+    def file_list(self) -> list[str] | None:
+        """Return the cached list of HDF5 file paths (read-only)."""
+        return self._file_list
+
+    def time(self, index) -> list[float | str]:
         return [index * self._dt * self._ndump, self._tunits]
 
-    def attributes_to_save(self, index):
+    def attributes_to_save(self, index: int = 0) -> None:
         """
         Prints the attributes of the diagnostic.
         """
-        print(
+        logger.info(
             f"dt: {self._dt}\n"
             f"dim: {self._dim}\n"
             f"time: {self.time(index)[0]}\n"
@@ -1328,57 +1012,57 @@ class Diagnostic:
         )
 
     @dx.setter
-    def dx(self, value):
+    def dx(self, value: float) -> None:
         self._dx = value
 
     @nx.setter
-    def nx(self, value):
+    def nx(self, value: int | np.ndarray) -> None:
         self._nx = value
 
     @x.setter
-    def x(self, value):
+    def x(self, value: np.ndarray) -> None:
         self._x = value
 
     @dt.setter
-    def dt(self, value):
+    def dt(self, value: float) -> None:
         self._dt = value
 
     @grid.setter
-    def grid(self, value):
+    def grid(self, value: np.ndarray) -> None:
         self._grid = value
 
     @axis.setter
-    def axis(self, value):
+    def axis(self, value: list[dict]) -> None:
         self._axis = value
 
     @units.setter
-    def units(self, value):
+    def units(self, value: str) -> None:
         self._units = value
 
     @tunits.setter
-    def tunits(self, value):
+    def tunits(self, value: str) -> None:
         self._tunits = value
 
     @name.setter
-    def name(self, value):
+    def name(self, value: str) -> None:
         self._name = value
 
     @dim.setter
-    def dim(self, value):
+    def dim(self, value: int) -> None:
         self._dim = value
 
     @ndump.setter
-    def ndump(self, value):
+    def ndump(self, value: int) -> None:
         self._ndump = value
 
     @data.setter
-    def data(self, value):
+    def data(self, value: np.ndarray) -> None:
         self._data = value
 
     @quantity.setter
-    def quantity(self, key):
+    def quantity(self, key: str) -> None:
         self._quantity = key
 
     @label.setter
-    def label(self, value):
+    def label(self, value: str) -> None:
         self._label = value
