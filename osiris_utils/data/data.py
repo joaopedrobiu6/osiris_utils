@@ -193,8 +193,11 @@ class OsirisGridFile(OsirisData):
 
             # There's an issue when the dimension is 3 and we want to plot a 2D phasespace. I believe this
             # is a problem for all cases where the dim != dim_of_phasespace
-            self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
-            # self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(2)]
+            try:
+                self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
+            except Exception as e:
+                print(f"Error occurred while creating spatial coordinates: {e}")
+                self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(1)]
 
         self._axis = []
         for ax in axis:
