@@ -41,7 +41,7 @@ class DatabaseCreator:
         self.T = final_iter - initial_iter
         self.X = self.simulation["e1"].nx[0]
 
-    def _input_database(self):
+    def _input_database(self, name):
         d_dx1 = ou.Derivative_Simulation(self.simulation, "x1")
         d_dt = ou.Derivative_Simulation(self.simulation, "t")
 
@@ -108,7 +108,7 @@ class DatabaseCreator:
             # Stack features: shape = (F, X)
             data_array[i] = np.stack(feature_list)
 
-        np.save(os.path.join(self.save_folder, "input_tensor.npy"), data_array)
+        np.save(os.path.join(self.save_folder, f"{name}.npy"), data_array)
 
         del data_array
 
@@ -134,7 +134,7 @@ class DatabaseCreator:
 
         return np.where(np.isfinite(data), data, 0.0)
 
-    def _output_database(self):
+    def _output_database(self, name):
         self.ar = ou.AnomalousResistivity(self.simulation, self.species)
         # Pre-allocate array: shape = [T, F, X]
         data_array_output = np.empty((int(self.T), int(self.F_out), int(self.X)), dtype=np.float32)
@@ -147,30 +147,40 @@ class DatabaseCreator:
 
         # Validate and clean the entire array at once
         data_array_output = self._validate_and_clean_data(data_array_output)
-        np.save(os.path.join(self.save_folder, "eta_tensor.npy"), data_array_output)
+        np.save(os.path.join(self.save_folder, f"{name}.npy"), data_array_output)
 
         del data_array_output
 
-    def create_database(self, database="both"):
+    def create_database(self, database="both", name_input="input_tensor", name_output="eta_tensor"):
         """
         Create the input and output databases.
+
+        Parameters
+        ----------
+        database : str
+            The type of database to create ("input", "output", or "both").
+        name_input : str
+            The name of the input file (without extension). Default is "input_tensor".
+        name_output : str
+            The name of the output file (without extension). Default is "eta_tensor".
+
         """
         if not os.path.exists(self.save_folder):
             os.makedirs(self.save_folder)
 
         if database == "both":
             print("Creating input and output databases...")
-            self._input_database()
+            self._input_database(name=name_input)
             print("Input database created.")
-            self._output_database()
+            self._output_database(name=name_output)
             print("Output database created.")
         elif database == "input":
             print("Creating input database...")
-            self._input_database()
+            self._input_database(name=name_input)
             print("Input database created.")
         elif database == "output":
             print("Creating output database...")
-            self._output_database()
+            self._output_database(name=name_output)
             print("Output database created.")
         else:
             raise ValueError("Invalid database type. Choose 'input', 'output', or 'both'.")
