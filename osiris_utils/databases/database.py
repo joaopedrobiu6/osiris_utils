@@ -30,8 +30,6 @@ class DatabaseCreator:
         self.species = species
         self.save_folder = save_folder
 
-        self.ar = ou.AnomalousResistivity(self.simulation, self.species)
-
         self.F_in = 22
         self.F_out = 1
 
@@ -135,12 +133,18 @@ class DatabaseCreator:
         return np.where(np.isfinite(data), data, 0.0)
 
     def _output_database(self, name):
-        self.ar = ou.AnomalousResistivity(self.simulation, self.species)
+        conf = ou.AnomalousResistivityConfig(
+            species=self.species, include_time_derivative=False, include_convection=True, include_pressure=True, include_magnetic_force=True
+        )
+        self.ar = ou.AnomalousResistivity(self.simulation, self.species, config=conf)
         # Pre-allocate array: shape = [T, F, X]
         data_array_output = np.empty((int(self.T), int(self.F_out), int(self.X)), dtype=np.float32)
 
         for i, t_idx in enumerate(tqdm.tqdm(range(self.initial_iter, self.final_iter))):
-            feature_list = [self.ar["eta"][t_idx].flatten()]
+            feature_list = [
+                self.ar["eta"][t_idx].flatten(),
+                # self.ar["e_vlasov_avg"][t_idx].flatten(),
+            ]
 
             # Stack features: shape = (F, X)
             data_array_output[i] = np.stack(feature_list)
@@ -151,7 +155,27 @@ class DatabaseCreator:
 
         del data_array_output
 
-    def create_database(self, database="both", name_input="input_tensor", name_output="eta_tensor"):
+    def _E_vlasov_database(self, name):
+        conf = ou.AnomalousResistivityConfig(
+            species=self.species, include_time_derivative=False, include_convection=True, include_pressure=True, include_magnetic_force=True
+        )
+        self.ar = ou.AnomalousResistivity(self.simulation, self.species, config=conf)
+        # Pre-allocate array: shape = [T, F, X]
+        data_array_output = np.empty((int(self.T), 1, int(self.X)), dtype=np.float32)
+
+        for i, t_idx in enumerate(tqdm.tqdm(range(self.initial_iter, self.final_iter))):
+            feature_list = [self.ar["e_vlasov_avg"][t_idx].flatten()]
+
+            # Stack features: shape = (F, X)
+            data_array_output[i] = np.stack(feature_list)
+
+        # Validate and clean the entire array at once
+        data_array_output = self._validate_and_clean_data(data_array_output)
+        np.save(os.path.join(self.save_folder, f"{name}.npy"), data_array_output)
+
+        del data_array_output
+
+    def create_database(self, database="both", name_input="input_tensor", name_output="eta_tensor", vlasov_name="e_vlasov_tensor"):
         """
         Create the input and output databases.
 
@@ -166,7 +190,7 @@ class DatabaseCreator:
 
         """
         if not os.path.exists(self.save_folder):
-            os.makedirs(self.save_folder)
+            os.makedirs(self.save_folder, exist_ok=True)
 
         if database == "both":
             print("Creating input and output databases...")
@@ -182,6 +206,9 @@ class DatabaseCreator:
             print("Creating output database...")
             self._output_database(name=name_output)
             print("Output database created.")
+        elif database == "e_vlasov":
+            print("Creating E_vlasov database...")
+            self._E_vlasov_database(name=vlasov_name)
         else:
             raise ValueError("Invalid database type. Choose 'input', 'output', or 'both'.")
 
