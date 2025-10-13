@@ -64,5 +64,3 @@ Authors and Contributors
 ------------------------
 
 - João Biu
-- João Cândido
-- Diogo Carvalho

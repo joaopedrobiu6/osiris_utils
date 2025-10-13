@@ -10,9 +10,7 @@ description = "Utilities to manipulate and visualise OSIRIS plasma PIC output da
 dynamic = ["version"]       
 
 authors = [
-  { name = "João Pedro Ferreira Biu", email = "joaopedrofbiu@tecnico.ulisboa.pt" },
-  { name = "João Cândido" },
-  { name = "Diogo Carvalho" }
+  { name = "João Pedro Ferreira Biu", email = "joaopedrofbiu@tecnico.ulisboa.pt" }
 ]
 
 license = { text = "MIT" }
