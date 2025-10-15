@@ -25,10 +25,15 @@ class Derivative_Simulation(PostProcess):
         - 'tx' for mixed derivative in one spatial axis and time.
     axis : int or tuple
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
+    order : int
+        The order of the derivative. Currently only 2 is supported.
+        Order 2 uses central differences with edge_order=2 in numpy.gradient.
+        Order 4 uses a higher order finite difference scheme. For the edge points,
+        a lower order scheme is used to avoid going out of bounds.
 
     """
 
-    def __init__(self, simulation, deriv_type, axis=None):
+    def __init__(self, simulation, deriv_type, axis=None, order=2):
         super().__init__(f"Derivative({deriv_type})")
         if not isinstance(simulation, Simulation):
             raise ValueError("Simulation must be a Simulation object.")
@@ -37,11 +42,12 @@ class Derivative_Simulation(PostProcess):
         self._axis = axis
         self._derivatives_computed = {}
         self._species_handler = {}
+        self._order = order
 
     def __getitem__(self, key):
         if key in self._simulation._species:
             if key not in self._species_handler:
-                self._species_handler[key] = Derivative_Species_Handler(self._simulation[key], self._deriv_type, self._axis)
+                self._species_handler[key] = Derivative_Species_Handler(self._simulation[key], self._deriv_type, self._axis, self._order)
             return self._species_handler[key]
 
         if key not in self._derivatives_computed:
@@ -49,6 +55,7 @@ class Derivative_Simulation(PostProcess):
                 diagnostic=self._simulation[key],
                 deriv_type=self._deriv_type,
                 axis=self._axis,
+                order=self._order,
             )
         return self._derivatives_computed[key]
 
@@ -89,7 +96,7 @@ class Derivative_Diagnostic(Diagnostic):
 
     """
 
-    def __init__(self, diagnostic, deriv_type, axis=None):
+    def __init__(self, diagnostic, deriv_type, axis=None, order=2):
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, "_species"):
             super().__init__(
@@ -107,6 +114,7 @@ class Derivative_Diagnostic(Diagnostic):
         self._axis = axis if axis is not None else diagnostic._axis
         self._data = None
         self._all_loaded = False
+        self._order = order
 
         # Copy all relevant attributes from diagnostic
         for attr in [
@@ -138,62 +146,103 @@ class Derivative_Diagnostic(Diagnostic):
             print("Using cached data from diagnostic")
             self._data = self._diag._data
 
-        if self._deriv_type == "t":
-            result = np.gradient(self._data, self._diag._dt * self._diag._ndump, axis=0, edge_order=2)
+        if self._order == 2:
+            if self._deriv_type == "t":
+                result = np.gradient(self._data, self._diag._dt * self._diag._ndump, axis=0, edge_order=2)
 
-        elif self._deriv_type == "x1":
-            if self._dim == 1:
-                result = np.gradient(self._data, self._diag._dx, axis=1, edge_order=2)
-            else:
-                result = np.gradient(self._data, self._diag._dx[0], axis=1, edge_order=2)
+            elif self._deriv_type == "x1":
+                if self._dim == 1:
+                    result = np.gradient(self._data, self._diag._dx, axis=1, edge_order=2)
+                else:
+                    result = np.gradient(self._data, self._diag._dx[0], axis=1, edge_order=2)
 
-        elif self._deriv_type == "x2":
-            result = np.gradient(self._data, self._diag._dx[1], axis=2, edge_order=2)
+            elif self._deriv_type == "x2":
+                result = np.gradient(self._data, self._diag._dx[1], axis=2, edge_order=2)
 
-        elif self._deriv_type == "x3":
-            result = np.gradient(self._data, self._diag._dx[2], axis=3, edge_order=2)
+            elif self._deriv_type == "x3":
+                result = np.gradient(self._data, self._diag._dx[2], axis=3, edge_order=2)
 
-        elif self._deriv_type == "xx":
-            if len(self._axis) != 2:
-                raise ValueError("Axis must be a tuple with two elements.")
-            result = np.gradient(
-                np.gradient(
-                    self._data,
-                    self._diag._dx[self._axis[0] - 1],
+            elif self._deriv_type == "xx":
+                if len(self._axis) != 2:
+                    raise ValueError("Axis must be a tuple with two elements.")
+                result = np.gradient(
+                    np.gradient(
+                        self._data,
+                        self._diag._dx[self._axis[0] - 1],
+                        axis=self._axis[0],
+                        edge_order=2,
+                    ),
+                    self._diag._dx[self._axis[1] - 1],
+                    axis=self._axis[1],
+                    edge_order=2,
+                )
+
+            elif self._deriv_type == "xt":
+                if not isinstance(self._axis, int):
+                    raise ValueError("Axis must be an integer.")
+                result = np.gradient(
+                    np.gradient(self._data, self._diag._dt, axis=0, edge_order=2),
+                    self._diag._dx[self._axis - 1],
                     axis=self._axis[0],
                     edge_order=2,
-                ),
-                self._diag._dx[self._axis[1] - 1],
-                axis=self._axis[1],
-                edge_order=2,
-            )
+                )
 
-        elif self._deriv_type == "xt":
-            if not isinstance(self._axis, int):
-                raise ValueError("Axis must be an integer.")
-            result = np.gradient(
-                np.gradient(self._data, self._diag._dt, axis=0, edge_order=2),
-                self._diag._dx[self._axis - 1],
-                axis=self._axis[0],
-                edge_order=2,
-            )
-
-        elif self._deriv_type == "tx":
-            if not isinstance(self._axis, int):
-                raise ValueError("Axis must be an integer.")
-            result = np.gradient(
-                np.gradient(
-                    self._data,
-                    self._diag._dx[self._axis - 1],
-                    axis=self._axis,
+            elif self._deriv_type == "tx":
+                if not isinstance(self._axis, int):
+                    raise ValueError("Axis must be an integer.")
+                result = np.gradient(
+                    np.gradient(
+                        self._data,
+                        self._diag._dx[self._axis - 1],
+                        axis=self._axis,
+                        edge_order=2,
+                    ),
+                    self._diag._dt,
+                    axis=0,
                     edge_order=2,
-                ),
-                self._diag._dt,
-                axis=0,
-                edge_order=2,
-            )
-        else:
-            raise ValueError("Invalid derivative type.")
+                )
+            else:
+                raise ValueError("Invalid derivative type.")
+        elif self._order == 4:
+            if self._deriv_type in ["x1", "x2", "x3"]:
+                axis = {"x1": 1, "x2": 2, "x3": 3}[self._deriv_type]
+                dx = self._diag._dx[axis - 1] if self._dim > 1 else self._diag._dx
+
+            # Central differences for interior points
+            result = np.empty_like(self._data)
+            result_slice = [slice(None)] * self._data.ndim
+            for i in range(2, self._data.shape[axis] - 2):
+                result_slice[axis] = i
+                result[tuple(result_slice)] = (
+                    -self._data[tuple(result_slice[:axis] + [i + 2] + result_slice[axis + 1 :])]
+                    + 8 * self._data[tuple(result_slice[:axis] + [i + 1] + result_slice[axis + 1 :])]
+                    - 8 * self._data[tuple(result_slice[:axis] + [i - 1] + result_slice[axis + 1 :])]
+                    + self._data[tuple(result_slice[:axis] + [i - 2] + result_slice[axis + 1 :])]
+                ) / (12 * dx)
+
+                # Forward difference for the first two points
+                for i in range(2):
+                    result_slice[axis] = i
+                    result[tuple(result_slice)] = (
+                        -25 * self._data[tuple(result_slice)]
+                        + 48 * self._data[tuple(result_slice[:axis] + [i + 1] + result_slice[axis + 1 :])]
+                        - 36 * self._data[tuple(result_slice[:axis] + [i + 2] + result_slice[axis + 1 :])]
+                        + 16 * self._data[tuple(result_slice[:axis] + [i + 3] + result_slice[axis + 1 :])]
+                        - 3 * self._data[tuple(result_slice[:axis] + [i + 4] + result_slice[axis + 1 :])]
+                    ) / (12 * dx)
+
+                # Backward difference for the last two points
+                for i in range(self._data.shape[axis] - 2, self._data.shape[axis]):
+                    result_slice[axis] = i
+                    result[tuple(result_slice)] = (
+                        25 * self._data[tuple(result_slice)]
+                        - 48 * self._data[tuple(result_slice[:axis] + [i - 1] + result_slice[axis + 1 :])]
+                        + 36 * self._data[tuple(result_slice[:axis] + [i - 2] + result_slice[axis + 1 :])]
+                        - 16 * self._data[tuple(result_slice[:axis] + [i - 3] + result_slice[axis + 1 :])]
+                        + 3 * self._data[tuple(result_slice[:axis] + [i - 4] + result_slice[axis + 1 :])]
+                    ) / (12 * dx)
+            else:
+                raise ValueError("Order 4 is only implemented for spatial derivatives 'x1', 'x2' and 'x3'.")
 
         # Store the result in the cache
         self._all_loaded = True
@@ -202,29 +251,112 @@ class Derivative_Diagnostic(Diagnostic):
 
     def _data_generator(self, index):
         """Generate data for a specific index on-demand"""
-        if self._deriv_type == "x1":
-            if self._dim == 1:
-                yield np.gradient(self._diag[index], self._diag._dx, axis=0, edge_order=2)
+        if self._order == 2:
+            if self._deriv_type == "x1":
+                if self._dim == 1:
+                    yield np.gradient(self._diag[index], self._diag._dx, axis=0, edge_order=2)
+                else:
+                    yield np.gradient(self._diag[index], self._diag._dx[0], axis=0, edge_order=2)
+
+            elif self._deriv_type == "x2":
+                yield np.gradient(self._diag[index], self._diag._dx[1], axis=1, edge_order=2)
+
+            elif self._deriv_type == "x3":
+                yield np.gradient(self._diag[index], self._diag._dx[2], axis=2, edge_order=2)
+
+            elif self._deriv_type == "t":
+                if index == 0:
+                    yield (-3 * self._diag[index] + 4 * self._diag[index + 1] - self._diag[index + 2]) / (
+                        2 * self._diag._dt * self._diag._ndump
+                    )
+                elif index == self._diag._maxiter - 1:
+                    yield (3 * self._diag[index] - 4 * self._diag[index - 1] + self._diag[index - 2]) / (
+                        2 * self._diag._dt * self._diag._ndump
+                    )
+                else:
+                    yield (self._diag[index + 1] - self._diag[index - 1]) / (2 * self._diag._dt * self._diag._ndump)
             else:
-                yield np.gradient(self._diag[index], self._diag._dx[0], axis=0, edge_order=2)
+                raise ValueError("Invalid derivative type. Use 'x1', 'x2', 'x3' or 't'.")
 
-        elif self._deriv_type == "x2":
-            yield np.gradient(self._diag[index], self._diag._dx[1], axis=1, edge_order=2)
+        if self._order == 4:
+            if self._deriv_type == "x1":
+                if self._dim == 1:
+                    # Fourth-order central difference for 1D case
+                    data = self._diag[index]
+                    h = self._diag._dx
+                    result = np.zeros_like(data)
 
-        elif self._deriv_type == "x3":
-            yield np.gradient(self._diag[index], self._diag._dx[2], axis=2, edge_order=2)
+                    # Interior points: (-f[i+2] + 8*f[i+1] - 8*f[i-1] + f[i-2]) / (12*h)
+                    result[2:-2] = (-data[4:] + 8 * data[3:-1] - 8 * data[1:-3] + data[:-4]) / (12 * h)
 
-        elif self._deriv_type == "t":
-            if index == 0:
-                yield (-3 * self._diag[index] + 4 * self._diag[index + 1] - self._diag[index + 2]) / (
-                    2 * self._diag._dt * self._diag._ndump
-                )
-            elif index == self._diag._maxiter - 1:
-                yield (3 * self._diag[index] - 4 * self._diag[index - 1] + self._diag[index - 2]) / (2 * self._diag._dt * self._diag._ndump)
+                    # Boundary points (fallback to second-order)
+                    result[0] = (-3 * data[0] + 4 * data[1] - data[2]) / (2 * h)
+                    result[1] = (data[2] - data[0]) / (2 * h)
+                    result[-2] = (data[-1] - data[-3]) / (2 * h)
+                    result[-1] = (3 * data[-1] - 4 * data[-2] + data[-3]) / (2 * h)
+
+                    yield result
+                else:
+                    # Multi-dimensional case (same as before)
+                    data = self._diag[index]
+                    h = self._diag._dx[0]
+                    result = np.zeros_like(data)
+
+                    result[2:-2] = (-data[4:] + 8 * data[3:-1] - 8 * data[1:-3] + data[:-4]) / (12 * h)
+
+                    result[0] = (-3 * data[0] + 4 * data[1] - data[2]) / (2 * h)
+                    result[1] = (data[2] - data[0]) / (2 * h)
+                    result[-2] = (data[-1] - data[-3]) / (2 * h)
+                    result[-1] = (3 * data[-1] - 4 * data[-2] + data[-3]) / (2 * h)
+
+                    yield result
+
+            elif self._deriv_type == "x2":
+                data = self._diag[index]
+                h = self._diag._dx[1]
+                result = np.zeros_like(data)
+
+                result[:, 2:-2] = (-data[:, 4:] + 8 * data[:, 3:-1] - 8 * data[:, 1:-3] + data[:, :-4]) / (12 * h)
+
+                # Boundaries
+                result[:, 0] = (-3 * data[:, 0] + 4 * data[:, 1] - data[:, 2]) / (2 * h)
+                result[:, 1] = (data[:, 2] - data[:, 0]) / (2 * h)
+                result[:, -2] = (data[:, -1] - data[:, -3]) / (2 * h)
+                result[:, -1] = (3 * data[:, -1] - 4 * data[:, -2] + data[:, -3]) / (2 * h)
+
+                yield result
+
+            elif self._deriv_type == "x3":
+                data = self._diag[index]
+                h = self._diag._dx[2]
+                result = np.zeros_like(data)
+
+                result[:, :, 2:-2] = (-data[:, :, 4:] + 8 * data[:, :, 3:-1] - 8 * data[:, :, 1:-3] + data[:, :, :-4]) / (12 * h)
+
+                # Boundaries
+                result[:, :, 0] = (-3 * data[:, :, 0] + 4 * data[:, :, 1] - data[:, :, 2]) / (2 * h)
+                result[:, :, 1] = (data[:, :, 2] - data[:, :, 0]) / (2 * h)
+                result[:, :, -2] = (data[:, :, -1] - data[:, :, -3]) / (2 * h)
+                result[:, :, -1] = (3 * data[:, :, -1] - 4 * data[:, :, -2] + data[:, :, -3]) / (2 * h)
+
+                yield result
+
+            elif self._deriv_type == "t":
+                idx = index
+                # Fourth-order time derivative
+                if idx < 2:
+                    # Forward difference for first two points
+                    yield (-3 * self._diag[idx] + 4 * self._diag[idx + 1] - self._diag[idx + 2]) / (2 * self._diag._dt * self._diag._ndump)
+                elif idx >= self._diag._maxiter - 2:
+                    # Backward difference for last two points
+                    yield (3 * self._diag[idx] - 4 * self._diag[idx - 1] + self._diag[idx - 2]) / (2 * self._diag._dt * self._diag._ndump)
+                else:
+                    # Fourth-order central: (-f[i+2] + 8*f[i+1] - 8*f[i-1] + f[i-2]) / (12*h)
+                    yield (-self._diag[idx + 2] + 8 * self._diag[idx + 1] - 8 * self._diag[idx - 1] + self._diag[idx - 2]) / (
+                        12 * self._diag._dt * self._diag._ndump
+                    )
             else:
-                yield (self._diag[index + 1] - self._diag[index - 1]) / (2 * self._diag._dt * self._diag._ndump)
-        else:
-            raise ValueError("Invalid derivative type. Use 'x1', 'x2', 'x3' or 't'.")
+                raise ValueError("Invalid derivative type. Use 'x1', 'x2', 'x3' or 't'.")
 
     def __getitem__(self, index):
         """Get data at a specific index"""
@@ -259,14 +391,15 @@ class Derivative_Species_Handler:
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
     """
 
-    def __init__(self, species_handler, deriv_type, axis=None):
+    def __init__(self, species_handler, deriv_type, axis=None, order=2):
         self._species_handler = species_handler
         self._deriv_type = deriv_type
         self._axis = axis
+        self._order = order
         self._derivatives_computed = {}
 
     def __getitem__(self, key):
         if key not in self._derivatives_computed:
             diag = self._species_handler[key]
-            self._derivatives_computed[key] = Derivative_Diagnostic(diag, self._deriv_type, self._axis)
+            self._derivatives_computed[key] = Derivative_Diagnostic(diag, self._deriv_type, self._axis, self._order)
         return self._derivatives_computed[key]
