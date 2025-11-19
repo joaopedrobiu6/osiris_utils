@@ -78,7 +78,7 @@ class OsirisData:
 
     def _open_file_hdf5(self, filename):
         """
-        Open the OSIRIS output file. Usually an HDF5 file or txt.
+        Open the OSIRIS output file with optimized cache settings.
 
         Parameters
         ----------
@@ -88,10 +88,22 @@ class OsirisData:
         if self._verbose:
             print(f"Opening file > {filename}")
 
-        if filename.endswith(".h5"):
-            self._file = h5py.File(filename, "r")
-        else:
+        if not filename.endswith(".h5"):
             raise ValueError("The file should be an HDF5 file with the extension .h5")
+
+        # Optimize HDF5 chunk cache for better performance
+        # Increase cache from default 1MB to 10MB for large file access
+        propfaid = h5py.h5p.create(h5py.h5p.FILE_ACCESS)
+        propfaid.set_cache(
+            0,  # Meta cache elements (0 = use default)
+            10485760,  # 10MB chunk cache (default is 1MB)
+            0.75,  # Chunk cache preemption policy (0.75 = aggressive caching)
+            0,  # Hash table size (0 = use default)
+        )
+
+        # Open file with optimized settings
+        fid = h5py.h5f.open(filename.encode(), flags=h5py.h5f.ACC_RDONLY, fapl=propfaid)
+        self._file = h5py.File(fid)
 
     def _open_hist_file(self, filename):
         self._df = pd.read_csv(filename, sep=r"\s+", comment="!", header=0, engine="python")
