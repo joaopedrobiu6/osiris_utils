@@ -20,6 +20,8 @@ import h5py
 import numpy as np
 import tqdm
 
+from ..decks.decks import InputDeckIO
+from ..decks.species import Specie
 from .data import OsirisGridFile
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)8s │ %(message)s")
@@ -119,6 +121,10 @@ class Diagnostic:
         The species to handle the diagnostics.
     simulation_folder : str
         The path to the simulation folder. This is the path to the folder where the input deck is located.
+    input_deck : str or dict, optional
+        The input deck to load the diagnostic attributes. If None, the attributes are loaded from the files.
+        If a string is provided, it is assumed to be the path to the input deck file.
+        If a dict is provided, it is assumed to be the parsed input deck.
 
     Attributes
     ----------
@@ -191,8 +197,8 @@ class Diagnostic:
     def __init__(
         self,
         simulation_folder: Optional[str] = None,
-        species: Any = None,
-        input_deck: Optional[str | dict] = None,
+        species: Specie = None,
+        input_deck: Optional[InputDeckIO] = None,
     ) -> None:
         self._species = species if species else None
 
