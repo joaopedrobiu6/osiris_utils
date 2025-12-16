@@ -113,7 +113,9 @@ class FFT_Diagnostic(Diagnostic):
         if isinstance(self._dx, (int, float)):
             self._kmax = np.pi / (self._dx)
         else:
-            self._kmax = np.pi / np.array([self._dx[ax - 1] for ax in self._fft_axis if ax != 0])
+            # Handle if fft_axis is int
+            axes = [self._fft_axis] if isinstance(self._fft_axis, int) else self._fft_axis
+            self._kmax = np.pi / np.array([self._dx[ax - 1] for ax in axes if ax != 0])
 
     def load_all(self):
         if self._data is not None:
@@ -228,7 +230,13 @@ class FFT_Diagnostic(Diagnostic):
         if not self._all_loaded:
             raise ValueError("Load the data first using load_all() method.")
 
-        omega = np.fft.fftfreq(self._data.shape[self._fft_axis], d=self._dx[self._fft_axis - 1])
+        if isinstance(self._dx, (int, float)):
+            # Assuming isotropic or appropriate dx if scalar
+            dx_val = self._dx
+        else:
+            dx_val = self._dx[self._fft_axis - 1]
+
+        omega = np.fft.fftfreq(self._data.shape[self._fft_axis], d=dx_val) * 2 * np.pi
         omega = np.fft.fftshift(omega)
         return omega
 

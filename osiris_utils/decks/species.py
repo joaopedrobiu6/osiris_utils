@@ -1,32 +1,32 @@
-class Specie:
+class Species:
     """
     Class to store OSIRIS species object.
 
     Parameters
     ----------
     name : str
-        Specie name.
+        Species name.
 
     rqm : float
-        Specie charge to mass ratio.
+        Species charge to mass ratio.
 
     q : int
-        Specie charge in units of the electron charge.
+        Species charge in units of the electron charge.
         Electrons would be represented by q=-1 and protons q=1.
 
     Attributes
     ----------
     name : str
-        Specie name.
+        Species name.
 
     rqm : float
-        Specie charge to mass ratio.
+        Species charge to mass ratio.
 
     q : int
-        Specie charge in units of the electron charge.
+        Species charge in units of the electron charge.
 
     m : float
-        Specie mass in units of the electron mass.
+        Species mass in units of the electron mass.
     """
 
     def __init__(self, name, rqm, q: int = 1):
@@ -36,7 +36,7 @@ class Specie:
         self._m = rqm * q
 
     def __repr__(self) -> str:
-        return f"Specie(name={self._name}, rqm={self._rqm}, q={self._q}, m={self._m})"
+        return f"Species(name={self._name}, rqm={self._rqm}, q={self._q}, m={self._m})"
 
     @property
     def name(self):

@@ -46,10 +46,11 @@ def run(args: argparse.Namespace) -> int:
         return 1
 
     # Determine if path is a file or directory
+    # Determine if path is a file or directory
     if path.is_file():
         return show_file_info(path, args.brief)
     elif path.is_dir():
-        return show_simulation_info(path, args.brief)
+        return show_simulation_info(path, args.brief, args.verbose)
     else:
         print(f"Error: '{path}' is not a file or directory", file=sys.stderr)
         return 1
@@ -89,7 +90,7 @@ def show_file_info(filepath: Path, brief: bool = False) -> int:
         return 1
 
 
-def show_simulation_info(simpath: Path, brief: bool = False) -> int:
+def show_simulation_info(simpath: Path, brief: bool = False, verbose: bool = False) -> int:
     """Display information about an OSIRIS simulation."""
     try:
         # Look for input deck
@@ -146,7 +147,7 @@ def show_simulation_info(simpath: Path, brief: bool = False) -> int:
 
     except Exception as e:
         print(f"Error reading simulation: {e}", file=sys.stderr)
-        if args.verbose:
+        if verbose:
             raise
         return 1
 
