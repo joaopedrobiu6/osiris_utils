@@ -1,3 +1,119 @@
+# -----------------------------  build back-end  ----------------------------- #
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=70", "wheel", "setuptools-scm>=8", "cibuildwheel>=2.20"]
 build-backend = "setuptools.build_meta"
+
+# -------------------------  core project metadata  -------------------------- #
+[project]
+name = "osiris_utils"
+description = "Utilities to manipulate and visualise OSIRIS plasma PIC output data"
+dynamic = ["version"]       
+
+authors = [
+  { name = "João Pedro Ferreira Biu", email = "joaopedrofbiu@tecnico.ulisboa.pt" }
+]
+
+license = { text = "MIT" }
+readme  = { file = "README.rst", content-type = "text/x-rst" }
+
+requires-python = ">=3.10"
+
+dependencies = [
+  "numpy>=1.25",
+  "matplotlib>=3.8",
+  "pandas>=2.0",
+  "scipy>=1.11",
+  "h5py>=3.10",
+  "tqdm>=4.66"
+]
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Natural Language :: English",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering"
+]
+
+[project.urls]
+"Source Code"   = "https://github.com/joaopedrobiu6/osiris_utils"
+"Issues Tracker" = "https://github.com/joaopedrobiu6/osiris_utils/issues"
+"Documentation" = "https://osiris-utils.readthedocs.io"
+
+# ----------------------------  optional extras  ---------------------------- #
+[project.optional-dependencies]
+dev  = [
+  "pytest>=8.1",
+  "pytest-cov",
+  "pre-commit>=3.7",
+  "ruff>=0.4",
+  "isort>=5.13",
+  "types-tqdm",
+  "types-Pillow",
+]
+docs = [
+    "sphinx>=8",
+    "ipykernel",
+    "myst-parser",
+    "sphinx-copybutton<=0.5.2",
+    "sphinx-rtd-theme<3.0.3",
+    "sphinx-github-style<=1.2.2"
+]
+
+# -----------------------  setuptools-specific knobs  ------------------------ #
+[tool.setuptools]
+# automatic discovery but skip non-package dirs (mirrors setup.py exclude)
+packages = { find = { exclude = ["docs", "tests", "local", "report"] } }
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0" 
+
+[tool.setuptools.package-data]
+# replicate MANIFEST.in rules (examples + images etc.)
+"*" = [
+  "requirements.txt",
+  "examples/example_data/**",
+  "docs/_static/*.png"
+]
+
+# -----------------------------  pre-commit hooks  ---------------------------- #
+[tool.ruff]
+line-length = 140          # instead of 88
+target-version = "py310"   # matches your min python
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]      # keep core errors, flakes, import-sort, bug-bear
+ignore = [
+    "E501",   # line too long (handled by black anyway)
+    "C901",   # complexity too high
+    "B028", "B904"
+]
+# Option: add per-file ignores for legacy modules
+per-file-ignores = { "osiris_utils/data/*.py" = ["ALL"] }
+
+[tool.ruff.format]
+quote-style = "preserve"   # follow black
+
+[tool.ruff.lint.mccabe]
+max-complexity = 25
+
+# ------------------------------  cibuildwheel  ----------------------------- #
+#  • builds wheels on CI when a git tag is pushed (see .github/workflows/*.yml)
+#  • Linux x86-64 only by default - extend matrix as needed
+[tool.cibuildwheel]
+build = "cp39-* cp310-* cp311-* cp312-*"
+skip  = ["*-musllinux*"]
+test-command = "pytest -q"
+
+[tool.cibuildwheel.linux]
+# example: expose an env var or extra index URL if your wheels need BLAS
+environment = { PIP_EXTRA_INDEX_URL = "https://pypi.python.org/simple" }
+
+# --------------------------------------------------------------------------- #
+#  end of file - everything else (tests, CI, docs) now points to this spec

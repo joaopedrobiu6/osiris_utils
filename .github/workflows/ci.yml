@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # install the package and dev extras in one shot
+          pip install .[dev]
+
+      - name: Run pre-commit
+        uses: pre-commit/action@v3.0.1
+
+      - name: Run test suite
+        run: |
+          pytest --cov=osiris_utils --cov-report=term-missing
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v4
+        with: { python-version: '3.11' }
+
+      - name: Install docs dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # dev + docs extras include sphinx, myst‑nb, sphinx_copybutton, nbsphinx, …
+          pip install -e '.[dev,docs]'
+
+      - name: Build docs
+        run: |
+          make -C docs html

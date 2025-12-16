@@ -1,18 +1,18 @@
-from matplotlib.style import available
-from ..data.diagnostic import *
-from ..utils import *
+import os
+
+from ..data.diagnostic import Diagnostic
 from ..decks.decks import InputDeckIO
 
 
 class Simulation:
-    '''
+    """
     Class to handle the simulation data. It is a wrapper for the Diagnostic class.'
-    
+
     Parameters
     ----------
     input_deck_path : str
         Path to the input deck (It must be in the folder where the simulation was run)
-    
+
     Attributes
     ----------
     simulation_folder : str
@@ -31,8 +31,9 @@ class Simulation:
     __getitem__(key)
         Get a diagnostic.
 
-        
-    '''
+
+    """
+
     def __init__(self, input_deck_path):
         folder_path = os.path.dirname(input_deck_path)
         self._input_deck_path = input_deck_path
@@ -43,7 +44,7 @@ class Simulation:
         self._simulation_folder = folder_path
         self._diagnostics = {}  # Dictionary to store diagnostics for each quantity
         self._species_handler = {}
-    
+
     def delete_all_diagnostics(self):
         """
         Delete all diagnostics.
@@ -64,31 +65,39 @@ class Simulation:
         if key in self._species:
             # check if species handler already exists
             if key not in self._species_handler:
-                self._species_handler[key] = Species_Handler(self._simulation_folder, self._input_deck.species[key], self._input_deck)
+                self._species_handler[key] = Species_Handler(
+                    self._simulation_folder,
+                    self._input_deck.species[key],
+                    self._input_deck,
+                )
             return self._species_handler[key]
-        
+
         if key in self._diagnostics:
             return self._diagnostics[key]
-        
+
         # Create a temporary diagnostic for this quantity - this is for quantities that are not species related
-        diag = Diagnostic(simulation_folder=self._simulation_folder, species=None, input_deck=self._input_deck)
+        diag = Diagnostic(
+            simulation_folder=self._simulation_folder,
+            species=None,
+            input_deck=self._input_deck,
+        )
         diag.get_quantity(key)
-        
+
         original_load_all = diag.load_all
-        
+
         def patched_load_all(*args, **kwargs):
-            result = original_load_all(*args, **kwargs)
+            result = original_load_all(*args, **kwargs)  # noqa: F841
             self._diagnostics[key] = diag
             return diag
-        
+
         diag.load_all = patched_load_all
-        
+
         return diag
-    
+
     def add_diagnostic(self, diagnostic, name=None):
         """
         Add a custom diagnostic to the simulation.
-        
+
         Parameters
         ----------
         diagnostic : Diagnostic or array-like
@@ -97,12 +106,12 @@ class Simulation:
         name : str, optional
             The name to use as the key for accessing the diagnostic.
             If None, an auto-generated name will be used.
-            
+
         Returns
         -------
         str
             The name (key) used to store the diagnostic
-            
+
         Example
         -------
         >>> sim = Simulation('path/to/simulation', 'input_deck.txt')
@@ -117,20 +126,21 @@ class Simulation:
             while f"custom_diag_{i}" in self._diagnostics:
                 i += 1
             name = f"custom_diag_{i}"
-        
+
         # If already a Diagnostic, store directly
         if isinstance(diagnostic, Diagnostic):
             self._diagnostics[name] = diagnostic
         else:
             raise ValueError("Only Diagnostic objects are supported for now")
-    
+
     @property
     def species(self):
         return self._species
-    
+
     @property
     def loaded_diagnostics(self):
         return self._diagnostics
+
 
 # This is to handle species related diagnostics
 class Species_Handler:
@@ -139,30 +149,34 @@ class Species_Handler:
         self._species_name = species_name
         self._input_deck = input_deck
         self._diagnostics = {}
-    
+
     def __getitem__(self, key):
         if key in self._diagnostics:
             return self._diagnostics[key]
-        
+
         # Create a temporary diagnostic for this quantity
-        diag = Diagnostic(simulation_folder=self._simulation_folder, species=self._species_name, input_deck=self._input_deck)
+        diag = Diagnostic(
+            simulation_folder=self._simulation_folder,
+            species=self._species_name,
+            input_deck=self._input_deck,
+        )
         diag.get_quantity(key)
 
         original_load_all = diag.load_all
 
         def patched_load_all(*args, **kwargs):
-            result = original_load_all(*args, **kwargs)
+            result = original_load_all(*args, **kwargs)  # noqa: F841
             self._diagnostics[key] = diag
             return diag
-        
+
         diag.load_all = patched_load_all
 
         return diag
-    
+
     def add_diagnostic(self, diagnostic, name=None):
         """
         Add a custom diagnostic to the simulation.
-        
+
         Parameters
         ----------
         diagnostic : Diagnostic or array-like
@@ -171,12 +185,12 @@ class Species_Handler:
         name : str, optional
             The name to use as the key for accessing the diagnostic.
             If None, an auto-generated name will be used.
-            
+
         Returns
         -------
         str
             The name (key) used to store the diagnostic
-        
+
         """
         # Generate a name if none provided
         if name is None:
@@ -185,13 +199,13 @@ class Species_Handler:
             while f"custom_diag_{i}" in self._diagnostics:
                 i += 1
             name = f"custom_diag_{i}"
-        
+
         # If already a Diagnostic, store directly
         if isinstance(diagnostic, Diagnostic):
             self._diagnostics[name] = diagnostic
         else:
             raise ValueError("Only Diagnostic objects are supported for now")
-        
+
     def delete_diagnostic(self, key):
         """
         Delete a diagnostic.
@@ -211,6 +225,7 @@ class Species_Handler:
     @property
     def species(self):
         return self._species_name
+
     @property
     def loaded_diagnostics(self):
         return self._diagnostics

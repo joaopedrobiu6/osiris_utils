@@ -2,6 +2,15 @@ OSIRIS_UTILS
 ============
 |Pypi|
 
+.. image:: https://github.com/joaopedrobiu6/osiris_utils/actions/workflows/ci.yml/badge.svg
+   :target: https://github.com/joaopedrobiu6/osiris_utils/actions
+   :alt: CI status
+.. image:: https://codecov.io/gh/joaopedrobiu6/osiris_utils/branch/main/graph/badge.svg
+   :target: https://codecov.io/gh/joaopedrobiu6/osiris_utils
+   :alt: Coverage
+.. image:: https://zenodo.org/badge/889119723.svg
+  :target: https://doi.org/10.5281/zenodo.17382244
+
 This package contains a set of utilities to open and analyze OSIRIS output files, using Python. All the methods implemented are fully integrated with `NumPy`, and use `np.ndarray` as the main data structure.
 High-level functions are provided to manipulate data from OSIRIS, from reading the data of the diagnostics, to making post-processing calculations.
 
@@ -25,6 +34,21 @@ Finally, you can install it in editor mode if you want to contribute to the code
     git clone https://github.com/joaopedrobiu6/osiris_utils.git
     pip install -e .
 
+Quick-start
+-----------
+
+.. image:: https://mybinder.org/badge_logo.svg
+   :target: https://mybinder.org/v2/gh/joaopedrobiu6/osiris_utils/main?filepath=examples%2Fquick_start.ipynb
+   :alt: Launch quick-start on Binder
+
+.. code-block:: bash
+
+   pip install osiris_utils              # from PyPI
+   python -m pip install matplotlib      # plotting backend (optional)
+   git clone https://github.com/joaopedrobiu6/osiris_utils  # sample data
+   cd osiris_utils
+   python examples/quick_start.py examples/example_data/thermal.1d
+
 Documentation
 -------------
 
@@ -40,5 +64,3 @@ Authors and Contributors
 ------------------------
 
 - João Biu
-- João Cândido
-- Diogo Carvalho

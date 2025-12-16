@@ -4,7 +4,7 @@ OSIRIS Utils Documentation
 ==========================
 
 .. include:: ../../README.rst
-   
+
 .. toctree::
    :maxdepth: 2
    :caption: Simulation and Diagnostic API:
