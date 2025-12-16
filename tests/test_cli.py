@@ -54,6 +54,7 @@ def test_info_simulation(mock_simulation, capsys):
     with (
         patch("pathlib.Path.exists") as mock_exists,
         patch("pathlib.Path.is_dir") as mock_is_dir,
+        patch("pathlib.Path.iterdir"),
     ):
         # Scenario: Directory exists, input.deck exists
         def exists_side_effect(self):
@@ -67,7 +68,7 @@ def test_info_simulation(mock_simulation, capsys):
         mock_exists.return_value = True
         mock_is_dir.return_value = True
 
-        args = argparse.Namespace(path="sim_dir", brief=False)
+        args = argparse.Namespace(path="sim_dir", brief=False, verbose=False)
         ret = info.run(args)
 
         assert ret == 0
