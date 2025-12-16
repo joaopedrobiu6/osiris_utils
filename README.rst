@@ -102,7 +102,14 @@ The documentation is available at https://osiris-utils.readthedocs.io or via thi
 
 .. _authors:
 
-Authors and Contributors
-------------------------
+Author
+------
 
 - João Biu
+
+Contributors
+------------
+
+- Diogo Carvalho
+- João Cândido
+- Margarida Pereira
