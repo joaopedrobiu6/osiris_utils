@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from osiris_utils.decks.decks import InputDeckIO
@@ -32,7 +34,7 @@ def test_species_defaults():
 
 @pytest.fixture
 def sample_deck_file():
-    return "/Users/joaobiu/Developer/osiris_utils/examples/example_data/thermal.1d"
+    return os.path.join(os.path.dirname(__file__), "../examples/example_data/thermal.1d")
 
 
 def test_input_deck_io_parsing(sample_deck_file):

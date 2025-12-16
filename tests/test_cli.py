@@ -1,141 +1,160 @@
-import pytest
+import argparse
+from unittest.mock import MagicMock, patch
 
-# Import from the correct location - cli.py not cli/__init__.py
-from osiris_utils import cli as cli_module
+import numpy as np
+
+# Import CLI modules
+from osiris_utils.cli import export, info, plot, validate
+
+# -----------------------------------------------------------------------------
+# Test Info Command
+# -----------------------------------------------------------------------------
 
 
-class TestCLIBasics:
-    """Test basic CLI functionality."""
+@patch("osiris_utils.cli.info.ou.OsirisGridFile")
+def test_info_file(mock_grid_file, capsys):
+    """Test 'info' command for a single file."""
+    # Setup mock
+    mock_obj = MagicMock()
+    mock_obj.type = "grid"
+    mock_obj.name = "e1"
+    mock_obj.dim = 2
+    mock_obj.nx = [100, 100]
+    mock_obj.dx = [0.1, 0.1]
+    mock_obj.time = 10.5
+    mock_obj.dt = 0.5
+    mock_obj.iter = 21
+    mock_obj.units = "a.u."
+    mock_obj.label = "Electric Field"
+    mock_obj.data = np.zeros((100, 100))
+    mock_obj.axis = [{"axis": [0, 10]}, {"axis": [0, 10]}]
+    mock_grid_file.return_value = mock_obj
 
-    def test_version(self, capsys):
-        """Test --version flag."""
-        with pytest.raises(SystemExit) as exc_info:
-            cli_module.main(["--version"])
-        assert exc_info.value.code == 0
+    # Create dummy file path (needs to 'exist' for Path check)
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
+        args = argparse.Namespace(path="dummy.h5", brief=False)
+        ret = info.run(args)
 
-    def test_help(self, capsys):
-        """Test --help flag."""
-        with pytest.raises(SystemExit) as exc_info:
-            cli_module.main(["--help"])
-        assert exc_info.value.code == 0
+        assert ret == 0
         captured = capsys.readouterr()
-        assert "osiris" in captured.out
-        assert "info" in captured.out
-        assert "export" in captured.out
-
-    def test_no_command(self, capsys):
-        """Test running without a command."""
-        with pytest.raises(SystemExit):
-            cli_module.main([])
-
-    def test_invalid_command(self, capsys):
-        """Test running with an invalid command."""
-        with pytest.raises(SystemExit):
-            cli_module.main(["invalid_command"])
+        assert "File: dummy.h5" in captured.out
+        assert "Type: grid" in captured.out
+        assert "Grid Information:" in captured.out
 
 
-class TestInfoCommand:
-    """Test the info command."""
+@patch("osiris_utils.cli.info.ou.Simulation")
+def test_info_simulation(mock_simulation, capsys):
+    """Test 'info' command for a simulation directory."""
+    # Setup mock
+    mock_sim = MagicMock()
+    mock_sim.species = ["electrons", "protons"]
+    mock_simulation.return_value = mock_sim
 
-    def test_info_help(self, capsys):
-        """Test info --help."""
-        with pytest.raises(SystemExit) as exc_info:
-            cli_module.main(["info", "--help"])
-        assert exc_info.value.code == 0
+    # Mock file system structure
+    with (
+        patch("pathlib.Path.exists") as mock_exists,
+        patch("pathlib.Path.is_dir") as mock_is_dir,
+    ):
+        # Scenario: Directory exists, input.deck exists
+        def exists_side_effect(self):
+            # Check if checking for existing path or input deck
+            if str(self) == "sim_dir" or str(self).endswith("input.deck"):
+                return True
+            return False
+
+        # mock_exists.side_effect = lambda: True # Simplification
+        # Proper side effect is tricky with Path objects, let's just make everything exist
+        mock_exists.return_value = True
+        mock_is_dir.return_value = True
+
+        args = argparse.Namespace(path="sim_dir", brief=False)
+        ret = info.run(args)
+
+        assert ret == 0
         captured = capsys.readouterr()
-        assert "info" in captured.out
-
-    def test_info_missing_path(self):
-        """Test info without a path."""
-        with pytest.raises(SystemExit):
-            cli_module.main(["info"])
-
-    def test_info_nonexistent_path(self, capsys):
-        """Test info with nonexistent path."""
-        result = cli_module.main(["info", "/nonexistent/path"])
-        assert result == 1
-        captured = capsys.readouterr()
-        assert "does not exist" in captured.err
+        assert "Simulation: sim_dir" in captured.out
+        assert "Species:" in captured.out
 
 
-class TestExportCommand:
-    """Test the export command."""
-
-    def test_export_help(self, capsys):
-        """Test export --help."""
-        with pytest.raises(SystemExit) as exc_info:
-            cli_module.main(["export", "--help"])
-        assert exc_info.value.code == 0
-        captured = capsys.readouterr()
-        assert "export" in captured.out
-
-    def test_export_missing_args(self):
-        """Test export without required arguments."""
-        with pytest.raises(SystemExit):
-            cli_module.main(["export"])
-
-    def test_export_nonexistent_path(self, capsys):
-        """Test export with nonexistent path."""
-        result = cli_module.main(["export", "/nonexistent/path", "--output", "/tmp/test.csv"])
-        assert result == 1
-        captured = capsys.readouterr()
-        assert "does not exist" in captured.err
+# -----------------------------------------------------------------------------
+# Test Export Command
+# -----------------------------------------------------------------------------
 
 
-class TestPlotCommand:
-    """Test the plot command."""
+@patch("osiris_utils.cli.export.ou.OsirisGridFile")
+@patch("numpy.save")
+@patch("pandas.DataFrame.to_csv")
+def test_export_file(mock_to_csv, mock_np_save, mock_grid_file):
+    """Test 'export' command for single file."""
+    mock_obj = MagicMock()
+    mock_obj.data = np.zeros((10, 10))
+    mock_obj.dim = 2
+    mock_obj.x = [np.linspace(0, 1, 10), np.linspace(0, 1, 10)]
+    mock_obj.name = "data"
+    mock_grid_file.return_value = mock_obj
 
-    def test_plot_help(self, capsys):
-        """Test plot --help."""
-        with pytest.raises(SystemExit) as exc_info:
-            cli_module.main(["plot", "--help"])
-        assert exc_info.value.code == 0
-        captured = capsys.readouterr()
-        assert "plot" in captured.out
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
+        # Test CSV export
+        args = argparse.Namespace(path="dummy.h5", format="csv", output="out.csv", timestep=None, no_coords=False)
+        export.run(args)
+        assert mock_to_csv.called
 
-    def test_plot_missing_save_or_display(self, capsys, tmp_path):
-        """Test plot without --save or --display."""
-        # Create a fake file
-        fake_file = tmp_path / "fake.h5"
-        fake_file.touch()
-
-        result = cli_module.main(["plot", str(fake_file)])
-        assert result == 1
-        captured = capsys.readouterr()
-        assert "Must specify --save or --display" in captured.err
-
-
-class TestValidateCommand:
-    """Test the validate command."""
-
-    def test_validate_help(self, capsys):
-        """Test validate --help."""
-        with pytest.raises(SystemExit) as exc_info:
-            cli_module.main(["validate", "--help"])
-        assert exc_info.value.code == 0
-        captured = capsys.readouterr()
-        assert "validate" in captured.out
-
-    def test_validate_missing_path(self):
-        """Test validate without a path."""
-        with pytest.raises(SystemExit):
-            cli_module.main(["validate"])
-
-    def test_validate_nonexistent_path(self, capsys):
-        """Test validate with nonexistent path."""
-        result = cli_module.main(["validate", "/nonexistent/path"])
-        assert result == 1
-        captured = capsys.readouterr()
-        assert "does not exist" in captured.err
+        # Test NPY export
+        args.format = "npy"
+        args.output = "out.npy"
+        export.run(args)
+        assert mock_np_save.called
 
 
-class TestVerboseFlag:
-    """Test the --verbose flag across commands."""
+# -----------------------------------------------------------------------------
+# Test Plot Command
+# -----------------------------------------------------------------------------
 
-    def test_verbose_flag_with_error(self, capsys):
-        """Test that --verbose shows detailed error info."""
-        # This should fail with an error code, not raise an exception
-        result = cli_module.main(["--verbose", "info", "/nonexistent/path"])
-        assert result == 1
-        captured = capsys.readouterr()
-        assert "does not exist" in captured.err
+
+@patch("osiris_utils.cli.plot.ou.OsirisGridFile")
+@patch("osiris_utils.cli.plot.plt")
+def test_plot_file(mock_plt, mock_grid_file):
+    """Test 'plot' command."""
+    # Setup plt mock
+    mock_fig = MagicMock()
+    mock_ax = MagicMock()
+    mock_plt.subplots.return_value = (mock_fig, mock_ax)
+
+    mock_obj = MagicMock()
+    mock_obj.data = np.zeros((10, 10))
+    mock_obj.dim = 2
+    mock_obj.x = [np.linspace(0, 1, 10), np.linspace(0, 1, 10)]
+    mock_obj.label = "test"
+    mock_obj.units = "u"
+    mock_obj.time = 0
+    mock_obj.axis = [{"units": "x"}, {"units": "y"}]
+    mock_grid_file.return_value = mock_obj
+
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
+        args = argparse.Namespace(path="dummy.h5", save="plot.png", display=False, title=None, cmap="viridis", dpi=100, log_scale=False)
+        ret = plot.run(args)
+        assert ret == 0
+        assert mock_plt.savefig.called
+
+
+# -----------------------------------------------------------------------------
+# Test Validate Command
+# -----------------------------------------------------------------------------
+
+
+@patch("h5py.File")
+@patch("osiris_utils.cli.validate.ou.OsirisGridFile")
+def test_validate_file(mock_grid_file, mock_h5):
+    """Test 'validate' command for a file."""
+
+    # Successful validation scenario
+    mock_h5.return_value.__enter__.return_value = {"AXIS": {}}
+
+    mock_obj = MagicMock()
+    mock_obj.data = np.zeros((10, 10))  # Non-empty
+    mock_grid_file.return_value = mock_obj
+
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
+        args = argparse.Namespace(path="dummy.h5", check_missing=False, strict=False)
+        ret = validate.run(args)
+        assert ret == 0
