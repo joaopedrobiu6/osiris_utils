@@ -1,9 +1,10 @@
-# building the docs
-sphinx >= 3.0.0, <= 8.1.3
-sphinx_copybutton <= 0.5.2
-sphinx-rtd-theme >= 1.0, < 3.0.3
-sphinx-github-style >= 1.0, <= 1.2.2
-
+# requirements-dev.txt
+# --------------------
 -r requirements.txt
 
--e .
+# Install the package *with* extras in editable mode
+-e .[dev,docs,plot]
+
+# Tooling that isn't in extras (optional)
+build>=1.2
+twine>=5.0
