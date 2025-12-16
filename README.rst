@@ -49,6 +49,48 @@ Quick-start
    cd osiris_utils
    python examples/quick_start.py examples/example_data/thermal.1d
 
+Command-Line Interface
+----------------------
+
+osiris_utils includes a command-line interface for common operations. After installation, the ``osiris`` command becomes available::
+
+   osiris --version                     # Check version
+   osiris --help                        # Show available commands
+
+**Available Commands:**
+
+- ``osiris info`` - Display metadata about OSIRIS files and simulations
+- ``osiris export`` - Convert data to CSV, JSON, or NumPy formats
+- ``osiris plot`` - Create quick visualizations
+- ``osiris validate`` - Check file integrity
+
+**Examples:**
+
+Show simulation information::
+
+   osiris info path/to/simulation
+   osiris info path/to/file.h5 --brief
+
+Export data to different formats::
+
+   osiris export file.h5 --format csv --output data.csv
+   osiris export diagnostic/dir --format npy --output data.npy
+
+Generate quick plots::
+
+   osiris plot file.h5 --save plot.png
+   osiris plot file.h5 --save plot.png --title "Ez Field" --cmap viridis
+
+Validate simulation data::
+
+   osiris validate path/to/simulation
+   osiris validate path/to/simulation --check-missing
+
+For detailed help on any command::
+
+   osiris <command> --help
+
+
 Documentation
 -------------
 

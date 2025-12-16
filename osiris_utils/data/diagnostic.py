@@ -14,13 +14,14 @@ import logging
 import operator
 import os
 import warnings
-from typing import Any, Callable, Iterator, Optional, Tuple, Union
+from typing import Any, Callable, Iterator, List, Literal, Optional, Union
 
 import h5py
-import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
 
+from ..decks.decks import InputDeckIO
+from ..decks.species import Specie
 from .data import OsirisGridFile
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)8s │ %(message)s")
@@ -120,6 +121,10 @@ class Diagnostic:
         The species to handle the diagnostics.
     simulation_folder : str
         The path to the simulation folder. This is the path to the folder where the input deck is located.
+    input_deck : str or dict, optional
+        The input deck to load the diagnostic attributes. If None, the attributes are loaded from the files.
+        If a string is provided, it is assumed to be the path to the input deck file.
+        If a dict is provided, it is assumed to be the parsed input deck.
 
     Attributes
     ----------
@@ -189,7 +194,12 @@ class Diagnostic:
 
     """
 
-    def __init__(self, simulation_folder: Optional[str] = None, species: Any = None, input_deck: Optional[str | None] = None) -> None:
+    def __init__(
+        self,
+        simulation_folder: Optional[str] = None,
+        species: Specie = None,
+        input_deck: Optional[InputDeckIO] = None,
+    ) -> None:
         self._species = species if species else None
 
         self._dx: Optional[Union[float, np.ndarray]] = None  # grid spacing in each direction
@@ -349,7 +359,7 @@ class Diagnostic:
     #
     ##########################################
 
-    def _data_generator(self, index: int) -> None:
+    def _data_generator(self, index: int) -> Iterator[np.ndarray]:
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set.")
         if self._file_list is None:
@@ -361,9 +371,18 @@ class Diagnostic:
         data_object = OsirisGridFile(file)
         yield (data_object.data if self._quantity not in OSIRIS_DENSITY else np.sign(self._species.rqm) * data_object.data)
 
-    def load_all(self) -> np.ndarray:
+    def load_all(self, n_workers: Optional[int] = None, use_parallel: Optional[bool] = None) -> np.ndarray:
         """
         Load all data into memory (all iterations), in a pre-allocated array.
+
+        Parameters
+        ----------
+        n_workers : int, optional
+            Number of parallel workers for loading data. If None, uses CPU count.
+            Only used if use_parallel=True.
+        use_parallel : bool, optional
+            If True, force parallel loading. If False, force sequential.
+            If None (default), automatically choose based on data size.
 
         Returns
         -------
@@ -388,11 +407,44 @@ class Diagnostic:
         data = np.empty((size, *slice_shape), dtype=dtype)
         data[0] = first
 
-        for i in tqdm.trange(1, size, desc="Loading data"):
-            try:
-                data[i] = self[i]
-            except Exception as e:
-                raise RuntimeError(f"Error loading timestep {i}: {e}")
+        # Auto-detect whether to use parallel loading
+        if use_parallel is None:
+            # Use parallel for large datasets: >10 timesteps AND >1MB per file
+            bytes_per_timestep = first.nbytes
+            use_parallel = (size > 10) and (bytes_per_timestep > 1_000_000)
+
+        # Parallel loading for significant performance improvement
+        if use_parallel and size > 1:
+            import concurrent.futures
+            import os
+
+            if n_workers is None:
+                n_workers = min(os.cpu_count() or 4, size - 1)
+
+            def load_single(i):
+                """Helper to load a single timestep"""
+                try:
+                    return i, self[i]
+                except Exception as e:
+                    raise RuntimeError(f"Error loading timestep {i}: {e}")
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as executor:
+                # Submit all loading tasks
+                futures = {executor.submit(load_single, i): i for i in range(1, size)}
+
+                # Collect results with progress bar
+                with tqdm.tqdm(total=size - 1, desc="Loading data (parallel)") as pbar:
+                    for future in concurrent.futures.as_completed(futures):
+                        i, result = future.result()
+                        data[i] = result
+                        pbar.update(1)
+        else:
+            # Sequential loading (fallback or for small files)
+            for i in tqdm.trange(1, size, desc="Loading data"):
+                try:
+                    data[i] = self[i]
+                except Exception as e:
+                    raise RuntimeError(f"Error loading timestep {i}: {e}")
 
         self._data = data
         self._all_loaded = True
@@ -419,7 +471,7 @@ class Diagnostic:
         """Return the number of timesteps available."""
         return getattr(self, "_maxiter", 0)
 
-    def __getitem__(self, index: int) -> np.ndarray:
+    def __getitem__(self, index: int | slice) -> np.ndarray:
         """
         Retrieve timestep data.
 
@@ -500,9 +552,10 @@ class Diagnostic:
         raise IndexError(f"Invalid index type {type(index)}; must be int or slice")
 
     def __iter__(self) -> Iterator[np.ndarray]:
-        # If this is a file-based diagnostic
+        # If this is a file-based diagnostic, use cached file list
         if self._simulation_folder is not None:
-            for i in range(len(sorted(glob.glob(f"{self._path}/*.h5")))):
+            # Use cached _maxiter instead of globbing again
+            for i in range(self._maxiter):
                 yield next(self._data_generator(i))
 
         # If this is a derived diagnostic and data is already loaded
@@ -544,7 +597,7 @@ class Diagnostic:
             clone._file_list = self._file_list
         return clone
 
-    def _binary_op(self, other: Union["Diagnostic", int, float, np.ndarray], op_func: Callable) -> Diagnostic:
+    def _binary_op(self, other: Union["Diagnostic", int, float, np.ndarray], op_func: Callable) -> "Diagnostic":
         """
         Universal helper for `self (op) other`.
         - If both operands are fully loaded, does eager numpy arithmetic.
@@ -593,13 +646,13 @@ class Diagnostic:
 
     # Now define each operator in one line:
 
-    def __add__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+    def __add__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> "Diagnostic":
         return self._binary_op(other, operator.add)
 
-    def __radd__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+    def __radd__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> "Diagnostic":
         return self + other
 
-    def __sub__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+    def __sub__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> "Diagnostic":
         return self._binary_op(other, operator.sub)
 
     def __rsub__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
@@ -765,137 +818,19 @@ class Diagnostic:
         boundaries: np.ndarray = None,
     ):
         """
-        *****************************************************************************************************
-        THIS SHOULD BE REMOVED FROM THE BASE CLASS AND MOVED TO A SEPARATED CLASS DESIGNATED FOR THIS PURPOSE
-        *****************************************************************************************************
+        **DEPRECATED**: Use `osiris_utils.vis.plot_3d` instead.
 
         Plots a 3D scatter plot of the diagnostic data (grid data).
-
-        Parameters
-        ----------
-        idx : int
-            Index of the data to plot.
-        scale_type : Literal["zero_centered", "pos", "neg", "default"], optional
-            Type of scaling for the colormap:
-            - "zero_centered": Center colormap around zero.
-            - "pos": Colormap for positive values.
-            - "neg": Colormap for negative values.
-            - "default": Standard colormap.
-        boundaries : np.ndarray, optional
-            Boundaries to plot part of the data. (3,2) If None, uses the default grid boundaries.
-
-        Returns
-        -------
-        fig : matplotlib.figure.Figure
-            The figure object containing the plot.
-        ax : matplotlib.axes._subplots.Axes3DSubplot
-            The 3D axes object of the plot.
-
-        Example
-        -------
-        sim = ou.Simulation("electrons", "path/to/simulation")
-        fig, ax = sim["b3"].plot_3d(55, scale_type="zero_centered",  boundaries= [[0, 40], [0, 40], [0, 20]])
-        plt.show()
         """
-
-        if self._dim != 3:
-            raise ValueError("This method is only available for 3D diagnostics.")
-
-        if boundaries is None:
-            boundaries = self._grid
-
-        if not isinstance(boundaries, np.ndarray):
-            try:
-                boundaries = np.array(boundaries)
-            except Exception:
-                boundaries = self._grid
-                warnings.warn("boundaries cannot be accessed as a numpy array with shape (3, 2), using default instead")
-
-        if boundaries.shape != (3, 2):
-            warnings.warn("boundaries should have shape (3, 2), using default instead")
-            boundaries = self._grid
-
-        # Load data
-        if self._all_loaded:
-            data = self._data[idx]
-        else:
-            data = self[idx]
-
-        X, Y, Z = np.meshgrid(self._x[0], self._x[1], self._x[2], indexing="ij")
-
-        # Flatten arrays for scatter plot
-        (
-            X_flat,
-            Y_flat,
-            Z_flat,
-        ) = (
-            X.ravel(),
-            Y.ravel(),
-            Z.ravel(),
+        warnings.warn(
+            "Diagnostic.plot_3d is deprecated and will be removed in a future version. "
+            "Please use osiris_utils.vis.plot_3d(diagnostic, idx, ...) instead.",
+            DeprecationWarning,
+            stacklevel=2,
         )
-        data_flat = data.ravel()
+        from ..vis.plot3d import plot_3d
 
-        # Apply filter: Keep only chosen points
-        mask = (
-            (X_flat > boundaries[0][0])
-            & (X_flat < boundaries[0][1])
-            & (Y_flat > boundaries[1][0])
-            & (Y_flat < boundaries[1][1])
-            & (Z_flat > boundaries[2][0])
-            & (Z_flat < boundaries[2][1])
-        )
-        X_cut, Y_cut, Z_cut, data_cut = (
-            X_flat[mask],
-            Y_flat[mask],
-            Z_flat[mask],
-            data_flat[mask],
-        )
-
-        if scale_type == "zero_centered":
-            # Center colormap around zero
-            cmap = "seismic"
-            vmax = np.max(np.abs(data_flat))  # Find max absolute value
-            vmin = -vmax
-        elif scale_type == "pos":
-            cmap = "plasma"
-            vmax = np.max(data_flat)
-            vmin = 0
-
-        elif scale_type == "neg":
-            cmap = "plasma"
-            vmax = 0
-            vmin = np.min(data_flat)
-        else:
-            cmap = "plasma"
-            vmax = np.max(data_flat)
-            vmin = np.min(data_flat)
-
-        norm = plt.Normalize(vmin=vmin, vmax=vmax)
-
-        # Plot
-        fig = plt.figure(figsize=(10, 7))
-        ax = fig.add_subplot(111, projection="3d")
-
-        # Scatter plot with seismic colormap
-        sc = ax.scatter(X_cut, Y_cut, Z_cut, c=data_cut, cmap=cmap, norm=norm, alpha=1)
-
-        # Set limits to maintain full background
-        ax.set_xlim(*self._grid[0])
-        ax.set_ylim(*self._grid[1])
-        ax.set_zlim(*self._grid[2])
-
-        # Colorbar
-        cbar = plt.colorbar(sc, ax=ax, shrink=0.6)
-
-        # Labels
-        # TODO try to use a latex label instaead of _name
-        cbar.set_label(r"${}$".format(self._name) + r"$\  [{}]$".format(self._units))
-        ax.set_title(r"$t={:.2f}$".format(self.time(idx)[0]) + r"$\  [{}]$".format(self.time(idx)[1]))
-        ax.set_xlabel(r"${}$".format(self.axis[0]["long_name"]) + r"$\  [{}]$".format(self.axis[0]["units"]))
-        ax.set_ylabel(r"${}$".format(self.axis[1]["long_name"]) + r"$\  [{}]$".format(self.axis[1]["units"]))
-        ax.set_zlabel(r"${}$".format(self.axis[2]["long_name"]) + r"$\  [{}]$".format(self.axis[2]["units"]))
-
-        return fig, ax
+        return plot_3d(self, idx, scale_type, boundaries)
 
     def __str__(self):
         """String representation of the diagnostic."""

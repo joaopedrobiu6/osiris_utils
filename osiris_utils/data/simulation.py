@@ -1,4 +1,5 @@
 import os
+from typing import Any, Dict, List, Optional, Union
 
 from ..data.diagnostic import Diagnostic
 from ..decks.decks import InputDeckIO
@@ -34,7 +35,7 @@ class Simulation:
 
     """
 
-    def __init__(self, input_deck_path):
+    def __init__(self, input_deck_path: str) -> None:
         folder_path = os.path.dirname(input_deck_path)
         self._input_deck_path = input_deck_path
         self._input_deck = InputDeckIO(self._input_deck_path, verbose=False)
@@ -60,7 +61,7 @@ class Simulation:
         else:
             print(f"Diagnostic {key} not found in simulation")
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Union[Diagnostic, "Species_Handler"]:
         # check if key is a species
         if key in self._species:
             # check if species handler already exists
@@ -94,7 +95,7 @@ class Simulation:
 
         return diag
 
-    def add_diagnostic(self, diagnostic, name=None):
+    def add_diagnostic(self, diagnostic: Diagnostic, name: Optional[str] = None) -> str:
         """
         Add a custom diagnostic to the simulation.
 
@@ -130,27 +131,28 @@ class Simulation:
         # If already a Diagnostic, store directly
         if isinstance(diagnostic, Diagnostic):
             self._diagnostics[name] = diagnostic
+            return name
         else:
             raise ValueError("Only Diagnostic objects are supported for now")
 
     @property
-    def species(self):
+    def species(self) -> List[str]:
         return self._species
 
     @property
-    def loaded_diagnostics(self):
+    def loaded_diagnostics(self) -> Dict[str, Diagnostic]:
         return self._diagnostics
 
 
 # This is to handle species related diagnostics
 class Species_Handler:
-    def __init__(self, simulation_folder, species_name, input_deck):
+    def __init__(self, simulation_folder: str, species_name: Any, input_deck: Any) -> None:
         self._simulation_folder = simulation_folder
         self._species_name = species_name
         self._input_deck = input_deck
         self._diagnostics = {}
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Diagnostic:
         if key in self._diagnostics:
             return self._diagnostics[key]
 
@@ -173,7 +175,7 @@ class Species_Handler:
 
         return diag
 
-    def add_diagnostic(self, diagnostic, name=None):
+    def add_diagnostic(self, diagnostic: Diagnostic, name: Optional[str] = None) -> str:
         """
         Add a custom diagnostic to the simulation.
 
@@ -203,10 +205,11 @@ class Species_Handler:
         # If already a Diagnostic, store directly
         if isinstance(diagnostic, Diagnostic):
             self._diagnostics[name] = diagnostic
+            return name
         else:
             raise ValueError("Only Diagnostic objects are supported for now")
 
-    def delete_diagnostic(self, key):
+    def delete_diagnostic(self, key: str) -> None:
         """
         Delete a diagnostic.
         """
@@ -216,16 +219,16 @@ class Species_Handler:
             print(f"Diagnostic {key} not found in species {self._species_name}")
             return None
 
-    def delete_all_diagnostics(self):
+    def delete_all_diagnostics(self) -> None:
         """
         Delete all diagnostics.
         """
         self._diagnostics = {}
 
     @property
-    def species(self):
+    def species(self) -> Any:
         return self._species_name
 
     @property
-    def loaded_diagnostics(self):
+    def loaded_diagnostics(self) -> Dict[str, Diagnostic]:
         return self._diagnostics
