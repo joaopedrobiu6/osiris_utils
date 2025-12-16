@@ -18,7 +18,7 @@ class Simulation:
     ----------
     simulation_folder : str
         The simulation folder.
-    species : Specie object
+    species : Species object
         The species to analyze.
     diagnostics : dict
         Dictionary to store diagnostics for each quantity when `load_all` method is used.

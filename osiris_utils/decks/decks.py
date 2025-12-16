@@ -4,7 +4,7 @@ import re
 
 import numpy as np
 
-from .species import Specie
+from .species import Species
 
 
 def deval(x):
@@ -169,7 +169,7 @@ class InputDeckIO:
             raise RuntimeError(f"Number of specie rqm does not match number of species: {len(s_qreal)} != {len(self.n_species)}.")
 
         return {
-            ast.literal_eval(s_names[i]): Specie(
+            ast.literal_eval(s_names[i]): Species(
                 name=ast.literal_eval(s_names[i]),
                 rqm=float(s_rqm[i]),
                 q=int(s_qreal[0]) * np.sign(float(s_rqm[i])),

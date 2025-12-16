@@ -21,7 +21,7 @@ import numpy as np
 import tqdm
 
 from ..decks.decks import InputDeckIO
-from ..decks.species import Specie
+from ..decks.species import Species
 from .data import OsirisGridFile
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)8s │ %(message)s")
@@ -197,7 +197,7 @@ class Diagnostic:
     def __init__(
         self,
         simulation_folder: Optional[str] = None,
-        species: Specie = None,
+        species: Species = None,
         input_deck: Optional[InputDeckIO] = None,
     ) -> None:
         self._species = species if species else None
