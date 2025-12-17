@@ -5,9 +5,11 @@ OSIRIS_UTILS
 .. image:: https://github.com/joaopedrobiu6/osiris_utils/actions/workflows/ci.yml/badge.svg
    :target: https://github.com/joaopedrobiu6/osiris_utils/actions
    :alt: CI status
+
 .. image:: https://codecov.io/gh/joaopedrobiu6/osiris_utils/branch/main/graph/badge.svg
    :target: https://codecov.io/gh/joaopedrobiu6/osiris_utils
    :alt: Coverage
+
 .. image:: https://zenodo.org/badge/889119723.svg
   :target: https://doi.org/10.5281/zenodo.17382244
 
