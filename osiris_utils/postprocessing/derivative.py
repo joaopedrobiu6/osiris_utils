@@ -132,33 +132,109 @@ class Derivative_Diagnostic(Diagnostic):
             if hasattr(diagnostic, attr):
                 setattr(self, attr, getattr(diagnostic, attr))
 
+    @staticmethod
+    def _compute_fourth_order_spatial(data, dx, axis):
+        """
+        Compute 4th-order spatial derivative along specified axis using vectorized operations.
+
+        Uses the 4th-order central difference stencil:
+        Interior: (-f[i+2] + 8*f[i+1] - 8*f[i-1] + f[i-2]) / (12*h)
+        Boundaries: 2nd-order forward/backward differences
+
+        Parameters
+        ----------
+        data : np.ndarray
+            Input data array
+        dx : float
+            Grid spacing
+        axis : int
+            Axis along which to compute derivative
+
+        Returns
+        -------
+        np.ndarray
+            Derivative of the input data
+        """
+        result = np.zeros_like(data)
+
+        # Build slice objects for vectorized operations
+        # This is much faster than looping through indices
+
+        # Central differences (vectorized)
+        # For each point i in [2, n-2), compute:
+        # (-f[i+2] + 8*f[i+1] - 8*f[i-1] + f[i-2]) / (12*h)
+
+        slices_center = [slice(None)] * data.ndim
+        slices_p2 = [slice(None)] * data.ndim
+        slices_p1 = [slice(None)] * data.ndim
+        slices_m1 = [slice(None)] * data.ndim
+        slices_m2 = [slice(None)] * data.ndim
+
+        # Target region: indices 2 to -2
+        slices_center[axis] = slice(2, -2)
+        # For the stencil, we need aligned slices
+        slices_p2[axis] = slice(4, None)  # i+2: starts at 4, goes to end
+        slices_p1[axis] = slice(3, -1)  # i+1: starts at 3, goes to -1
+        slices_m1[axis] = slice(1, -3)  # i-1: starts at 1, goes to -3
+        slices_m2[axis] = slice(0, -4)  # i-2: starts at 0, goes to -4
+
+        result[tuple(slices_center)] = (
+            -data[tuple(slices_p2)] + 8 * data[tuple(slices_p1)] - 8 * data[tuple(slices_m1)] + data[tuple(slices_m2)]
+        ) / (12 * dx)
+
+        # Boundary points using 2nd-order differences
+        # First point: forward difference
+        slices_0 = [slice(None)] * data.ndim
+        slices_1 = [slice(None)] * data.ndim
+        slices_2 = [slice(None)] * data.ndim
+        slices_0[axis] = 0
+        slices_1[axis] = 1
+        slices_2[axis] = 2
+        result[tuple(slices_0)] = (-3 * data[tuple(slices_0)] + 4 * data[tuple(slices_1)] - data[tuple(slices_2)]) / (2 * dx)
+
+        # Second point: central difference
+        result[tuple(slices_1)] = (data[tuple(slices_2)] - data[tuple(slices_0)]) / (2 * dx)
+
+        # Second-to-last point: central difference
+        slices_m2 = [slice(None)] * data.ndim
+        slices_m1 = [slice(None)] * data.ndim
+        slices_m3 = [slice(None)] * data.ndim
+        slices_m2[axis] = -2
+        slices_m1[axis] = -1
+        slices_m3[axis] = -3
+        result[tuple(slices_m2)] = (data[tuple(slices_m1)] - data[tuple(slices_m3)]) / (2 * dx)
+
+        # Last point: backward difference
+        result[tuple(slices_m1)] = (3 * data[tuple(slices_m1)] - 4 * data[tuple(slices_m2)] + data[tuple(slices_m3)]) / (2 * dx)
+
+        return result
+
     def load_all(self):
         """Load all data and compute the derivative"""
         if self._data is not None:
             print("Using cached derivative")
             return self._data
 
-        if not hasattr(self._diag, "_data") or self._diag._data is None:
+        # Load diagnostic data if needed
+        if not self._diag._all_loaded:
             self._diag.load_all()
-            self._data = self._diag._data
 
-        if self._diag._all_loaded is True:
-            print("Using cached data from diagnostic")
-            self._data = self._diag._data
+        # Use diagnostic data
+        print("Using cached data from diagnostic")
+        self._data = self._diag._data
 
         if self._order == 2:
             if self._deriv_type == "t":
                 result = np.gradient(self._data, self._diag._dt * self._diag._ndump, axis=0, edge_order=2)
 
-        elif self._deriv_type == "x1":
-            dx = self._diag._dx
-            if self._dim == 1:
-                # If dx is a list/array with 1 element, extract it
-                if isinstance(dx, (list, tuple, np.ndarray)) and len(dx) >= 1:
-                    dx = dx[0]
-                    result = np.gradient(self._data, dx, axis=1, edge_order=2)
-                else:
-                    result = np.gradient(self._data, self._diag._dx[0], axis=1, edge_order=2)
+            elif self._deriv_type == "x1":
+                # Handle dx - extract scalar for 1D, use first element for multi-D
+                dx = self._diag._dx
+                if self._dim == 1 and isinstance(dx, (list, tuple, np.ndarray)):
+                    dx = dx[0] if len(dx) >= 1 else dx
+                elif self._dim > 1:
+                    dx = self._diag._dx[0]
+                result = np.gradient(self._data, dx, axis=1, edge_order=2)
 
             elif self._deriv_type == "x2":
                 result = np.gradient(self._data, self._diag._dx[1], axis=2, edge_order=2)
@@ -207,44 +283,21 @@ class Derivative_Diagnostic(Diagnostic):
                 )
             else:
                 raise ValueError("Invalid derivative type.")
+
         elif self._order == 4:
             if self._deriv_type in ["x1", "x2", "x3"]:
                 axis = {"x1": 1, "x2": 2, "x3": 3}[self._deriv_type]
-                dx = self._diag._dx[axis - 1] if self._dim > 1 else self._diag._dx
-
-            # Central differences for interior points
-            result = np.empty_like(self._data)
-            result_slice = [slice(None)] * self._data.ndim
-            for i in range(2, self._data.shape[axis] - 2):
-                result_slice[axis] = i
-                result[tuple(result_slice)] = (
-                    -self._data[tuple(result_slice[:axis] + [i + 2] + result_slice[axis + 1 :])]
-                    + 8 * self._data[tuple(result_slice[:axis] + [i + 1] + result_slice[axis + 1 :])]
-                    - 8 * self._data[tuple(result_slice[:axis] + [i - 1] + result_slice[axis + 1 :])]
-                    + self._data[tuple(result_slice[:axis] + [i - 2] + result_slice[axis + 1 :])]
-                ) / (12 * dx)
-
-                # Forward difference for the first two points
-                for i in range(2):
-                    result_slice[axis] = i
-                    result[tuple(result_slice)] = (
-                        -25 * self._data[tuple(result_slice)]
-                        + 48 * self._data[tuple(result_slice[:axis] + [i + 1] + result_slice[axis + 1 :])]
-                        - 36 * self._data[tuple(result_slice[:axis] + [i + 2] + result_slice[axis + 1 :])]
-                        + 16 * self._data[tuple(result_slice[:axis] + [i + 3] + result_slice[axis + 1 :])]
-                        - 3 * self._data[tuple(result_slice[:axis] + [i + 4] + result_slice[axis + 1 :])]
-                    ) / (12 * dx)
-
-                # Backward difference for the last two points
-                for i in range(self._data.shape[axis] - 2, self._data.shape[axis]):
-                    result_slice[axis] = i
-                    result[tuple(result_slice)] = (
-                        25 * self._data[tuple(result_slice)]
-                        - 48 * self._data[tuple(result_slice[:axis] + [i - 1] + result_slice[axis + 1 :])]
-                        + 36 * self._data[tuple(result_slice[:axis] + [i - 2] + result_slice[axis + 1 :])]
-                        - 16 * self._data[tuple(result_slice[:axis] + [i - 3] + result_slice[axis + 1 :])]
-                        + 3 * self._data[tuple(result_slice[:axis] + [i - 4] + result_slice[axis + 1 :])]
-                    ) / (12 * dx)
+                # Extract dx as a scalar
+                if self._dim > 1:
+                    dx = self._diag._dx[axis - 1]
+                else:
+                    # For 1D, _dx might be a list with one element or a scalar
+                    dx = self._diag._dx[0] if isinstance(self._diag._dx, (list, tuple, np.ndarray)) else self._diag._dx
+                # Ensure dx is a scalar float
+                if isinstance(dx, (list, tuple, np.ndarray)):
+                    dx = float(dx) if np.isscalar(dx) else float(dx[0])
+                # Use vectorized helper function for massive speedup
+                result = self._compute_fourth_order_spatial(self._data, dx, axis)
             else:
                 raise ValueError("Order 4 is only implemented for spatial derivatives 'x1', 'x2' and 'x3'.")
 
@@ -282,68 +335,21 @@ class Derivative_Diagnostic(Diagnostic):
             else:
                 raise ValueError("Invalid derivative type. Use 'x1', 'x2', 'x3' or 't'.")
 
-        if self._order == 4:
-            if self._deriv_type == "x1":
-                if self._dim == 1:
-                    # Fourth-order central difference for 1D case
-                    data = self._diag[index]
-                    h = self._diag._dx
-                    result = np.zeros_like(data)
-
-                    # Interior points: (-f[i+2] + 8*f[i+1] - 8*f[i-1] + f[i-2]) / (12*h)
-                    result[2:-2] = (-data[4:] + 8 * data[3:-1] - 8 * data[1:-3] + data[:-4]) / (12 * h)
-
-                    # Boundary points (fallback to second-order)
-                    result[0] = (-3 * data[0] + 4 * data[1] - data[2]) / (2 * h)
-                    result[1] = (data[2] - data[0]) / (2 * h)
-                    result[-2] = (data[-1] - data[-3]) / (2 * h)
-                    result[-1] = (3 * data[-1] - 4 * data[-2] + data[-3]) / (2 * h)
-
-                    yield result
-                else:
-                    # Multi-dimensional case (same as before)
-                    data = self._diag[index]
-                    h = self._diag._dx[0]
-                    result = np.zeros_like(data)
-
-                    result[2:-2] = (-data[4:] + 8 * data[3:-1] - 8 * data[1:-3] + data[:-4]) / (12 * h)
-
-                    result[0] = (-3 * data[0] + 4 * data[1] - data[2]) / (2 * h)
-                    result[1] = (data[2] - data[0]) / (2 * h)
-                    result[-2] = (data[-1] - data[-3]) / (2 * h)
-                    result[-1] = (3 * data[-1] - 4 * data[-2] + data[-3]) / (2 * h)
-
-                    yield result
-
-            elif self._deriv_type == "x2":
+        elif self._order == 4:
+            if self._deriv_type in ["x1", "x2", "x3"]:
+                # Use vectorized helper function
                 data = self._diag[index]
-                h = self._diag._dx[1]
-                result = np.zeros_like(data)
+                axis_map = {"x1": 0, "x2": 1, "x3": 2}
+                axis = axis_map[self._deriv_type]
 
-                result[:, 2:-2] = (-data[:, 4:] + 8 * data[:, 3:-1] - 8 * data[:, 1:-3] + data[:, :-4]) / (12 * h)
+                if self._deriv_type == "x1":
+                    dx = self._diag._dx if self._dim == 1 else self._diag._dx[0]
+                elif self._deriv_type == "x2":
+                    dx = self._diag._dx[1]
+                else:  # x3
+                    dx = self._diag._dx[2]
 
-                # Boundaries
-                result[:, 0] = (-3 * data[:, 0] + 4 * data[:, 1] - data[:, 2]) / (2 * h)
-                result[:, 1] = (data[:, 2] - data[:, 0]) / (2 * h)
-                result[:, -2] = (data[:, -1] - data[:, -3]) / (2 * h)
-                result[:, -1] = (3 * data[:, -1] - 4 * data[:, -2] + data[:, -3]) / (2 * h)
-
-                yield result
-
-            elif self._deriv_type == "x3":
-                data = self._diag[index]
-                h = self._diag._dx[2]
-                result = np.zeros_like(data)
-
-                result[:, :, 2:-2] = (-data[:, :, 4:] + 8 * data[:, :, 3:-1] - 8 * data[:, :, 1:-3] + data[:, :, :-4]) / (12 * h)
-
-                # Boundaries
-                result[:, :, 0] = (-3 * data[:, :, 0] + 4 * data[:, :, 1] - data[:, :, 2]) / (2 * h)
-                result[:, :, 1] = (data[:, :, 2] - data[:, :, 0]) / (2 * h)
-                result[:, :, -2] = (data[:, :, -1] - data[:, :, -3]) / (2 * h)
-                result[:, :, -1] = (3 * data[:, :, -1] - 4 * data[:, :, -2] + data[:, :, -3]) / (2 * h)
-
-                yield result
+                yield self._compute_fourth_order_spatial(data, dx, axis)
 
             elif self._deriv_type == "t":
                 idx = index
@@ -373,7 +379,18 @@ class Derivative_Diagnostic(Diagnostic):
             start = 0 if index.start is None else index.start
             step = 1 if index.step is None else index.step
             stop = self._diag._maxiter if index.stop is None else index.stop
-            return np.array([next(self._data_generator(i)) for i in range(start, stop, step)])
+
+            # Pre-allocate array for better performance
+            indices = range(start, stop, step)
+            if len(indices) > 0:
+                first_result = next(self._data_generator(indices[0]))
+                result = np.empty((len(indices),) + first_result.shape, dtype=first_result.dtype)
+                result[0] = first_result
+                for i, idx in enumerate(indices[1:], start=1):
+                    result[i] = next(self._data_generator(idx))
+                return result
+            else:
+                return np.array([])
         else:
             raise ValueError("Invalid index type. Use int or slice.")
 
