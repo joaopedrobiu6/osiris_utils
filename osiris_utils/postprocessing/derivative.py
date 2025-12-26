@@ -150,9 +150,13 @@ class Derivative_Diagnostic(Diagnostic):
             if self._deriv_type == "t":
                 result = np.gradient(self._data, self._diag._dt * self._diag._ndump, axis=0, edge_order=2)
 
-            elif self._deriv_type == "x1":
-                if self._dim == 1:
-                    result = np.gradient(self._data, self._diag._dx, axis=1, edge_order=2)
+        elif self._deriv_type == "x1":
+            dx = self._diag._dx
+            if self._dim == 1:
+                # If dx is a list/array with 1 element, extract it
+                if isinstance(dx, (list, tuple, np.ndarray)) and len(dx) >= 1:
+                    dx = dx[0]
+                    result = np.gradient(self._data, dx, axis=1, edge_order=2)
                 else:
                     result = np.gradient(self._data, self._diag._dx[0], axis=1, edge_order=2)
 

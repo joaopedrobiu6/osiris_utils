@@ -5,11 +5,13 @@ OSIRIS_UTILS
 .. image:: https://github.com/joaopedrobiu6/osiris_utils/actions/workflows/ci.yml/badge.svg
    :target: https://github.com/joaopedrobiu6/osiris_utils/actions
    :alt: CI status
+
 .. image:: https://codecov.io/gh/joaopedrobiu6/osiris_utils/branch/main/graph/badge.svg
    :target: https://codecov.io/gh/joaopedrobiu6/osiris_utils
    :alt: Coverage
 
-
+.. image:: https://zenodo.org/badge/889119723.svg
+  :target: https://doi.org/10.5281/zenodo.17382244
 
 This package contains a set of utilities to open and analyze OSIRIS output files, using Python. All the methods implemented are fully integrated with `NumPy`, and use `np.ndarray` as the main data structure.
 High-level functions are provided to manipulate data from OSIRIS, from reading the data of the diagnostics, to making post-processing calculations.
@@ -49,6 +51,48 @@ Quick-start
    cd osiris_utils
    python examples/quick_start.py examples/example_data/thermal.1d
 
+Command-Line Interface
+----------------------
+
+osiris_utils includes a command-line interface for common operations. After installation, the ``osiris`` command becomes available::
+
+   osiris --version                     # Check version
+   osiris --help                        # Show available commands
+
+**Available Commands:**
+
+- ``osiris info`` - Display metadata about OSIRIS files and simulations
+- ``osiris export`` - Convert data to CSV, JSON, or NumPy formats
+- ``osiris plot`` - Create quick visualizations
+- ``osiris validate`` - Check file integrity
+
+**Examples:**
+
+Show simulation information::
+
+   osiris info path/to/simulation
+   osiris info path/to/file.h5 --brief
+
+Export data to different formats::
+
+   osiris export file.h5 --format csv --output data.csv
+   osiris export diagnostic/dir --format npy --output data.npy
+
+Generate quick plots::
+
+   osiris plot file.h5 --save plot.png
+   osiris plot file.h5 --save plot.png --title "Ez Field" --cmap viridis
+
+Validate simulation data::
+
+   osiris validate path/to/simulation
+   osiris validate path/to/simulation --check-missing
+
+For detailed help on any command::
+
+   osiris <command> --help
+
+
 Documentation
 -------------
 
@@ -60,7 +104,14 @@ The documentation is available at https://osiris-utils.readthedocs.io or via thi
 
 .. _authors:
 
-Authors and Contributors
-------------------------
+Author
+------
 
 - João Biu
+
+Contributors
+------------
+
+- Diogo Carvalho
+- João Cândido
+- Margarida Pereira

@@ -110,7 +110,7 @@ Diagnostic Base Class
    
    **Key Attributes:**
    
-   * ``species`` - The plasma species being analyzed (Specie object)
+   * ``species`` - The plasma species being analyzed (Species object)
    * ``dx`` - Grid spacing in each direction
    * ``nx`` - Number of grid points in each direction
    * ``x`` - Grid coordinates

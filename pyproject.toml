@@ -41,6 +41,9 @@ classifiers = [
   "Topic :: Scientific/Engineering"
 ]
 
+[project.scripts]
+osiris = "osiris_utils.cli:main"
+
 [project.urls]
 "Source Code"   = "https://github.com/joaopedrobiu6/osiris_utils"
 "Issues Tracker" = "https://github.com/joaopedrobiu6/osiris_utils/issues"

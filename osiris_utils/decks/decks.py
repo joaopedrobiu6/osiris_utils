@@ -4,7 +4,7 @@ import re
 
 import numpy as np
 
-from .species import Specie
+from .species import Species
 
 
 def deval(x):
@@ -42,7 +42,7 @@ class InputDeckIO:
         Number of dimensions in the simulation (1, 2, or 3).
     """
 
-    def __init__(self, filename: str, verbose: bool = True):
+    def __init__(self, filename: str, verbose: bool = False):
         self._filename = str(filename)
         self._sections = self._parse_input_deck(verbose)
         self._dim = self._get_dim()
@@ -162,14 +162,14 @@ class InputDeckIO:
             s_qreal = np.ones(len(s_names))
         # check if we have information for all species
         if len(s_names) != self.n_species:
-            raise RuntimeError("Number of specie names does not match number of species: " f"{len(s_names)} != {len(self.n_species)}.")
+            raise RuntimeError(f"Number of specie names does not match number of species: {len(s_names)} != {len(self.n_species)}.")
         if len(s_rqm) != self.n_species:
-            raise RuntimeError("Number of specie rqm does not match number of species: " f"{len(s_rqm)} != {len(self.n_species)}.")
+            raise RuntimeError(f"Number of specie rqm does not match number of species: {len(s_rqm)} != {len(self.n_species)}.")
         if len(s_qreal) != self.n_species:
-            raise RuntimeError("Number of specie rqm does not match number of species: " f"{len(s_qreal)} != {len(self.n_species)}.")
+            raise RuntimeError(f"Number of specie rqm does not match number of species: {len(s_qreal)} != {len(self.n_species)}.")
 
         return {
-            ast.literal_eval(s_names[i]): Specie(
+            ast.literal_eval(s_names[i]): Species(
                 name=ast.literal_eval(s_names[i]),
                 rqm=float(s_rqm[i]),
                 q=int(s_qreal[0]) * np.sign(float(s_rqm[i])),
@@ -193,7 +193,7 @@ class InputDeckIO:
 
         for i in i_sections:
             if not unexistent_ok and param not in self._sections[i][1]:
-                raise KeyError(f'"{param}" not yet inside section "{section}" ' "(set unexistent_ok=True to ignore).")
+                raise KeyError(f'"{param}" not yet inside section "{section}" (set unexistent_ok=True to ignore).')
             if isinstance(value, str):
                 self._sections[i][1][param] = str(f'"{value}"')
             elif isinstance(value, list):

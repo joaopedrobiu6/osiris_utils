@@ -28,7 +28,7 @@ from .data.diagnostic import Diagnostic
 from .data.simulation import Simulation, Species_Handler
 from .databases.database import DatabaseCreator
 from .decks.decks import InputDeckIO
-from .decks.species import Specie
+from .decks.species import Species
 from .postprocessing.derivative import Derivative_Diagnostic, Derivative_Simulation
 from .postprocessing.fft import FFT_Diagnostic, FFT_Simulation
 from .postprocessing.field_centering import (
@@ -73,7 +73,7 @@ __all__ = [
     "Diagnostic",
     "Species_Handler",
     # Decks
-    "Specie",
+    "Species",
     "InputDeckIO",
     # PostProcessing
     "PostProcess",
