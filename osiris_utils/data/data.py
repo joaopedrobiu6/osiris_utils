@@ -174,8 +174,6 @@ class OsirisGridFile(OsirisData):
         Field units (LaTeX formatted)
     label : str
         Field label/name (LaTeX formatted, e.g., r'$E_x$')
-    FFTdata : np.ndarray
-        Fourier-transformed data (available after calling FFT())
     """
 
     def __init__(self, filename):
@@ -205,8 +203,11 @@ class OsirisGridFile(OsirisData):
 
             # There's an issue when the dimension is 3 and we want to plot a 2D phasespace. I believe this
             # is a problem for all cases where the dim != dim_of_phasespace
-            self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
-            # self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(2)]
+            try:
+                self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
+            except Exception as e:
+                print(f"Error occurred while creating spatial coordinates: {e}")
+                self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(1)]
 
         self._axis = []
         for ax in axis:
@@ -237,154 +238,6 @@ class OsirisGridFile(OsirisData):
 
     def _get_variable_key(self, f: h5py.File) -> str:
         return next(k for k in f.keys() if k not in {"AXIS", "SIMULATION"})
-
-    def _yeeToCellCenter1d(self, boundary):
-        """
-        Converts 1d EM fields from a staggered Yee mesh to a grid with field values centered on the Center of the cell
-        """
-
-        if self.name.lower() in ["b2", "b3", "e1"]:
-            if boundary == "periodic":
-                return 0.5 * (np.roll(self.data, shift=1) + self.data)
-            else:
-                return 0.5 * (self.data[1:] + self.data[:-1])
-        elif self.name.lower() in ["b1", "e2", "e3"]:
-            if boundary == "periodic":
-                return self.data
-            else:
-                return self.data[1:]
-        else:
-            raise TypeError(f"This method expects magnetic or electric field grid data but received '{self.name}' instead")
-
-    def _yeeToCellCenter2d(self, boundary):
-        """
-        Converts 2d EM fields from a staggered Yee mesh to a grid with field values centered on the Center of the cell
-        """
-
-        if self.name.lower() in ["e1", "b2"]:
-            if boundary == "periodic":
-                return 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)
-            else:
-                return 0.5 * (self.data[1:, 1:] + self.data[:-1, 1:])
-        elif self.name.lower() in ["e2", "b1"]:
-            if boundary == "periodic":
-                return 0.5 * (np.roll(self.data, shift=1, axis=1) + self.data)
-            else:
-                return 0.5 * (self.data[1:, 1:] + self.data[1:, :-1])
-        elif self.name.lower() in ["b3"]:
-            if boundary == "periodic":
-                return 0.5 * (
-                    np.roll(
-                        (0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)),
-                        shift=1,
-                        axis=1,
-                    )
-                    + (0.5 * (np.roll(self.data, shift=1, axis=0) + self.data))
-                )
-            else:
-                return 0.25 * (self.data[1:, 1:] + self.data[:-1, 1:] + self.data[1:, :-1] + self.data[:-1, :-1])
-        elif self.name.lower() in ["e3"]:
-            if boundary == "periodic":
-                return self.data
-            else:
-                return self.data[1:, 1:]
-        else:
-            raise TypeError(f"This method expects magnetic or electric field grid data but received '{self.name}' instead")
-
-    def _yeeToCellCenter3d(self, boundary):
-        """
-        Converts 3d EM fields from a staggered Yee mesh to a grid with field values centered on the Center of the cell
-        """
-        if self.name.lower() == "b1":
-            if boundary == "periodic":
-                return 0.5 * (
-                    0.5
-                    * np.roll(
-                        (np.roll(self.data, shift=1, axis=1) + self.data),
-                        shift=1,
-                        axis=2,
-                    )
-                    + 0.5 * (np.roll(self.data, shift=1, axis=1) + self.data)
-                )
-            else:
-                return 0.25 * (self.data[1:, 1:, 1:] + self.data[1:, :-1, 1:] + self.data[1:, 1:, :-1] + self.data[1:, :-1, :-1])
-        elif self.name.lower() == "b2":
-            if boundary == "periodic":
-                return 0.5 * (
-                    0.5
-                    * np.roll(
-                        (np.roll(self.data, shift=1, axis=0) + self.data),
-                        shift=1,
-                        axis=2,
-                    )
-                    + 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)
-                )
-            else:
-                return 0.25 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:] + self.data[1:, 1:, :-1] + self.data[:-1, 1:, :-1])
-        elif self.name.lower() == "b3":
-            if boundary == "periodic":
-                return 0.5 * (
-                    0.5
-                    * np.roll(
-                        (np.roll(self.data, shift=1, axis=0) + self.data),
-                        shift=1,
-                        axis=1,
-                    )
-                    + 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)
-                )
-            else:
-                return 0.25 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:] + self.data[1:, :-1, 1:] + self.data[:-1, :-1, 1:])
-        elif self.name.lower() == "e1":
-            if boundary == "periodic":
-                return 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)
-            else:
-                return 0.5 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:])
-        elif self.name.lower() == "e2":
-            if boundary == "periodic":
-                return 0.5 * (np.roll(self.data, shift=1, axis=1) + self.data)
-            else:
-                return 0.5 * (self.data[1:, 1:, 1:] + self.data[1:, :-1, 1:])
-        elif self.name.lower() == "e3":
-            if boundary == "periodic":
-                return 0.5 * (np.roll(self.data, shift=1, axis=2) + self.data)
-            else:
-                return 0.5 * (self.data[1:, 1:, 1:] + self.data[1:, 1:, :-1])
-        else:
-            raise TypeError(f"This method expects magnetic or electric field grid data but received '{self.name}' instead")
-
-    def yeeToCellCenter(self, boundary: Literal["periodic", "default"] = "default"):
-        """'
-        Converts EM fields from a staggered Yee mesh to a grid with field values centered on the center of the cell.'
-        Can be used for 1D, 2D and 3D simulations.'
-        Creates a new attribute `data_centered` with the centered data.'
-        """
-
-        if boundary not in ("periodic", "default"):
-            raise ValueError(f"Invalid boundary: {boundary}, choose 'periodic' or 'default' instead.")
-
-        cases = {"b1", "b2", "b3", "e1", "e2", "e3"}
-        if self.name not in cases:
-            raise TypeError(f"This method expects magnetic or electric field grid data but received '{self.name}' instead")
-
-        if self.dim == 1:
-            self.data_centered = self._yeeToCellCenter1d(boundary)
-            return self.data_centered
-        elif self.dim == 2:
-            self.data_centered = self._yeeToCellCenter2d(boundary)
-            return self.data_centered
-        elif self.dim == 3:
-            self.data_centered = self._yeeToCellCenter3d(boundary)
-            return self.data_centered
-        else:
-            raise ValueError(f"Dimension {self.dim} is not supported")
-
-    def FFT(self, axis=(0,)):
-        """
-        Computes the Fast Fourier Transform of the data along the specified axis and shifts the zero frequency to the center.
-        Transforms the data to the frequency domain. A(x, y, z) -> A(kx, ky, kz)
-        """
-        datafft = np.fft.fftn(self.data, axes=axis)
-        self._FFTdata = np.fft.fftshift(datafft, axes=axis)
 
     # Getters
     @property
@@ -418,12 +271,6 @@ class OsirisGridFile(OsirisData):
     @property
     def label(self):
         return self._label
-
-    @property
-    def FFTdata(self):
-        if self._FFTdata is None:
-            raise ValueError("The FFT of the data has not been computed yet. Compute it using the FFT method.")
-        return self._FFTdata
 
     # Setters
     @data.setter
