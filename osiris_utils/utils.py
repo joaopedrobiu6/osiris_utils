@@ -87,32 +87,29 @@ def transverse_average(data: np.ndarray) -> np.ndarray:
     return cast(np.ndarray, np.mean(data, axis=1))
 
 
-def integrate(array: np.ndarray, dx: float) -> np.ndarray:
+def integrate(array: np.ndarray, dx: float, axis: int = None) -> np.ndarray:
     """
-    Integrate a 1D from the left to the right. This may be changed in the future to allow
-    for integration in both directions or for other more general cases.
+    Integrate a N-D array using the cumulative Simpson's rule, from right to left
+    along a given axis
 
     Parameters
     ----------
     array : numpy.ndarray
-        Dim: 1D.
         The input array.
     dx : float
         The spacing between points.
-
-    Returns
-    -------
-    numpy.ndarray
-        Dim: 1D.
-        The integrated array.
+    axis : int, optional
+        The axis along which to integrate. If None, the default is 0.
+        This will assume that the input array is 1D.
     """
-
-    if len(array.shape) != 1:
-        raise ValueError(f"Array must be 1D\n Array shape: {array.shape}")
-    flip_array = np.flip(array)
+    if axis is None:  # Assume 1D array
+        if len(array.shape) != 1:
+            raise ValueError("The input array must be 1D when axis is None.")
+        axis = 0
+    flip_array = np.flip(array, axis=axis)
     # int = -scipy.integrate.cumulative_trapezoid(flip_array, dx = dx, initial = flip_array[0])
-    int = -scipy.integrate.cumulative_simpson(flip_array, dx=dx, initial=0)
-    return cast(np.ndarray, np.flip(int))
+    int = -scipy.integrate.cumulative_simpson(flip_array, dx=dx, initial=0, axis=axis)
+    return cast(np.ndarray, np.flip(int, axis=axis))
 
 
 def save_data(data: np.ndarray, savename: str, option: str = "numpy") -> None:

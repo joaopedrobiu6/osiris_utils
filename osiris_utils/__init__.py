@@ -7,6 +7,7 @@ except _meta.PackageNotFoundError:  # package is being run from a checkout
     # Fallback for `pip install -e .` or direct source use
     __version__ = "0.0.0.dev0"
 
+
 from .data.data import (
     OsirisData,
     OsirisGridFile,
