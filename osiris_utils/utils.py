@@ -103,6 +103,8 @@ def integrate(array: np.ndarray, dx: float, axis: int = None) -> np.ndarray:
         This will assume that the input array is 1D.
     """
     if axis is None:  # Assume 1D array
+        if len(array.shape) != 1:
+            raise ValueError("The input array must be 1D when axis is None.")
         axis = 0
     flip_array = np.flip(array, axis=axis)
     # int = -scipy.integrate.cumulative_trapezoid(flip_array, dx = dx, initial = flip_array[0])
