@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any, Dict, Generator, Optional, Tuple, Union
+
 import numpy as np
 
 from ..data.diagnostic import Diagnostic
@@ -10,10 +14,13 @@ class Derivative_Simulation(PostProcess):
     Class to compute the derivative of a diagnostic. Works as a wrapper for the Derivative_Diagnostic class.
     Inherits from PostProcess to ensure all operation overloads work properly.
 
+    This class can be initialized with either a Simulation object or another Derivative_Simulation object,
+    allowing for chaining derivatives (e.g., second derivative = Derivative_Simulation(Derivative_Simulation(...))).
+
     Parameters
     ----------
-    simulation : Simulation
-        The simulation object.
+    simulation : Simulation or Derivative_Simulation
+        The simulation object or another derivative simulation object.
     deriv_type : str
         The type of derivative to compute. Options are:
         - 't' for time derivative.
@@ -26,17 +33,24 @@ class Derivative_Simulation(PostProcess):
     axis : int or tuple
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
     order : int
-        The order of the derivative. Currently only 2 is supported.
+        The order of the derivative. Currently only 2 and 4 are supported.
         Order 2 uses central differences with edge_order=2 in numpy.gradient.
         Order 4 uses a higher order finite difference scheme. For the edge points,
         a lower order scheme is used to avoid going out of bounds.
 
     """
 
-    def __init__(self, simulation, deriv_type, axis=None, order=2):
+    def __init__(
+        self,
+        simulation: Union[Simulation, "Derivative_Simulation"],
+        deriv_type: str,
+        axis: Optional[Union[int, Tuple[int, int]]] = None,
+        order: int = 2,
+    ):
         super().__init__(f"Derivative({deriv_type})")
-        if not isinstance(simulation, Simulation):
-            raise ValueError("Simulation must be a Simulation object.")
+        # Accept both Simulation and Derivative_Simulation objects
+        if not isinstance(simulation, (Simulation, Derivative_Simulation)):
+            raise ValueError("simulation must be a Simulation or Derivative_Simulation object.")
         self._simulation = simulation
         self._deriv_type = deriv_type
         self._axis = axis
@@ -44,7 +58,13 @@ class Derivative_Simulation(PostProcess):
         self._species_handler = {}
         self._order = order
 
-    def __getitem__(self, key):
+        # Copy species list to make this class behave like a Simulation
+        if hasattr(simulation, '_species'):
+            self._species = simulation._species
+        else:
+            self._species = []
+
+    def __getitem__(self, key: Any) -> Union["Derivative_Species_Handler", "Derivative_Diagnostic"]:
         if key in self._simulation._species:
             if key not in self._species_handler:
                 self._species_handler[key] = Derivative_Species_Handler(self._simulation[key], self._deriv_type, self._axis, self._order)
@@ -59,18 +79,57 @@ class Derivative_Simulation(PostProcess):
             )
         return self._derivatives_computed[key]
 
-    def delete_all(self):
+    def delete_all(self) -> None:
         self._derivatives_computed = {}
 
-    def delete(self, key):
+    def delete(self, key: Any) -> None:
         if key in self._derivatives_computed:
             del self._derivatives_computed[key]
         else:
             print(f"Derivative {key} not found in simulation")
 
-    def process(self, diagnostic):
+    def process(self, diagnostic: Diagnostic) -> "Derivative_Diagnostic":
         """Apply derivative to a diagnostic"""
         return Derivative_Diagnostic(diagnostic, self._deriv_type, self._axis)
+
+    @property
+    def species(self) -> list:
+        """Return list of species, making this compatible with Simulation interface"""
+        return self._species
+
+    @property
+    def loaded_diagnostics(self) -> dict:
+        """Return loaded diagnostics, making this compatible with Simulation interface"""
+        return self._derivatives_computed
+
+    def add_diagnostic(self, diagnostic: Diagnostic, name: Optional[str] = None) -> str:
+        """
+        Add a custom diagnostic to the derivative simulation.
+
+        Parameters
+        ----------
+        diagnostic : Diagnostic
+            The diagnostic to add.
+        name : str, optional
+            The name to use as the key for accessing the diagnostic.
+            If None, an auto-generated name will be used.
+
+        Returns
+        -------
+        str
+            The name (key) used to store the diagnostic
+        """
+        if name is None:
+            i = 1
+            while f"custom_diag_{i}" in self._derivatives_computed:
+                i += 1
+            name = f"custom_diag_{i}"
+
+        if isinstance(diagnostic, Diagnostic):
+            self._derivatives_computed[name] = diagnostic
+            return name
+        else:
+            raise ValueError("Only Diagnostic objects are supported")
 
 
 class Derivative_Diagnostic(Diagnostic):
@@ -96,7 +155,7 @@ class Derivative_Diagnostic(Diagnostic):
 
     """
 
-    def __init__(self, diagnostic, deriv_type, axis=None, order=2):
+    def __init__(self, diagnostic: Diagnostic, deriv_type: str, axis: Optional[Union[int, Tuple[int, int]]] = None, order: int = 2) -> None:
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, "_species"):
             super().__init__(
@@ -133,7 +192,7 @@ class Derivative_Diagnostic(Diagnostic):
                 setattr(self, attr, getattr(diagnostic, attr))
 
     @staticmethod
-    def _compute_fourth_order_spatial(data, dx, axis):
+    def _compute_fourth_order_spatial(data: np.ndarray, dx: float, axis: int) -> np.ndarray:
         """
         Compute 4th-order spatial derivative along specified axis using vectorized operations.
 
@@ -209,7 +268,7 @@ class Derivative_Diagnostic(Diagnostic):
 
         return result
 
-    def load_all(self):
+    def load_all(self) -> np.ndarray:
         """Load all data and compute the derivative"""
         if self._data is not None:
             print("Using cached derivative")
@@ -263,7 +322,7 @@ class Derivative_Diagnostic(Diagnostic):
                 result = np.gradient(
                     np.gradient(self._data, self._diag._dt, axis=0, edge_order=2),
                     self._diag._dx[self._axis - 1],
-                    axis=self._axis[0],
+                    axis=self._axis,
                     edge_order=2,
                 )
 
@@ -306,7 +365,7 @@ class Derivative_Diagnostic(Diagnostic):
         self._data = result
         return self._data
 
-    def _data_generator(self, index):
+    def _data_generator(self, index: int) -> Generator[np.ndarray, None, None]:
         """Generate data for a specific index on-demand"""
         if self._order == 2:
             if self._deriv_type == "x1":
@@ -368,7 +427,7 @@ class Derivative_Diagnostic(Diagnostic):
             else:
                 raise ValueError("Invalid derivative type. Use 'x1', 'x2', 'x3' or 't'.")
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: Union[int, slice]) -> np.ndarray:
         """Get data at a specific index"""
         if self._all_loaded and self._data is not None:
             return self._data[index]
@@ -412,14 +471,14 @@ class Derivative_Species_Handler:
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
     """
 
-    def __init__(self, species_handler, deriv_type, axis=None, order=2):
+    def __init__(self, species_handler: Any, deriv_type: str, axis: Optional[Union[int, Tuple[int, int]]] = None, order: int = 2) -> None:
         self._species_handler = species_handler
         self._deriv_type = deriv_type
         self._axis = axis
         self._order = order
-        self._derivatives_computed = {}
+        self._derivatives_computed: Dict[Any, Derivative_Diagnostic] = {}
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: Any) -> Derivative_Diagnostic:
         if key not in self._derivatives_computed:
             diag = self._species_handler[key]
             self._derivatives_computed[key] = Derivative_Diagnostic(diag, self._deriv_type, self._axis, self._order)

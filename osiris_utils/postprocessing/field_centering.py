@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Generator, Optional, Union
+
 import numpy as np
 
 from ..data.diagnostic import OSIRIS_FLD, Diagnostic
@@ -33,36 +37,37 @@ class FieldCentering_Simulation(PostProcess):
         field : str
             The field to center.
         """
+        # Accept Simulation-compatible objects (Simulation or other PostProcess subclasses)
         if not isinstance(simulation, Simulation):
-            raise ValueError("Simulation must be a Simulation object.")
+            raise ValueError("simulation must be a Simulation-compatible object.")
         self._simulation = simulation
 
         self._field_centered = {}
         # no need to create a species handler for field centering since fields are not species related
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> FieldCentering_Diagnostic:
         if key not in OSIRIS_FLD:
             raise ValueError(f"Does it make sense to center {key} field? Only {OSIRIS_FLD} are supported.")
         if key not in self._field_centered:
             self._field_centered[key] = FieldCentering_Diagnostic(self._simulation[key])
         return self._field_centered[key]
 
-    def delete_all(self):
+    def delete_all(self) -> None:
         self._field_centered = {}
 
-    def delete(self, key):
+    def delete(self, key: str) -> None:
         if key in self._field_centered:
             del self._field_centered[key]
         else:
             print(f"Field {key} not found in simulation")
 
-    def process(self, diagnostic):
+    def process(self, diagnostic: Diagnostic) -> FieldCentering_Diagnostic:
         """Apply field centering to a diagnostic"""
         return FieldCentering_Diagnostic(diagnostic)
 
 
 class FieldCentering_Diagnostic(Diagnostic):
-    def __init__(self, diagnostic):
+    def __init__(self, diagnostic: Diagnostic):
         """
         Class to center the field in the simulation. It converts fields from the Osiris yee mesh to the center of the cells.
         It only works for periodic boundaries.
@@ -104,10 +109,10 @@ class FieldCentering_Diagnostic(Diagnostic):
         self._original_name = diagnostic._name
         self._name = diagnostic._name + "_centered"
 
-        self._data = None
+        self._data: Optional[np.ndarray] = None
         self._all_loaded = False
 
-    def load_all(self):
+    def load_all(self) -> np.ndarray:
         if self._data is not None:
             return self._data
 
@@ -217,7 +222,7 @@ class FieldCentering_Diagnostic(Diagnostic):
         self._all_loaded = True
         return self._data
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: Union[int, slice]) -> np.ndarray:
         """Get data at a specific index"""
         if self._all_loaded and self._data is not None:
             return self._data[index]
@@ -232,7 +237,7 @@ class FieldCentering_Diagnostic(Diagnostic):
         else:
             raise ValueError("Invalid index type. Use int or slice.")
 
-    def _data_generator(self, index):
+    def _data_generator(self, index: int) -> Generator[np.ndarray, None, None]:
         if self._dim == 1:
             if self._original_name.lower() in [
                 "b2",

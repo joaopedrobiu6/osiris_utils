@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any, Dict, Generator, Optional, Union
+
 import numpy as np
 
 from ..data.diagnostic import Diagnostic
@@ -8,7 +12,7 @@ OSIRIS_P = ["P11", "P12", "P13", "P21", "P22", "P23", "P31", "P32", "P33"]
 
 
 class PressureCorrection_Simulation(PostProcess):
-    def __init__(self, simulation):
+    def __init__(self, simulation: Simulation):
         super().__init__("PressureCorrection Simulation")
         """
         Class to correct pressure tensor components by subtracting Reynolds stress.
@@ -21,12 +25,12 @@ class PressureCorrection_Simulation(PostProcess):
             The pressure component to center.
         """
         if not isinstance(simulation, Simulation):
-            raise ValueError("Simulation must be a Simulation object.")
+            raise ValueError("simulation must be a Simulation-compatible object.")
         self._simulation = simulation
-        self._pressure_corrected = {}
-        self._species_handler = {}
+        self._pressure_corrected: Dict[str, PressureCorrection_Diagnostic] = {}
+        self._species_handler: Dict[str, PressureCorrection_Species_Handler] = {}
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Union[PressureCorrection_Species_Handler, PressureCorrection_Diagnostic]:
         if key in self._simulation._species:
             if key not in self._species_handler:
                 self._species_handler[key] = PressureCorrection_Species_Handler(self._simulation[key])
@@ -35,25 +39,26 @@ class PressureCorrection_Simulation(PostProcess):
             raise ValueError(f"Invalid pressure component {key}. Supported: {OSIRIS_P}.")
         if key not in self._pressure_corrected:
             print("Weird that it got here - pressure is always species dependent on OSIRIS")
-            self._pressure_corrected[key] = PressureCorrection_Diagnostic(self._simulation[key], self._simulation)
+            # self._pressure_corrected[key] = PressureCorrection_Diagnostic(self._simulation[key], self._simulation)
         return self._pressure_corrected[key]
 
-    def delete_all(self):
+    def delete_all(self) -> None:
         self._pressure_corrected = {}
 
-    def delete(self, key):
+    def delete(self, key: str) -> None:
         if key in self._pressure_corrected:
             del self._pressure_corrected[key]
         else:
             print(f"Pressure {key} not found in simulation")
 
-    def process(self, diagnostic):
+    def process(self, diagnostic: Diagnostic) -> PressureCorrection_Diagnostic:
         """Apply pressure correction to a diagnostic"""
+        # FIX: This is a bit of a hack, but it works for now
         return PressureCorrection_Diagnostic(diagnostic, self._simulation)
 
 
 class PressureCorrection_Diagnostic(Diagnostic):
-    def __init__(self, diagnostic, n, ufl_j, vfl_k):
+    def __init__(self, diagnostic: Diagnostic, n: Diagnostic, ufl_j: Diagnostic, vfl_k: Diagnostic):
         """
         Class to correct the pressure in the simulation.
 
@@ -100,10 +105,10 @@ class PressureCorrection_Diagnostic(Diagnostic):
         self._original_name = diagnostic._name
         self._name = diagnostic._name + "_corrected"
 
-        self._data = None
+        self._data: Optional[np.ndarray] = None
         self._all_loaded = False
 
-    def load_all(self):
+    def load_all(self) -> np.ndarray:
         if self._data is not None:
             return self._data
 
@@ -130,7 +135,7 @@ class PressureCorrection_Diagnostic(Diagnostic):
 
         return self._data
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: Union[int, slice]) -> np.ndarray:
         """Get data at a specific index"""
         if self._all_loaded and self._data is not None:
             return self._data[index]
@@ -145,7 +150,7 @@ class PressureCorrection_Diagnostic(Diagnostic):
         else:
             raise ValueError("Invalid index type. Use int or slice.")
 
-    def _data_generator(self, index):
+    def _data_generator(self, index: int) -> Generator[np.ndarray, None, None]:
         yield (self._diag[index] - self._n[index] * self._vfl_k[index] * self._ufl_j[index])
 
 
@@ -166,11 +171,11 @@ class PressureCorrection_Species_Handler:
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
     """
 
-    def __init__(self, species_handler):
+    def __init__(self, species_handler: Any):
         self._species_handler = species_handler
-        self._pressure_corrected = {}
+        self._pressure_corrected: Dict[str, PressureCorrection_Diagnostic] = {}
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> PressureCorrection_Diagnostic:
         if key not in self._pressure_corrected:
             diag = self._species_handler[key]
 

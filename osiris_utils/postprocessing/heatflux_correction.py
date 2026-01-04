@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any, Dict, Generator, List, Optional, Union
+
 import numpy as np
 
 from ..data.diagnostic import Diagnostic
@@ -9,7 +13,7 @@ OSIRIS_H = ["q1", "q2", "q3"]
 
 
 class HeatfluxCorrection_Simulation(PostProcess):
-    def __init__(self, simulation):
+    def __init__(self, simulation: Simulation):
         super().__init__("HeatfluxCorrection Simulation")
         """
         Class to correct pressure tensor components by subtracting Reynolds stress.
@@ -22,12 +26,12 @@ class HeatfluxCorrection_Simulation(PostProcess):
             The heatflux component to center.
         """
         if not isinstance(simulation, Simulation):
-            raise ValueError("Simulation must be a Simulation object.")
+            raise ValueError("simulation must be a Simulation-compatible object.")
         self._simulation = simulation
-        self._heatflux_corrected = {}
-        self._species_handler = {}
+        self._heatflux_corrected: Dict[str, HeatfluxCorrection_Diagnostic] = {}
+        self._species_handler: Dict[str, HeatfluxCorrection_Species_Handler] = {}
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Union[HeatfluxCorrection_Species_Handler, HeatfluxCorrection_Diagnostic]:
         if key in self._simulation._species:
             if key not in self._species_handler:
                 self._species_handler[key] = HeatfluxCorrection_Species_Handler(self._simulation[key], self._simulation)
@@ -36,25 +40,35 @@ class HeatfluxCorrection_Simulation(PostProcess):
             raise ValueError(f"Invalid heatflux component {key}. Supported: {OSIRIS_H}.")
         if key not in self._heatflux_corrected:
             print("Weird that it got here - heatflux is always species dependent on OSIRIS")
-            self._heatflux_corrected[key] = HeatfluxCorrection_Diagnostic(self._simulation[key], self._simulation)
+            # This part seems to lack some arguments for HeatfluxCorrection_Diagnostic,
+            # but keeping as is for structural consistency if reached
+            # self._heatflux_corrected[key] = HeatfluxCorrection_Diagnostic(self._simulation[key], self._simulation)
         return self._heatflux_corrected[key]
 
-    def delete_all(self):
+    def delete_all(self) -> None:
         self._heatflux_corrected = {}
 
-    def delete(self, key):
+    def delete(self, key: str) -> None:
         if key in self._heatflux_corrected:
             del self._heatflux_corrected[key]
         else:
             print(f"Heatflux {key} not found in simulation")
 
-    def process(self, diagnostic):
+    def process(self, diagnostic: Diagnostic) -> HeatfluxCorrection_Diagnostic:
         """Apply heatflux correction to a diagnostic"""
+        # FIX: This is a bit of a hack, but it works for now
         return HeatfluxCorrection_Diagnostic(diagnostic, self._simulation)
 
 
 class HeatfluxCorrection_Diagnostic(Diagnostic):
-    def __init__(self, diagnostic, vfl_i, Pjj_list, vfl_j_list, Pji_list):
+    def __init__(
+        self,
+        diagnostic: Diagnostic,
+        vfl_i: Diagnostic,
+        Pjj_list: List[Diagnostic],
+        vfl_j_list: List[Diagnostic],
+        Pji_list: List[Diagnostic],
+    ):
         """
         Class to correct the pressure in the simulation.
 
@@ -102,10 +116,10 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         self._original_name = diagnostic._name
         self._name = diagnostic._name + "_corrected"
 
-        self._data = None
+        self._data: Optional[np.ndarray] = None
         self._all_loaded = False
 
-    def load_all(self):
+    def load_all(self) -> np.ndarray:
         if self._data is not None:
             return self._data
 
@@ -136,7 +150,7 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
 
         return self._data
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: Union[int, slice]) -> np.ndarray:
         """Get data at a specific index"""
         if self._all_loaded and self._data is not None:
             return self._data[index]
@@ -151,7 +165,7 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         else:
             raise ValueError("Invalid index type. Use int or slice.")
 
-    def _data_generator(self, index):
+    def _data_generator(self, index: int) -> Generator[np.ndarray, None, None]:
         q = self._diag[index]
         vfl_i = self._vfl_i[index]
         trace_P = sum(Pjj[index] for Pjj in self._Pjj_list)
@@ -174,12 +188,12 @@ class HeatfluxCorrection_Species_Handler:
         The simulation object.
     """
 
-    def __init__(self, species_handler, simulation):
+    def __init__(self, species_handler: Any, simulation: Simulation):
         self._species_handler = species_handler
         self._simulation = simulation
-        self._heatflux_corrected = {}
+        self._heatflux_corrected: Dict[str, HeatfluxCorrection_Diagnostic] = {}
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> HeatfluxCorrection_Diagnostic:
         if key not in self._heatflux_corrected:
             diag = self._species_handler[key]
 

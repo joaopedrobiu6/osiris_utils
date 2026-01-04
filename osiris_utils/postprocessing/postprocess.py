@@ -1,7 +1,7 @@
-from ..data.diagnostic import Diagnostic
+from ..data.simulation import Simulation
 
 
-class PostProcess(Diagnostic):
+class PostProcess(Simulation):
     """
     Base class for post-processing operations.
     Inherits from Diagnostic to ensure all operation overloads work.
@@ -14,14 +14,13 @@ class PostProcess(Diagnostic):
         The species to analyze.
     """
 
-    def __init__(self, name, species=None):
+    def __init__(self, name: str, species: str = None):
         # Initialize with the same interface as Diagnostic
-        super().__init__(species)
         self._name = name
         self._all_loaded = False
         self._data = None
 
-    def process(self, diagnostic):
+    def process(self, simulation: Simulation) -> Simulation:
         """
         Apply the post-processing to a diagnostic.
         Must be implemented by subclasses.

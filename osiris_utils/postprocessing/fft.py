@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any, Dict, Generator, List, Union
+
 import numpy as np
 import tqdm as tqdm
 
@@ -21,16 +25,16 @@ class FFT_Simulation(PostProcess):
 
     """
 
-    def __init__(self, simulation, fft_axis):
+    def __init__(self, simulation: Simulation, fft_axis: Union[int, List[int]]) -> None:
         super().__init__("FFT")
         if not isinstance(simulation, Simulation):
-            raise ValueError("Simulation must be a Simulation object.")
+            raise ValueError("simulation must be a Simulation-compatible object.")
         self._simulation = simulation
         self._fft_axis = fft_axis
-        self._fft_computed = {}
-        self._species_handler = {}
+        self._fft_computed: Dict[Any, FFT_Diagnostic] = {}
+        self._species_handler: Dict[Any, FFT_Species_Handler] = {}
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: Any) -> Union["FFT_Species_Handler", "FFT_Diagnostic"]:
         if key in self._simulation._species:
             if key not in self._species_handler:
                 self._species_handler[key] = FFT_Species_Handler(self._simulation[key], self._fft_axis)
@@ -40,16 +44,16 @@ class FFT_Simulation(PostProcess):
             self._fft_computed[key] = FFT_Diagnostic(self._simulation[key], self._fft_axis)
         return self._fft_computed[key]
 
-    def delete_all(self):
+    def delete_all(self) -> None:
         self._fft_computed = {}
 
-    def delete(self, key):
+    def delete(self, key: Any) -> None:
         if key in self._fft_computed:
             del self._fft_computed[key]
         else:
             print(f"FFT {key} not found in simulation")
 
-    def process(self, diagnostic):
+    def process(self, diagnostic: Diagnostic) -> "FFT_Diagnostic":
         """Apply FFT to a diagnostic"""
         return FFT_Diagnostic(diagnostic, self._fft_axis)
 
@@ -77,7 +81,7 @@ class FFT_Diagnostic(Diagnostic):
 
     """
 
-    def __init__(self, diagnostic, fft_axis):
+    def __init__(self, diagnostic: Diagnostic, fft_axis: Union[int, List[int]]) -> None:
         if hasattr(diagnostic, "_species"):
             super().__init__(
                 simulation_folder=(diagnostic._simulation_folder if hasattr(diagnostic, "_simulation_folder") else None),
@@ -117,7 +121,7 @@ class FFT_Diagnostic(Diagnostic):
             axes = [self._fft_axis] if isinstance(self._fft_axis, int) else self._fft_axis
             self._kmax = np.pi / np.array([self._dx[ax - 1] for ax in axes if ax != 0])
 
-    def load_all(self):
+    def load_all(self) -> np.ndarray:
         if self._data is not None:
             print("Using cached data.")
             return self._data
@@ -167,7 +171,7 @@ class FFT_Diagnostic(Diagnostic):
         self._data = np.abs(result) ** 2
         return self._data
 
-    def _data_generator(self, index):
+    def _data_generator(self, index: int) -> Generator[np.ndarray, None, None]:
         # Get the data for this index
         original_data = self._diag[index]
 
@@ -197,10 +201,10 @@ class FFT_Diagnostic(Diagnostic):
 
         yield np.abs(result_fft) ** 2
 
-    def _get_window(self, length, axis):
+    def _get_window(self, length: int, axis: int) -> np.ndarray:
         return np.hanning(length)
 
-    def _apply_window(self, data, window, axis):
+    def _apply_window(self, data: np.ndarray, window: np.ndarray, axis: int) -> np.ndarray:
         ndim = data.ndim
         window_shape = [1] * ndim
         window_shape[axis] = len(window)
@@ -209,7 +213,7 @@ class FFT_Diagnostic(Diagnostic):
 
         return data * reshaped_window
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: Union[int, slice]) -> np.ndarray:
         if self._all_loaded and self._data is not None:
             return self._data[index]
 
@@ -223,35 +227,117 @@ class FFT_Diagnostic(Diagnostic):
         else:
             raise ValueError("Invalid index type. Use int or slice.")
 
-    def omega(self):
+    def omega(self) -> np.ndarray:
         """
-        Get the angular frequency array for the FFT.
+        Get the angular frequency array for the FFT along the time dimension (axis 0).
+
+        Returns
+        -------
+        np.ndarray
+            Angular frequency array for the time axis.
         """
         if not self._all_loaded:
             raise ValueError("Load the data first using load_all() method.")
 
-        if isinstance(self._dx, (int, float)):
-            # Assuming isotropic or appropriate dx if scalar
-            dx_val = self._dx
-        else:
-            dx_val = self._dx[self._fft_axis - 1]
-
-        omega = np.fft.fftfreq(self._data.shape[self._fft_axis], d=dx_val) * 2 * np.pi
+        # omega is always for the time dimension (axis 0)
+        dt = self._dt * self._ndump
+        omega = np.fft.fftfreq(self._data.shape[0], d=dt) * 2 * np.pi
         omega = np.fft.fftshift(omega)
         return omega
 
+    def k(self, axis: Union[int, None] = None) -> Union[np.ndarray, Dict[int, np.ndarray]]:
+        """
+        Get the wavenumber array for the FFT along spatial dimension(s).
+
+        Parameters
+        ----------
+        axis : int or None, optional
+            The spatial axis to compute wavenumber for (1, 2, or 3).
+            If None, returns wavenumbers for all spatial axes in fft_axis.
+
+        Returns
+        -------
+        np.ndarray or dict
+            If axis is specified: wavenumber array for that axis.
+            If axis is None: dictionary mapping axis -> wavenumber array.
+
+        Notes
+        -----
+        When load_all() is used, time axis is 0 and spatial axes are 1,2,3.
+        When accessing single timesteps, spatial axes are 0,1,2.
+        """
+        if self._data is None:
+            raise ValueError("Load the data first using load_all() or access via indexing.")
+
+        # Determine if we have the time dimension in the data
+        # If all_loaded is True, then axis 0 is time, spatial axes are 1,2,3
+        # If all_loaded is False, we're looking at a single timestep, spatial axes are 0,1,2
+        has_time_axis = self._all_loaded
+
+        # Determine which axes to compute k for
+        if axis is not None:
+            # Single axis specified
+            if axis == 0:
+                raise ValueError("axis must be a spatial dimension (1, 2, or 3), not 0 (time).")
+            if axis < 1 or axis > 3:
+                raise ValueError(f"axis must be 1, 2, or 3, got {axis}")
+
+            # Get dx for this axis
+            if isinstance(self._dx, (int, float)):
+                dx = self._dx
+            else:
+                dx = self._dx[axis - 1]
+
+            # Compute the actual data axis index
+            # If we have time axis, spatial axis N is at index N
+            # If no time axis (single timestep), spatial axis N is at index N-1
+            data_axis = axis if has_time_axis else axis - 1
+
+            # Compute wavenumber
+            k_array = np.fft.fftfreq(self._data.shape[data_axis], d=dx) * 2 * np.pi
+            k_array = np.fft.fftshift(k_array)
+            return k_array
+        else:
+            # axis is None: return k for all spatial axes in fft_axis
+            result = {}
+
+            if isinstance(self._fft_axis, (list, tuple)):
+                # Multi-axis FFT: return k for all spatial axes
+                spatial_axes = [ax for ax in self._fft_axis if ax != 0]
+            elif self._fft_axis == 0:
+                # Only time FFT, no spatial axes
+                raise ValueError("No spatial FFT axes to compute wavenumber for. fft_axis is 0 (time only).")
+            else:
+                # Single spatial axis
+                spatial_axes = [self._fft_axis]
+
+            for ax in spatial_axes:
+                if isinstance(self._dx, (int, float)):
+                    dx = self._dx
+                else:
+                    dx = self._dx[ax - 1]
+
+                # Compute the actual data axis index
+                data_axis = ax if has_time_axis else ax - 1
+
+                k_array = np.fft.fftfreq(self._data.shape[data_axis], d=dx) * 2 * np.pi
+                k_array = np.fft.fftshift(k_array)
+                result[ax] = k_array
+
+            return result
+
     @property
-    def kmax(self):
+    def kmax(self) -> Union[float, np.ndarray]:
         return self._kmax
 
 
 class FFT_Species_Handler:
-    def __init__(self, species_handler, fft_axis):
+    def __init__(self, species_handler: Any, fft_axis: Union[int, List[int]]) -> None:
         self._species_handler = species_handler
         self._fft_axis = fft_axis
-        self._fft_computed = {}
+        self._fft_computed: Dict[Any, FFT_Diagnostic] = {}
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: Any) -> FFT_Diagnostic:
         if key not in self._fft_computed:
             diag = self._species_handler[key]
             self._fft_computed[key] = FFT_Diagnostic(diag, self._fft_axis)
