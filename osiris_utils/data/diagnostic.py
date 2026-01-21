@@ -24,6 +24,8 @@ from ..decks.decks import InputDeckIO
 from ..decks.species import Species
 from .data import OsirisGridFile
 
+__all__ = ["Diagnostic", "which_quantities"]
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)8s │ %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -600,7 +602,7 @@ class Diagnostic:
             clone._file_list = self._file_list
         return clone
 
-    def _binary_op(self, other: Union["Diagnostic", int, float, np.ndarray], op_func: Callable) -> "Diagnostic":
+    def _binary_op(self, other: Union[Diagnostic, int, float, np.ndarray], op_func: Callable) -> Diagnostic:
         """
         Universal helper for `self (op) other`.
         - If both operands are fully loaded, does eager numpy arithmetic.
@@ -649,36 +651,36 @@ class Diagnostic:
 
     # Now define each operator in one line:
 
-    def __add__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> "Diagnostic":
+    def __add__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
         return self._binary_op(other, operator.add)
 
-    def __radd__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> "Diagnostic":
+    def __radd__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
         return self + other
 
-    def __sub__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> "Diagnostic":
+    def __sub__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
         return self._binary_op(other, operator.sub)
 
-    def __rsub__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+    def __rsub__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
         # swap args for reversed subtraction
         return self._binary_op(other, lambda x, y: operator.sub(y, x))
 
-    def __mul__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+    def __mul__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
         return self._binary_op(other, operator.mul)
 
-    def __rmul__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+    def __rmul__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
         return self * other
 
-    def __truediv__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+    def __truediv__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
         return self._binary_op(other, operator.truediv)
 
-    def __rtruediv__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+    def __rtruediv__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
         return self._binary_op(other, lambda x, y: operator.truediv(y, x))
 
     def __neg__(self) -> Diagnostic:
         # unary minus as multiplication by -1
         return self._binary_op(-1, operator.mul)
 
-    def __pow__(self, other: Union["Diagnostic", int, float, np.ndarray]) -> Diagnostic:
+    def __pow__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
         """
         Power operation. Raises the diagnostic data to the power of `other`.
         If `other` is a Diagnostic, it raises each timestep's data to the corresponding timestep's power.

@@ -2,6 +2,8 @@ import numpy as np
 
 from ..data.data import OsirisGridFile
 
+__all__ = ["MFT_Single"]
+
 
 # Deprecated
 class MFT_Single(OsirisGridFile):

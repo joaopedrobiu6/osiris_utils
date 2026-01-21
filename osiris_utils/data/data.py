@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Literal
 
 import h5py
@@ -5,6 +7,8 @@ import numpy as np
 import pandas as pd
 
 from osiris_utils.utils import create_file_tags
+
+__all__ = ["OsirisData", "OsirisGridFile", "OsirisRawFile", "OsirisHIST", "OsirisTrackFile"]
 
 
 class OsirisData:

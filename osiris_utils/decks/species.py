@@ -1,3 +1,6 @@
+__all__ = ["Species"]
+
+
 class Species:
     """
     Class to store OSIRIS species object.

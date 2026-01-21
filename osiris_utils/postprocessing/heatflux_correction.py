@@ -9,6 +9,8 @@ from ..data.simulation import Simulation
 from .postprocess import PostProcess
 from .pressure_correction import PressureCorrection_Simulation
 
+__all__ = ["HeatfluxCorrection_Simulation", "HeatfluxCorrection_Diagnostic", "HeatfluxCorrection_Species_Handler"]
+
 OSIRIS_H = ["q1", "q2", "q3"]
 
 

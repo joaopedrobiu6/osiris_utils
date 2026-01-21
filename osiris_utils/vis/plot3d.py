@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import warnings
 from typing import Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+__all__ = ["plot_3d"]
 
 
 def plot_3d(
