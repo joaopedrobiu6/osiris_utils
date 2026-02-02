@@ -1,5 +1,10 @@
 OSIRIS_UTILS
 ============
+.. image:: docs/source/_static/Imagem1.png
+   :width: 200px
+   :align: right
+
+
 |Pypi|
 
 .. image:: https://github.com/joaopedrobiu6/osiris_utils/actions/workflows/ci.yml/badge.svg
@@ -116,6 +121,3 @@ Contributors
 - João Cândido
 - Margarida Pereira
 
-.. image:: docs/source/_static/Imagem1.png
-   :width: 100px
-   :align: right
