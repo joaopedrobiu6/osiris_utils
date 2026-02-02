@@ -186,7 +186,7 @@ class OsirisGridFile(OsirisData):
         Field label/name (LaTeX formatted, e.g., r'$E_x$')
     """
 
-    def __init__(self, filename, data_slice: slice | None = None):
+    def __init__(self, filename, data_slice: slice | None = None, load_data: bool = True):
         super().__init__(filename)
 
         variable_key = self._get_variable_key(self._file)
@@ -195,12 +195,14 @@ class OsirisGridFile(OsirisData):
         self._label = self._file.attrs["LABEL"][0].decode("utf-8")
         self._FFTdata = None
 
-        data = np.array(self._file[variable_key][:]) if data_slice is None else np.array(self._file[variable_key][data_slice])
+        # Use dataset.shape to obtain sizes without loading full data when possible
+        dset = self._file[variable_key]
 
         axis = list(self._file["AXIS"].keys())
         if len(axis) == 1:
             self._grid = self._file["AXIS/" + axis[0]][()]
-            self._nx = len(data)
+            # nx for 1D is dataset length along its only axis
+            self._nx = dset.shape[0]
             self._dx = (self.grid[1] - self.grid[0]) / self.nx
             self._x = np.arange(self.grid[0], self.grid[1], self.dx)
         else:
@@ -208,15 +210,14 @@ class OsirisGridFile(OsirisData):
             for ax in axis:
                 grid.append(self._file["AXIS/" + ax][()])
             self._grid = np.array(grid)
-            self._nx = self._file[variable_key][()].transpose().shape
+            # use dataset.shape to avoid reading the whole dataset
+            # dataset stored may need transpose to match expected ordering; preserve shape only
+            self._nx = tuple(dset.shape[::-1]) if len(dset.shape) > 1 else (dset.shape[0],)
             self._dx = (self.grid[:, 1] - self.grid[:, 0]) / self.nx
 
-            # There's an issue when the dimension is 3 and we want to plot a 2D phasespace. I believe this
-            # is a problem for all cases where the dim != dim_of_phasespace
             try:
                 self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
-            except Exception as e:
-                print(f"Error occurred while creating spatial coordinates: {e}")
+            except Exception:
                 self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(1)]
 
         self._axis = []
@@ -231,7 +232,13 @@ class OsirisGridFile(OsirisData):
             }
             self._axis.append(axis_data)
 
-        self._data = np.ascontiguousarray(data.T)
+        # Only load data if explicitly requested. Otherwise keep a placeholder so metadata-only
+        # initializations are cheap for large files.
+        if load_data:
+            data = np.array(dset[:]) if data_slice is None else np.array(dset[data_slice])
+            self._data = np.ascontiguousarray(data.T)
+        else:
+            self._data = None
 
         self._close_file()
 

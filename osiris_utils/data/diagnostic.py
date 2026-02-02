@@ -398,7 +398,7 @@ class Diagnostic:
             for file_num in range(1, self._maxiter + 1):
                 path_file = os.path.join(file_template + f"{file_num:06d}.h5")
                 if os.path.exists(path_file):
-                    dump = OsirisGridFile(path_file)
+                    dump = OsirisGridFile(path_file, load_data=False)
                     self._dx = dump.dx
                     self._nx = dump.nx
                     self._x = dump.x
