@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 logger = logging.getLogger(__name__)
 
 OSIRIS_DENSITY = ["n"]
-OSIRIS_SPECIE_REPORTS = ["charge", "q1", "q2", "q3", "j1", "j2", "j3"]
+OSIRIS_SPECIE_REPORTS = ["ene", "charge", "q1", "q2", "q3", "j1", "j2", "j3"]
 OSIRIS_SPECIE_REP_UDIST = [
     "vfl1",
     "vfl2",
@@ -36,6 +36,9 @@ OSIRIS_SPECIE_REP_UDIST = [
     "ufl1",
     "ufl2",
     "ufl3",
+    "P00",
+    "P01",
+    "P02",
     "P11",
     "P12",
     "P13",
