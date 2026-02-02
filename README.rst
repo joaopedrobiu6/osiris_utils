@@ -115,3 +115,7 @@ Contributors
 - Diogo Carvalho
 - João Cândido
 - Margarida Pereira
+
+.. image:: docs/source/_static/Imagem1.png
+   :width: 100px
+   :align: right
