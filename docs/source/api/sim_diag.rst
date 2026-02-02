@@ -63,7 +63,7 @@ Simulation Class
        b3 = sim['b3']
        
        # Load specific timesteps
-       e1[10:20]  # Load timesteps 10-19
+       e1[10:20, 0:10]  # Load timesteps 10-19 and x1 0-10
        
        # Clean up to free memory
        sim.delete_diagnostic('e1')
@@ -135,7 +135,8 @@ Diagnostic Base Class
    
        # Create diagnostic for electron charge
        # Note: Use Simulation class for easier access instead of Diagnostic directly
-       diag = Diagnostic("/path/to/simulation", species="electrons")
+       electrons = Species("electrons", rqm=-1, q=-1)
+       diag = Diagnostic("/path/to/simulation", species=electrons)
        diag.get_quantity("charge")
        
        # Access specific timestep (without loading all data)
