@@ -1,6 +1,7 @@
 /* Sidebar background */
 .wy-nav-side {
-  background: #88cbf8;  /* Change to your preferred color */
+  background: #88cbf8;
+  /* Change to your preferred color */
 }
 
 /* Sidebar link color */
@@ -18,12 +19,17 @@
   background: #2f93f0;
 }
 
-.wy-menu-vertical li.current > a {
+.wy-menu-vertical li.current>a {
   background: #aeecff;
 }
 
 /* Header (H1, H2, etc.) colors */
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   color: #57bafb;
 }
 
@@ -43,11 +49,21 @@ a:hover {
 
 /* Keep your existing table width overrides */
 @media screen and (min-width: 767px) {
-.wy-table-responsive table td {
-  white-space: normal !important;
+  .wy-table-responsive table td {
+    white-space: normal !important;
+  }
+
+  .wy-table-responsive {
+    overflow: visible !important;
+  }
 }
 
-.wy-table-responsive {
-  overflow: visible !important;
-}
+/* Small easter-egg logo sizing */
+.wy-side-nav-search .logo img,
+.wy-side-nav .logo img,
+.rst-sidebar .logo img,
+.logo img {
+  max-width: 80px;
+  margin: 6px 8px;
+  height: auto;
 }
