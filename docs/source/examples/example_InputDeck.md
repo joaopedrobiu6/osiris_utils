@@ -93,7 +93,7 @@ print('After', deck['simulation'])
 ```python
 # add a parameter
 print("Before", deck["simulation"])
-deck.set_param("simulation", "new_parameter", value='HI!', unexistent_ok=True)
+deck.set_param("simulation", "new_parameter", value='HI', unexistent_ok=True)
 print("After", deck["simulation"])
 ```
 
