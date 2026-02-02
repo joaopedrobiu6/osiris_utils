@@ -3,10 +3,5 @@ repos:
     rev: v0.4.8       # pin the latest stable
     hooks:
       - id: ruff
-        args: ["--fix", "--select", "F,E,I,W,B,C90,TCH"]         # auto‑apply safe fixes
+        args: ["--fix", "--select", "F,E,I,W,B,C90"]         # auto‑apply safe fixes (TCH rules disabled here)
       - id: ruff-format
-  - repo: https://github.com/pycqa/isort
-    rev: 6.0.1
-    hooks:
-      - id: isort
-        args: ["--profile", "black"]

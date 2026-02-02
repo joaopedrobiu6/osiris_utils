@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Literal
 
 import h5py
@@ -5,6 +7,14 @@ import numpy as np
 import pandas as pd
 
 from osiris_utils.utils import create_file_tags
+
+__all__ = [
+    "OsirisData",
+    "OsirisGridFile",
+    "OsirisRawFile",
+    "OsirisHIST",
+    "OsirisTrackFile",
+]
 
 
 class OsirisData:
@@ -176,7 +186,7 @@ class OsirisGridFile(OsirisData):
         Field label/name (LaTeX formatted, e.g., r'$E_x$')
     """
 
-    def __init__(self, filename):
+    def __init__(self, filename, data_slice: slice | None = None):
         super().__init__(filename)
 
         variable_key = self._get_variable_key(self._file)
@@ -185,7 +195,7 @@ class OsirisGridFile(OsirisData):
         self._label = self._file.attrs["LABEL"][0].decode("utf-8")
         self._FFTdata = None
 
-        data = np.array(self._file[variable_key][:])
+        data = np.array(self._file[variable_key][:]) if data_slice is None else np.array(self._file[variable_key][data_slice])
 
         axis = list(self._file["AXIS"].keys())
         if len(axis) == 1:
@@ -216,7 +226,8 @@ class OsirisGridFile(OsirisData):
                 "units": self._file["AXIS/" + ax].attrs["UNITS"][0].decode("utf-8"),
                 "long_name": self._file["AXIS/" + ax].attrs["LONG_NAME"][0].decode("utf-8"),
                 "type": self._file["AXIS/" + ax].attrs["TYPE"][0].decode("utf-8"),
-                "plot_label": rf'${self._file["AXIS/" + ax].attrs["LONG_NAME"][0].decode("utf-8")}$ $[{self._file["AXIS/" + ax].attrs["UNITS"][0].decode("utf-8")}]$',
+                "plot_label": rf'${self._file["AXIS/" + ax].attrs["LONG_NAME"][0].decode("utf-8")}$'
+                + rf'$[{self._file["AXIS/" + ax].attrs["UNITS"][0].decode("utf-8")}]$',
             }
             self._axis.append(axis_data)
 
@@ -360,8 +371,8 @@ class OsirisRawFile(OsirisData):
         self._quants = [byte.decode("utf-8") for byte in self._file.attrs["QUANTS"][:]]
         units_list = [byte.decode("utf-8") for byte in self._file.attrs["UNITS"][:]]
         labels_list = [byte.decode("utf-8") for byte in self._file.attrs["LABELS"][:]]
-        self._units = dict(zip(self._quants, units_list))
-        self._labels = dict(zip(self._quants, labels_list))
+        self._units = dict(zip(self._quants, units_list, strict=False))
+        self._labels = dict(zip(self._quants, labels_list, strict=False))
 
         self._data = {}
         self._axis = {}
@@ -457,8 +468,8 @@ class OsirisRawFile(OsirisData):
 
 
 class OsirisHIST(OsirisData):
-    """'
-    Class to read the data from an OSIRIS HIST file.'
+    """
+    Class to read the data from an OSIRIS HIST file.
 
     Input
     -----
@@ -528,8 +539,8 @@ class OsirisTrackFile(OsirisData):
         self._quants = [byte.decode("utf-8") for byte in self._file.attrs["QUANTS"][1:]]
         units_list = [byte.decode("utf-8") for byte in self._file.attrs["UNITS"][1:]]
         labels_list = [byte.decode("utf-8") for byte in self._file.attrs["LABELS"][1:]]
-        self._units = dict(zip(self._quants, units_list))
-        self._labels = dict(zip(self._quants, labels_list))
+        self._units = dict(zip(self._quants, units_list, strict=False))
+        self._labels = dict(zip(self._quants, labels_list, strict=False))
 
         self._num_particles = self._file.attrs["NTRACKS"][0]
 

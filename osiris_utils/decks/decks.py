@@ -6,6 +6,8 @@ import numpy as np
 
 from .species import Species
 
+__all__ = ["InputDeckIO", "deval"]
+
 
 def deval(x):
     """
@@ -54,7 +56,7 @@ class InputDeckIO:
         if verbose:
             print(f"\nParsing input deck : {self._filename}")
 
-        with open(self._filename, "r", encoding="utf-8") as f:
+        with open(self._filename, encoding="utf-8") as f:
             lines = f.readlines()
 
         # remove comments

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from typing import Generator, Optional, Union
+from collections.abc import Generator
 
 import numpy as np
 
 from ..data.diagnostic import OSIRIS_FLD, Diagnostic
 from ..data.simulation import Simulation
 from .postprocess import PostProcess
+
+__all__ = ["FieldCentering_Simulation", "FieldCentering_Diagnostic"]
 
 
 class FieldCentering_Simulation(PostProcess):
@@ -109,7 +111,7 @@ class FieldCentering_Diagnostic(Diagnostic):
         self._original_name = diagnostic._name
         self._name = diagnostic._name + "_centered"
 
-        self._data: Optional[np.ndarray] = None
+        self._data: np.ndarray | None = None
         self._all_loaded = False
 
     def load_all(self) -> np.ndarray:
@@ -222,7 +224,7 @@ class FieldCentering_Diagnostic(Diagnostic):
         self._all_loaded = True
         return self._data
 
-    def __getitem__(self, index: Union[int, slice]) -> np.ndarray:
+    def __getitem__(self, index: int | slice) -> np.ndarray:
         """Get data at a specific index"""
         if self._all_loaded and self._data is not None:
             return self._data[index]

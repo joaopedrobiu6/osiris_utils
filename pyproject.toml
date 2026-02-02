@@ -56,7 +56,6 @@ dev  = [
   "pytest-cov",
   "pre-commit>=3.7",
   "ruff>=0.4",
-  "isort>=5.13",
   "types-tqdm",
   "types-Pillow",
 ]
@@ -87,21 +86,19 @@ fallback_version = "0.0.0"
 
 # -----------------------------  pre-commit hooks  ---------------------------- #
 [tool.ruff]
-line-length = 140          # instead of 88
+line-length = 140
 target-version = "py310"   # matches your min python
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B"]      # keep core errors, flakes, import-sort, bug-bear
+select = ["E", "F", "I", "B", "UP"]
 ignore = [
-    "E501",   # line too long (handled by black anyway)
-    "C901",   # complexity too high
-    "B028", "B904"
+  "C901",   # complexity too high
+  "B028", "B904",
+  "TCH"
 ]
-# Option: add per-file ignores for legacy modules
-per-file-ignores = { "osiris_utils/data/*.py" = ["ALL"] }
 
 [tool.ruff.format]
-quote-style = "preserve"   # follow black
+quote-style = "preserve"
 
 [tool.ruff.lint.mccabe]
 max-complexity = 25

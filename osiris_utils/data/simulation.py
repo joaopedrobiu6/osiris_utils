@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from ..data.diagnostic import Diagnostic
 from ..decks.decks import InputDeckIO
+
+__all__ = ["Simulation", "Species_Handler"]
 
 
 class Simulation:
@@ -61,7 +65,7 @@ class Simulation:
         else:
             print(f"Diagnostic {key} not found in simulation")
 
-    def __getitem__(self, key: str) -> Union[Diagnostic, "Species_Handler"]:
+    def __getitem__(self, key: str) -> Diagnostic | Species_Handler:
         # check if key is a species
         if key in self._species:
             # check if species handler already exists
@@ -95,7 +99,7 @@ class Simulation:
 
         return diag
 
-    def add_diagnostic(self, diagnostic: Diagnostic, name: Optional[str] = None) -> str:
+    def add_diagnostic(self, diagnostic: Diagnostic, name: str | None = None) -> str:
         """
         Add a custom diagnostic to the simulation.
 
@@ -136,11 +140,11 @@ class Simulation:
             raise ValueError("Only Diagnostic objects are supported for now")
 
     @property
-    def species(self) -> List[str]:
+    def species(self) -> list[str]:
         return self._species
 
     @property
-    def loaded_diagnostics(self) -> Dict[str, Diagnostic]:
+    def loaded_diagnostics(self) -> dict[str, Diagnostic]:
         return self._diagnostics
 
 
@@ -175,7 +179,7 @@ class Species_Handler:
 
         return diag
 
-    def add_diagnostic(self, diagnostic: Diagnostic, name: Optional[str] = None) -> str:
+    def add_diagnostic(self, diagnostic: Diagnostic, name: str | None = None) -> str:
         """
         Add a custom diagnostic to the simulation.
 
@@ -230,5 +234,5 @@ class Species_Handler:
         return self._species_name
 
     @property
-    def loaded_diagnostics(self) -> Dict[str, Diagnostic]:
+    def loaded_diagnostics(self) -> dict[str, Diagnostic]:
         return self._diagnostics

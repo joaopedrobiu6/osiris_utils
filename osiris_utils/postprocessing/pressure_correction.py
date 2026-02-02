@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Generator, Optional, Union
+from collections.abc import Generator
+from typing import Any
 
 import numpy as np
 
@@ -9,6 +10,12 @@ from ..data.simulation import Simulation
 from .postprocess import PostProcess
 
 OSIRIS_P = ["P11", "P12", "P13", "P21", "P22", "P23", "P31", "P32", "P33"]
+
+__all__ = [
+    "PressureCorrection_Simulation",
+    "PressureCorrection_Diagnostic",
+    "PressureCorrection_Species_Handler",
+]
 
 
 class PressureCorrection_Simulation(PostProcess):
@@ -27,10 +34,10 @@ class PressureCorrection_Simulation(PostProcess):
         if not isinstance(simulation, Simulation):
             raise ValueError("simulation must be a Simulation-compatible object.")
         self._simulation = simulation
-        self._pressure_corrected: Dict[str, PressureCorrection_Diagnostic] = {}
-        self._species_handler: Dict[str, PressureCorrection_Species_Handler] = {}
+        self._pressure_corrected: dict[str, PressureCorrection_Diagnostic] = {}
+        self._species_handler: dict[str, PressureCorrection_Species_Handler] = {}
 
-    def __getitem__(self, key: str) -> Union[PressureCorrection_Species_Handler, PressureCorrection_Diagnostic]:
+    def __getitem__(self, key: str) -> PressureCorrection_Species_Handler | PressureCorrection_Diagnostic:
         if key in self._simulation._species:
             if key not in self._species_handler:
                 self._species_handler[key] = PressureCorrection_Species_Handler(self._simulation[key])
@@ -105,7 +112,7 @@ class PressureCorrection_Diagnostic(Diagnostic):
         self._original_name = diagnostic._name
         self._name = diagnostic._name + "_corrected"
 
-        self._data: Optional[np.ndarray] = None
+        self._data: np.ndarray | None = None
         self._all_loaded = False
 
     def load_all(self) -> np.ndarray:
@@ -135,7 +142,7 @@ class PressureCorrection_Diagnostic(Diagnostic):
 
         return self._data
 
-    def __getitem__(self, index: Union[int, slice]) -> np.ndarray:
+    def __getitem__(self, index: int | slice) -> np.ndarray:
         """Get data at a specific index"""
         if self._all_loaded and self._data is not None:
             return self._data[index]
@@ -173,7 +180,7 @@ class PressureCorrection_Species_Handler:
 
     def __init__(self, species_handler: Any):
         self._species_handler = species_handler
-        self._pressure_corrected: Dict[str, PressureCorrection_Diagnostic] = {}
+        self._pressure_corrected: dict[str, PressureCorrection_Diagnostic] = {}
 
     def __getitem__(self, key: str) -> PressureCorrection_Diagnostic:
         if key not in self._pressure_corrected:

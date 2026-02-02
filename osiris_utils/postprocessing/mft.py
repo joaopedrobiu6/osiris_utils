@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 
 from ..data.diagnostic import Diagnostic
 from ..data.simulation import Simulation
 from .postprocess import PostProcess
+
+__all__ = [
+    "MFT_Simulation",
+    "MFT_Diagnostic",
+    "MFT_Species_Handler",
+]
 
 
 class MFT_Simulation(PostProcess):
@@ -23,7 +27,7 @@ class MFT_Simulation(PostProcess):
 
     """
 
-    def __init__(self, simulation: Simulation, mft_axis: Optional[int] = None):
+    def __init__(self, simulation: Simulation, mft_axis: int | None = None):
         super().__init__(f"MeanFieldTheory({mft_axis})")
         if not isinstance(simulation, Simulation):
             raise ValueError("simulation must be a Simulation-compatible object.")
