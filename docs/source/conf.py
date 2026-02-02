@@ -52,9 +52,28 @@ extensions = [
 nb_execution_mode = "off"  # use stored output; avoids long CI builds
 # options for sphinx_github_style
 top_level = "OSIRIS Utils"
-linkcode_blob = "head"
+linkcode_blob = "main"
 linkcode_url = r"https://github.com/joaopedrobiu6/osiris_utils/"
 linkcode_link_text = "Source"
+
+
+def linkcode_resolve(domain, info):
+    """Return a URL to the source code for ``info``.
+
+    This implementation avoids invoking git or requiring a tag; it
+    constructs URLs pointing at the `linkcode_blob` branch on GitHub.
+    """
+    if domain != "py":
+        return None
+
+    module = info.get("module")
+    if not module:
+        return None
+
+    # Convert module path to file path
+    filename = module.replace(".", "/") + ".py"
+
+    return f"{linkcode_url}blob/{linkcode_blob}/{filename}"
 
 
 # numpydoc_class_members_toctree = False
@@ -81,11 +100,11 @@ templates_path = ["_templates"]
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:
 #
-source_suffix = [".rst", ".md"]
-# source_suffix = {
-#     '.rst': 'restructuredtext',
-#     '.md': 'markdown',
-# }
+# source_suffix = [".rst", ".md"]
+source_suffix = {
+    '.rst': 'restructuredtext',
+    '.md': 'markdown',
+}
 # The master toctree document.
 master_doc = "index"
 
@@ -136,7 +155,7 @@ html_css_files = ["custom.css"]
 
 # The name of an image file (relative to this directory) to place at the top
 # of the sidebar.
-# html_logo = '_static/images/logo_small_clear.png'
+html_logo = '_static/Imagem1.png'
 
 # The name of an image file (within the static path) to use as favicon of the
 # docs.  This file should be a Windows icon file (.ico) being 16x16 or 32x32

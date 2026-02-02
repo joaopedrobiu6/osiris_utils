@@ -1,5 +1,10 @@
 OSIRIS_UTILS
 ============
+.. image:: https://raw.githubusercontent.com/joaopedrobiu6/osiris_utils/main/docs/source/_static/Imagem1.png
+   :width: 200px
+   :align: right
+
+
 |Pypi|
 
 .. image:: https://github.com/joaopedrobiu6/osiris_utils/actions/workflows/ci.yml/badge.svg
@@ -115,3 +120,4 @@ Contributors
 - Diogo Carvalho
 - João Cândido
 - Margarida Pereira
+
