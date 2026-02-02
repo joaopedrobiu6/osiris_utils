@@ -52,9 +52,28 @@ extensions = [
 nb_execution_mode = "off"  # use stored output; avoids long CI builds
 # options for sphinx_github_style
 top_level = "OSIRIS Utils"
-linkcode_blob = "head"
+linkcode_blob = "main"
 linkcode_url = r"https://github.com/joaopedrobiu6/osiris_utils/"
 linkcode_link_text = "Source"
+
+
+def linkcode_resolve(domain, info):
+    """Return a URL to the source code for ``info``.
+
+    This implementation avoids invoking git or requiring a tag; it
+    constructs URLs pointing at the `linkcode_blob` branch on GitHub.
+    """
+    if domain != "py":
+        return None
+
+    module = info.get("module")
+    if not module:
+        return None
+
+    # Convert module path to file path
+    filename = module.replace(".", "/") + ".py"
+
+    return f"{linkcode_url}blob/{linkcode_blob}/{filename}"
 
 
 # numpydoc_class_members_toctree = False

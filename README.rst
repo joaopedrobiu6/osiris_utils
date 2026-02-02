@@ -75,8 +75,8 @@ osiris_utils includes a command-line interface for common operations. After inst
 
 Show simulation information::
 
-   osiris info path/to/simulation
-   osiris info path/to/file.h5 --brief
+   :width: 100px
+   :align: right
 
 Export data to different formats::
 
