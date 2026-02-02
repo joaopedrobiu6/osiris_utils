@@ -1,6 +1,6 @@
 OSIRIS_UTILS
 ============
-.. image:: docs/source/_static/Imagem1.png
+.. image:: https://raw.githubusercontent.com/joaopedrobiu6/osiris_utils/main/docs/source/_static/Imagem1.png
    :width: 200px
    :align: right
 
@@ -75,8 +75,7 @@ osiris_utils includes a command-line interface for common operations. After inst
 
 Show simulation information::
 
-   :width: 100px
-   :align: right
+
 
 Export data to different formats::
 
