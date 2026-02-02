@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Generator, Optional, Union
+from collections.abc import Generator
 
 import numpy as np
 
@@ -28,17 +28,16 @@ class FieldCentering_Simulation(PostProcess):
     """
 
     def __init__(self, simulation: Simulation):
-        super().__init__("FieldCentering Simulation")
         """
         Class to center the field in the simulation.
 
         Parameters
         ----------
-        sim : Simulation
+        simulation : Simulation
             The simulation object.
-        field : str
-            The field to center.
         """
+        super().__init__("FieldCentering Simulation")
+
         # Accept Simulation-compatible objects (Simulation or other PostProcess subclasses)
         if not isinstance(simulation, Simulation):
             raise ValueError("simulation must be a Simulation-compatible object.")
@@ -111,10 +110,18 @@ class FieldCentering_Diagnostic(Diagnostic):
         self._original_name = diagnostic._name
         self._name = diagnostic._name + "_centered"
 
-        self._data: Optional[np.ndarray] = None
+        self._data: np.ndarray | None = None
         self._all_loaded = False
 
     def load_all(self) -> np.ndarray:
+        """
+        Load all data and center the fields.
+
+        Returns
+        -------
+        data : np.ndarray
+            The centered field data.
+        """
         if self._data is not None:
             return self._data
 
@@ -224,7 +231,7 @@ class FieldCentering_Diagnostic(Diagnostic):
         self._all_loaded = True
         return self._data
 
-    def __getitem__(self, index: Union[int, slice]) -> np.ndarray:
+    def __getitem__(self, index: int | slice) -> np.ndarray:
         """Get data at a specific index"""
         if self._all_loaded and self._data is not None:
             return self._data[index]

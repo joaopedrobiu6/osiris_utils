@@ -184,7 +184,7 @@ def convert_tracks(filename_in: str) -> str:
 
     try:
         file_in = h5py.File(filename_in, "r")
-    except IOError:
+    except OSError:
         print("cannot open " + filename_in)
         exit()
 

@@ -2,16 +2,16 @@
 
 import argparse
 import sys
-from typing import List, Optional
 
 import osiris_utils
+
+from . import export, info, plot, validate
 
 __version__ = osiris_utils.__version__
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    """
-    Main entry point for the osiris CLI.
+def main(argv: list[str] | None = None) -> int:
+    """Main entry point for the osiris CLI.
 
     Parameters
     ----------
@@ -22,6 +22,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     -------
     int
         Exit code (0 for success, non-zero for errors).
+
     """
     parser = argparse.ArgumentParser(
         prog="osiris",
@@ -61,7 +62,6 @@ For help on a specific command:
     )
 
     # Import command modules
-    from . import export, info, plot, validate
 
     # Register each command's parser
     info.register_parser(subparsers)
@@ -75,10 +75,9 @@ For help on a specific command:
     # Execute the appropriate command
     try:
         return args.func(args)
-    except Exception as e:
+    except Exception:
         if args.verbose:
             raise
-        print(f"Error: {e}", file=sys.stderr)
         return 1
 
 

@@ -137,11 +137,11 @@ def plot_3d(
 
     # Labels
     # Use public properties where possible
-    cbar.set_label(r"${}$".format(diagnostic.name) + r"$\  [{}]$".format(diagnostic.units))
+    cbar.set_label(rf"${diagnostic.name}$" + rf"$\  [{diagnostic.units}]$")
 
     # time(idx) returns [value, unit]
     t_val, t_unit = diagnostic.time(idx)
-    ax.set_title(r"$t={:.2f}$".format(t_val) + r"$\  [{}]$".format(t_unit))
+    ax.set_title(rf"$t={t_val:.2f}$" + rf"$\  [{t_unit}]$")
 
     ax.set_xlabel(r"${}$".format(diagnostic.axis[0]["long_name"]) + r"$\  [{}]$".format(diagnostic.axis[0]["units"]))
     ax.set_ylabel(r"${}$".format(diagnostic.axis[1]["long_name"]) + r"$\  [{}]$".format(diagnostic.axis[1]["units"]))

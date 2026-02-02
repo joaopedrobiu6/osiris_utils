@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from .data import OsirisData, OsirisGridFile, OsirisHIST, OsirisRawFile, OsirisTrackFile
 from .diagnostic import Diagnostic, which_quantities
 from .simulation import Simulation, Species_Handler

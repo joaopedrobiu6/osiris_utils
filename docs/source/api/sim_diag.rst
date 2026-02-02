@@ -36,8 +36,8 @@ Simulation Class
    
        from osiris_utils.data import Simulation
        
-       # Create a simulation interface for electron data
-       sim = Simulation('path/to/simulation', "name_of_input_deck")
+       # Create a simulation interface
+       sim = Simulation('path/to/simulation/osiris.inp')
        
        # Access the E1 field diagnostic (doesn't load data yet) - this is a Diagnostic object
        # Since it is a diagnostic not related with the species, the species argument is not needed
@@ -63,7 +63,7 @@ Simulation Class
        b3 = sim['b3']
        
        # Load specific timesteps
-       e1[10:20]  # Load timesteps 10-19
+       e1[10:20, 0:10]  # Load timesteps 10-19 and x1 0-10
        
        # Clean up to free memory
        sim.delete_diagnostic('e1')
@@ -134,7 +134,9 @@ Diagnostic Base Class
    .. code-block:: python
    
        # Create diagnostic for electron charge
-       diag = Diagnostic("/path/to/simulation", species)
+       # Note: Use Simulation class for easier access instead of Diagnostic directly
+       electrons = Species("electrons", rqm=-1, q=-1)
+       diag = Diagnostic("/path/to/simulation", species=electrons)
        diag.get_quantity("charge")
        
        # Access specific timestep (without loading all data)
@@ -151,7 +153,7 @@ Diagnostic Base Class
    .. code-block:: python
    
        # Operations between diagnostics
-       sim = Simulation("/path/to/simulation", species)
+       sim = Simulation("/path/to/simulation/osiris.inp")
        e1 = sim["e1"]
        vfl1 = sim["electron"]["vfl1"]
        
@@ -221,7 +223,7 @@ One of the most powerful features of the Diagnostic system is that new diagnosti
 .. code-block:: python
 
     # Create base diagnostics
-    sim = Simulation("/path/to/simulation", "file_input_deck")
+    sim = Simulation("/path/to/simulation/osiris.inp")
     e1 = sim["e1"]
     e2 = sim["e2"] 
     e3 = sim["e3"]

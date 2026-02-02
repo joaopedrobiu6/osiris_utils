@@ -121,19 +121,18 @@ def export_diagnostic_dir(diag_path: Path, args: argparse.Namespace) -> None:
             raise ValueError(f"Timestep {args.timestep} out of range (0-{len(h5_files) - 1})")
         data_obj = ou.OsirisGridFile(str(h5_files[args.timestep]))
         export_single_file(data_obj, args)
+    # Export all timesteps
+    elif args.format == "npy":
+        # Stack all data into single array
+        all_data = []
+        for f in h5_files:
+            data_obj = ou.OsirisGridFile(str(f))
+            all_data.append(data_obj.data)
+        stacked = np.array(all_data)
+        np.save(args.output, stacked)
     else:
-        # Export all timesteps
-        if args.format == "npy":
-            # Stack all data into single array
-            all_data = []
-            for f in h5_files:
-                data_obj = ou.OsirisGridFile(str(f))
-                all_data.append(data_obj.data)
-            stacked = np.array(all_data)
-            np.save(args.output, stacked)
-        else:
-            # For CSV/JSON, export each timestep separately or create multi-index
-            export_multi_timestep(h5_files, args)
+        # For CSV/JSON, export each timestep separately or create multi-index
+        export_multi_timestep(h5_files, args)
 
 
 def export_to_csv(data: np.ndarray, data_obj, output_path: Path, no_coords: bool) -> None:
@@ -151,8 +150,8 @@ def export_to_csv(data: np.ndarray, data_obj, output_path: Path, no_coords: bool
         else:
             x = data_obj.x[0]
             y = data_obj.x[1]
-            xx, yy = np.meshgrid(x, y, indexing='ij')
-            df = pd.DataFrame({'x': xx.flatten(), 'y': yy.flatten(), data_obj.name: data.flatten()})
+            xx, yy = np.meshgrid(x, y, indexing="ij")
+            df = pd.DataFrame({"x": xx.flatten(), "y": yy.flatten(), data_obj.name: data.flatten()})
     else:
         # 3D+ data - just flatten
         df = pd.DataFrame(data.flatten(), columns=[data_obj.name])
@@ -175,7 +174,7 @@ def export_to_json(data: np.ndarray, data_obj, output_path: Path, no_coords: boo
         output["grid"] = {f"x{i + 1}": coord.tolist() for i, coord in enumerate(data_obj.x)}
         output["axis_info"] = data_obj.axis
 
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         json.dump(output, f, indent=2)
 
 
@@ -186,7 +185,7 @@ def export_multi_timestep(h5_files: list, args: argparse.Namespace) -> None:
         all_dfs = []
         for i, f in enumerate(h5_files):
             data_obj = ou.OsirisGridFile(str(f))
-            df = pd.DataFrame({'timestep': i, 'time': data_obj.time, 'data': data_obj.data.flatten()})
+            df = pd.DataFrame({"timestep": i, "time": data_obj.time, "data": data_obj.data.flatten()})
             all_dfs.append(df)
         combined = pd.concat(all_dfs, ignore_index=True)
         combined.to_csv(args.output, index=False)
@@ -196,5 +195,5 @@ def export_multi_timestep(h5_files: list, args: argparse.Namespace) -> None:
         for f in h5_files:
             data_obj = ou.OsirisGridFile(str(f))
             all_data.append({"time": data_obj.time, "iteration": data_obj.iter, "data": data_obj.data.tolist()})
-        with open(args.output, 'w') as outf:
+        with open(args.output, "w") as outf:
             json.dump(all_data, outf, indent=2)

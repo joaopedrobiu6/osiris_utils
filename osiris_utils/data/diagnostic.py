@@ -1,20 +1,12 @@
 from __future__ import annotations
 
-"""
-The utilities on data.py are cool but not useful when you want to work with whole data of a simulation instead
-of just a single file. This is what this file is for - deal with ''folders'' of data.
-
-Took some inspiration from Diogo and Madox's work.
-
-This would be awsome to compute time derivatives.
-"""
-
 import glob
 import logging
 import operator
 import os
 import warnings
-from typing import Any, Callable, Iterator, List, Literal, Optional, Union
+from collections.abc import Callable, Iterator
+from typing import Any, Literal
 
 import h5py
 import numpy as np
@@ -29,8 +21,17 @@ __all__ = ["Diagnostic", "which_quantities"]
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)8s │ %(message)s")
 logger = logging.getLogger(__name__)
 
+"""
+The utilities on data.py are cool but not useful when you want to work with whole data of a simulation instead
+of just a single file. This is what this file is for - deal with ''folders'' of data.
+
+Took some inspiration from Diogo and Madox's work.
+
+This would be awsome to compute time derivatives.
+"""
+
 OSIRIS_DENSITY = ["n"]
-OSIRIS_SPECIE_REPORTS = ["charge", "q1", "q2", "q3", "j1", "j2", "j3"]
+OSIRIS_SPECIE_REPORTS = ["ene", "charge", "q1", "q2", "q3", "j1", "j2", "j3"]
 OSIRIS_SPECIE_REP_UDIST = [
     "vfl1",
     "vfl2",
@@ -109,6 +110,8 @@ _ATTRS_TO_CLONE = [
     "_quantity",
 ]
 
+__all__ = ["Diagnostic", "which_quantities"]
+
 
 def which_quantities():
     print("Available quantities:")
@@ -116,8 +119,8 @@ def which_quantities():
 
 
 class Diagnostic:
-    """
-    Class to handle diagnostics. This is the "base" class of the code. Diagnostics can be loaded from OSIRIS output files, but are also created when performing operations with other diagnostics.
+    """Class to handle diagnostics. This is the "base" class of the code. Diagnostics can be loaded from OSIRIS output files,
+    but are also created when performing operations with other diagnostics.
     Post-processed quantities are also considered diagnostics. This way, we can perform operations with them as well.
 
     Parameters
@@ -146,13 +149,17 @@ class Diagnostic:
     grid : np.ndarray
         The grid boundaries.
     axis : dict
-        The axis information. Each key is a direction and the value is a dictionary with the keys "name", "long_name", "units" and "plot_label".
+        The axis information. Each key is a direction and the value is a dictionary with the keys "name",
+        "long_name", "units" and "plot_label".
     units : str
-        The units of the diagnostic. This info may not be available for all diagnostics, ie, diagnostics resulting from operations and postprocessing.
+        The units of the diagnostic. This info may not be available for all diagnostics, ie,
+        diagnostics resulting from operations and postprocessing.
     name : str
-        The name of the diagnostic. This info may not be available for all diagnostics, ie, diagnostics resulting from operations and postprocessing.
+        The name of the diagnostic. This info may not be available for all diagnostics, ie,
+        diagnostics resulting from operations and postprocessing.
     label : str
-        The label of the diagnostic. This info may not be available for all diagnostics, ie, diagnostics resulting from operations and postprocessing.
+        The label of the diagnostic. This info may not be available for all diagnostics, ie,
+        diagnostics resulting from operations and postprocessing.
     dim : int
         The dimension of the diagnostic.
     ndump : int
@@ -201,25 +208,25 @@ class Diagnostic:
 
     def __init__(
         self,
-        simulation_folder: Optional[str] = None,
+        simulation_folder: str | None = None,
         species: Species = None,
-        input_deck: Optional[InputDeckIO] = None,
+        input_deck: InputDeckIO | None = None,
     ) -> None:
         self._species = species if species else None
 
-        self._dx: Optional[Union[float, np.ndarray]] = None  # grid spacing in each direction
-        self._nx: Optional[Union[int, np.ndarray]] = None  # number of grid points in each direction
-        self._x: Optional[np.ndarray] = None  # grid points
-        self._dt: Optional[float] = None  # time step
-        self._grid: Optional[np.ndarray] = None  # grid boundaries
-        self._axis: Optional[Any] = None  # axis information
-        self._units: Optional[str] = None  # units of the diagnostic
-        self._name: Optional[str] = None
-        self._label: Optional[str] = None
-        self._dim: Optional[int] = None
-        self._ndump: Optional[int] = None
-        self._maxiter: Optional[int] = None
-        self._tunits: Optional[str] = None  # time units
+        self._dx: float | np.ndarray | None = None  # grid spacing in each direction
+        self._nx: int | np.ndarray | None = None  # number of grid points in each direction
+        self._x: np.ndarray | None = None  # grid points
+        self._dt: float | None = None  # time step
+        self._grid: np.ndarray | None = None  # grid boundaries
+        self._axis: Any | None = None  # axis information
+        self._units: str | None = None  # units of the diagnostic
+        self._name: str | None = None
+        self._label: str | None = None
+        self._dim: int | None = None
+        self._ndump: int | None = None
+        self._maxiter: int | None = None
+        self._tunits: str | None = None  # time units
 
         if simulation_folder:
             self._simulation_folder = simulation_folder
@@ -234,7 +241,7 @@ class Diagnostic:
             self._input_deck = None
 
         self._all_loaded: bool = False  # if the data is already loaded into memory
-        self._quantity: Optional[str] = None
+        self._quantity: str | None = None
 
     #########################################
     #
@@ -243,13 +250,13 @@ class Diagnostic:
     #########################################
 
     def get_quantity(self, quantity: str) -> None:
-        """
-        Get the data for a given quantity.
+        """Get the data for a given quantity.
 
         Parameters
         ----------
         quantity : str
             The quantity to get the data.
+
         """
         self._quantity = quantity
 
@@ -275,11 +282,18 @@ class Diagnostic:
             self._get_density(self._species.name, "charge")
         else:
             raise ValueError(
-                f"Invalid quantity {self._quantity}. Or it's not implemented yet (this may happen for phase space quantities)."
+                f"Invalid quantity {self._quantity}. Or it's not implemented yet (this may happen for phase space quantities).",
             )
 
     def _scan_files(self, pattern: str) -> None:
-        """Populate _file_list and related attributes from a glob pattern."""
+        """Populate _file_list and related attributes from a glob pattern.
+
+        Parameters
+        ----------
+        pattern : str
+            The glob pattern to search for HDF5 files.
+
+        """
         self._file_list = sorted(glob.glob(pattern))
         if not self._file_list:
             raise FileNotFoundError(f"No HDF5 files match {pattern}")
@@ -287,6 +301,16 @@ class Diagnostic:
         self._maxiter = len(self._file_list)
 
     def _get_moment(self, species: str, moment: str) -> None:
+        """Get the moment data for a given species and moment.
+
+        Parameters
+        ----------
+        species : str
+            The species to get the moment data.
+        moment : str
+            The moment to get the data.
+
+        """
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/UDIST/{species}/{moment}/"
@@ -294,6 +318,14 @@ class Diagnostic:
         self._load_attributes(self._file_template, self._input_deck)
 
     def _get_field(self, field: str) -> None:
+        """Get the field data for a given field.
+
+        Parameters
+        ----------
+        field : str
+            The field to get the data.
+
+        """
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/FLD/{field}/"
@@ -301,6 +333,16 @@ class Diagnostic:
         self._load_attributes(self._file_template, self._input_deck)
 
     def _get_density(self, species: str, quantity: str) -> None:
+        """Get the density data for a given species and quantity.
+
+        Parameters
+        ----------
+        species : str
+            The species to get the density data.
+        quantity : str
+            The quantity to get the data.
+
+        """
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/DENSITY/{species}/{quantity}/"
@@ -308,13 +350,35 @@ class Diagnostic:
         self._load_attributes(self._file_template, self._input_deck)
 
     def _get_phase_space(self, species: str, type: str) -> None:
+        """Get the phase space data for a given species and type.
+
+        Parameters
+        ----------
+        species : str
+            The species to get the phase space data.
+        type : str
+            The type of phase space to get the data.
+
+        """
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/PHA/{type}/{species}/"
         self._scan_files(os.path.join(self._path, "*.h5"))
         self._load_attributes(self._file_template, self._input_deck)
 
-    def _load_attributes(self, file_template: str, input_deck: Optional[dict]) -> None:  # this will be replaced by reading the input deck
+    def _load_attributes(self, file_template: str, input_deck: dict | None) -> None:  # this will be replaced by reading the input deck
+        """Load diagnostic attributes from the first available file or input deck.
+
+        Parameters
+        ----------
+        file_template : str
+            The file template to load the attributes from.
+            This is the path to the file without the iteration number and extension.
+            (e.g., /path/to/diagnostic/000001.h5 -> /path/to/diagnostic/)
+        input_deck : dict, optional
+            The input deck to load the diagnostic attributes. If None, the attributes are loaded from the files.
+
+        """
         # This can go wrong! NDUMP
         # if input_deck is not None:
         #     self._dt = float(input_deck["time_step"][0]["dt"])
@@ -354,9 +418,9 @@ class Diagnostic:
                     break
 
             if not found_file:
-                warnings.warn(f"No valid data files found in {self._path} to read metadata from.")
+                warnings.warn(f"No valid data files found in {self._path} to read metadata from.", stacklevel=2)
         except Exception as e:
-            warnings.warn(f"Error loading diagnostic attributes: {str(e)}. Please verify it there's any file in the folder.")
+            warnings.warn(f"Error loading diagnostic attributes: {e!s}. Please verify it there's any file in the folder.", stacklevel=2)
 
     ##########################################
     #
@@ -364,21 +428,38 @@ class Diagnostic:
     #
     ##########################################
 
-    def _data_generator(self, index: int) -> Iterator[np.ndarray]:
+    def _data_generator(self, index: int, data_slice: tuple | None = None) -> Iterator[np.ndarray]:
+        """Data generator for a given index or slice.
+
+        Parameters
+        ----------
+        index : int
+            The index of the file to load.
+        data_slice : tuple, optional
+            The slice to apply to the data. This is a tuple of slices, one for each dimension.
+
+        Returns
+        -------
+        Iterator[np.ndarray]
+            An iterator that yields the data for the given index or slice.
+
+        """
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set.")
         if self._file_list is None:
             raise RuntimeError("File list not initialized. Call get_quantity() first.")
         try:
             file = self._file_list[index]
-        except IndexError:
-            raise RuntimeError(f"File index {index} out of range (max {self._maxiter - 1}).")
-        data_object = OsirisGridFile(file)
+        except IndexError as err:
+            raise RuntimeError(
+                f"File index {index} out of range (max {self._maxiter - 1}).",
+            ) from err
+        # Pass data_slice to OsirisGridFile - HDF5 will efficiently read only the requested slice from disk
+        data_object = OsirisGridFile(file, data_slice=data_slice)
         yield (data_object.data if self._quantity not in OSIRIS_DENSITY else np.sign(self._species.rqm) * data_object.data)
 
-    def load_all(self, n_workers: Optional[int] = None, use_parallel: Optional[bool] = None) -> np.ndarray:
-        """
-        Load all data into memory (all iterations), in a pre-allocated array.
+    def load_all(self, n_workers: int | None = None, use_parallel: bool | None = None) -> np.ndarray:
+        """Load all data into memory (all iterations), in a pre-allocated array.
 
         Parameters
         ----------
@@ -393,6 +474,7 @@ class Diagnostic:
         -------
         data : np.ndarray
             The data for all iterations. Also stored in self._data.
+
         """
         if getattr(self, "_all_loaded", False) and self._data is not None:
             logger.debug("Data already loaded into memory.")
@@ -405,7 +487,7 @@ class Diagnostic:
         try:
             first = self[0]
         except Exception as e:
-            raise RuntimeError(f"Failed to load first timestep: {e}")
+            raise RuntimeError("Failed to load first timestep") from e
         slice_shape = first.shape
         dtype = first.dtype
 
@@ -431,7 +513,7 @@ class Diagnostic:
                 try:
                     return i, self[i]
                 except Exception as e:
-                    raise RuntimeError(f"Error loading timestep {i}: {e}")
+                    raise RuntimeError(f"Error loading timestep {i}") from e
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as executor:
                 # Submit all loading tasks
@@ -449,16 +531,14 @@ class Diagnostic:
                 try:
                     data[i] = self[i]
                 except Exception as e:
-                    raise RuntimeError(f"Error loading timestep {i}: {e}")
+                    raise RuntimeError(f"Error loading timestep {i}") from e
 
         self._data = data
         self._all_loaded = True
         return self._data
 
     def unload(self) -> None:
-        """
-        Unload data from memory. This is useful to free memory when the data is not needed anymore.
-        """
+        """Unload data from memory. This is useful to free memory when the data is not needed anymore."""
         logger.info("Unloading data from memory.")
         if self._all_loaded is False:
             logger.warning("Data is not loaded.")
@@ -476,20 +556,22 @@ class Diagnostic:
         """Return the number of timesteps available."""
         return getattr(self, "_maxiter", 0)
 
-    def __getitem__(self, index: int | slice) -> np.ndarray:
-        """
-        Retrieve timestep data.
+    def __getitem__(self, index: int | slice | tuple) -> np.ndarray:
+        """Retrieve timestep data with optional spatial slicing.
 
         Parameters
         ----------
-        index : int or slice
-            - If int, may be negative (Python-style).
-            - If slice, supports start:stop:step. Zero-length slices return an empty array of shape (0, ...).
+        index : int, slice, or tuple
+            - If int, loads full spatial data for that timestep.
+            - If slice, supports start:stop:step for time. Zero-length slices return an empty array of shape (0, ...).
+            - If tuple, first element is time index/slice, remaining elements are spatial slices for each dimension.
+              Example: diag[5, :, 100:200] loads timestep 5 with spatial slicing applied.
+              **Efficient**: HDF5 reads only the requested spatial slice from disk, not the full array.
 
         Returns
         -------
         np.ndarray
-            Array for that timestep (or stacked array for a slice).
+            Array for that timestep (or stacked array for a slice), optionally spatially sliced.
 
         Raises
         ------
@@ -497,33 +579,59 @@ class Diagnostic:
             If the index is out of range or no data generator is available.
         RuntimeError
             If loading a specific timestep fails.
+
+        Examples
+        --------
+        >>> data = diag[5]              # Load full spatial data for timestep 5
+        >>> data = diag[5, :, 100:200]  # Load timestep 5 with spatial slice (only reads slice from disk!)
+        >>> data = diag[0:10]           # Load timesteps 0-9 (full spatial domain)
+        >>> data = diag[0:10, :, 50:]   # Load timesteps 0-9 with spatial slice
+
         """
+        # Parse tuple indexing: (time_index, spatial_slice1, spatial_slice2, ...)
+        data_slice = None
+        if isinstance(index, tuple):
+            if len(index) == 0:
+                raise IndexError("Empty tuple index not supported")
+            time_index = index[0]
+            # Remaining indices are for spatial dimensions
+            if len(index) > 1:
+                data_slice = index[1:]
+        else:
+            time_index = index
+
         # Quick path: all data already in memory
         if getattr(self, "_all_loaded", False) and self._data is not None:
-            return self._data[index]
+            if data_slice is not None:
+                # Apply spatial slicing to loaded data
+                return self._data[(time_index,) + data_slice]
+            return self._data[time_index]
 
         # Data generator must exist
         data_gen = getattr(self, "_data_generator", None)
         if not callable(data_gen):
-            raise IndexError(f"No data available for indexing; you did something wrong!")
+            raise IndexError("No data available for indexing; you did something wrong!")
 
         # Handle int indices (including negatives)
-        if isinstance(index, int):
-            if index < 0:
-                index += self._maxiter
-            if not (0 <= index < self._maxiter):
-                raise IndexError(f"Index {index} out of range (0..{self._maxiter - 1})")
+        if isinstance(time_index, int):
+            if time_index < 0:
+                time_index += self._maxiter
+            if not (0 <= time_index < self._maxiter):
+                raise IndexError(f"Index {time_index} out of range (0..{self._maxiter - 1})")
+
+            # Load data immediately with optional spatial slicing
+            # HDF5 will read only the requested slice from disk (efficient!)
             try:
-                gen = data_gen(index)
+                gen = data_gen(time_index, data_slice=data_slice)
                 return next(gen)
             except Exception as e:
-                raise RuntimeError(f"Error loading data at index {index}: {e}")
+                raise RuntimeError(f"Error loading data at index {time_index}") from e
 
         # Handle slice indices
-        if isinstance(index, slice):
-            start = index.start or 0
-            stop = index.stop if index.stop is not None else self._maxiter
-            step = index.step or 1
+        if isinstance(time_index, slice):
+            start = time_index.start or 0
+            stop = time_index.stop if time_index.stop is not None else self._maxiter
+            step = time_index.step or 1
             # Normalize negatives
             if start < 0:
                 start += self._maxiter
@@ -538,7 +646,7 @@ class Diagnostic:
             if not indices:
                 # Determine single-step shape by peeking at index 0 (if possible)
                 try:
-                    dummy = next(data_gen(0))
+                    dummy = next(data_gen(0, data_slice=data_slice))
                     empty_shape = (0,) + dummy.shape
                     return np.empty(empty_shape, dtype=dummy.dtype)
                 except Exception:
@@ -548,47 +656,16 @@ class Diagnostic:
             data_list = []
             for i in indices:
                 try:
-                    data_list.append(next(data_gen(i)))
+                    data_list.append(next(data_gen(i, data_slice=data_slice)))
                 except Exception as e:
-                    raise RuntimeError(f"Error loading slice at index {i}: {e}")
-            return np.stack(data_list)
-
-        # Unsupported index type
-        raise IndexError(f"Invalid index type {type(index)}; must be int or slice")
-
-    def __iter__(self) -> Iterator[np.ndarray]:
-        # If this is a file-based diagnostic, use cached file list
-        if self._simulation_folder is not None:
-            # Use cached _maxiter instead of globbing again
-            for i in range(self._maxiter):
-                yield next(self._data_generator(i))
-
-        # If this is a derived diagnostic and data is already loaded
-        elif self._all_loaded and self._data is not None:
-            for i in range(self._data.shape[0]):
-                yield self._data[i]
-
-        # If this is a derived diagnostic with custom generator but no loaded data
-        elif hasattr(self, "_data_generator") and callable(self._data_generator):
-            # Determine how many iterations to go through
-            max_iter = self._maxiter
-            if max_iter is None:
-                if hasattr(self, "_diag") and hasattr(self._diag, "_maxiter"):
-                    max_iter = self._diag._maxiter
-                else:
-                    max_iter = 100  # Default if we can't determine
-                    logger.warning(f"Could not determine iteration count for iteration, using {max_iter}.")
-
-            for i in range(max_iter):
-                yield next(self._data_generator(i))
+                    raise RuntimeError(f"Error loading timestep {i}") from e
+            return np.stack(data_list, axis=0)
 
         # If we don't know how to handle this
-        else:
-            raise ValueError("Cannot iterate over this diagnostic. No data loaded and no generator available.")
+        raise ValueError("Cannot index this diagnostic. No data loaded and no generator available.")
 
     def _clone_meta(self) -> Diagnostic:
-        """
-        Create a new Diagnostic instance that carries over metadata only.
+        """Create a new Diagnostic instance that carries over metadata only.
         No data is copied, and no constructor edits are required because we
         assign attributes dynamically.
         """
@@ -602,9 +679,8 @@ class Diagnostic:
             clone._file_list = self._file_list
         return clone
 
-    def _binary_op(self, other: Union[Diagnostic, int, float, np.ndarray], op_func: Callable) -> Diagnostic:
-        """
-        Universal helper for `self (op) other`.
+    def _binary_op(self, other: Diagnostic | float | np.ndarray, op_func: Callable) -> Diagnostic:
+        """Universal helper for `self (op) other`.
         - If both operands are fully loaded, does eager numpy arithmetic.
         - Otherwise builds a lazy generator that applies op_func on each timestep.
         """
@@ -641,9 +717,8 @@ class Diagnostic:
             seq1 = gen1(idx)
             if callable(gen2):
                 seq2 = gen2(idx)
-                return (op_func(a, b) for a, b in zip(seq1, seq2))
-            else:
-                return (op_func(a, gen2) for a in seq1)
+                return (op_func(a, b) for a, b in zip(seq1, seq2, strict=False))
+            return (op_func(a, gen2) for a in seq1)
 
         result._data_generator = _make_gen
         result._all_loaded = False
@@ -651,38 +726,37 @@ class Diagnostic:
 
     # Now define each operator in one line:
 
-    def __add__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
+    def __add__(self, other: Diagnostic | float | np.ndarray) -> Diagnostic:
         return self._binary_op(other, operator.add)
 
-    def __radd__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
+    def __radd__(self, other: Diagnostic | float | np.ndarray) -> Diagnostic:
         return self + other
 
-    def __sub__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
+    def __sub__(self, other: Diagnostic | float | np.ndarray) -> Diagnostic:
         return self._binary_op(other, operator.sub)
 
-    def __rsub__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
+    def __rsub__(self, other: Diagnostic | float | np.ndarray) -> Diagnostic:
         # swap args for reversed subtraction
         return self._binary_op(other, lambda x, y: operator.sub(y, x))
 
-    def __mul__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
+    def __mul__(self, other: Diagnostic | float | np.ndarray) -> Diagnostic:
         return self._binary_op(other, operator.mul)
 
-    def __rmul__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
+    def __rmul__(self, other: Diagnostic | float | np.ndarray) -> Diagnostic:
         return self * other
 
-    def __truediv__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
+    def __truediv__(self, other: Diagnostic | float | np.ndarray) -> Diagnostic:
         return self._binary_op(other, operator.truediv)
 
-    def __rtruediv__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
+    def __rtruediv__(self, other: Diagnostic | float | np.ndarray) -> Diagnostic:
         return self._binary_op(other, lambda x, y: operator.truediv(y, x))
 
     def __neg__(self) -> Diagnostic:
         # unary minus as multiplication by -1
         return self._binary_op(-1, operator.mul)
 
-    def __pow__(self, other: Union[Diagnostic, int, float, np.ndarray]) -> Diagnostic:
-        """
-        Power operation. Raises the diagnostic data to the power of `other`.
+    def __pow__(self, other: Diagnostic | float | np.ndarray) -> Diagnostic:
+        """Power operation. Raises the diagnostic data to the power of `other`.
         If `other` is a Diagnostic, it raises each timestep's data to the corresponding timestep's power.
         If `other` is a scalar or ndarray, it raises all data to that power.
         """
@@ -690,14 +764,13 @@ class Diagnostic:
 
     def to_h5(
         self,
-        savename: Optional[str] = None,
-        index: Optional[Union[int, List[int]]] = None,
+        savename: str | None = None,
+        index: int | list[int] | None = None,
         all: bool = False,
         verbose: bool = False,
-        path: Optional[str] = None,
+        path: str | None = None,
     ) -> None:
-        """
-        Save the diagnostic data to HDF5 files.
+        """Save the diagnostic data to HDF5 files.
 
         Parameters
         ----------
@@ -711,6 +784,7 @@ class Diagnostic:
             If True, print messages about the saving process.
         path : str, optional
             The path to save the HDF5 files. If None, uses the default save path (in simulation folder).
+
         """
         if path is None:
             path = self._simulation_folder
@@ -782,15 +856,13 @@ class Diagnostic:
                     axis_dataset.attrs.create("NAME", [np.bytes_(axis_shortnames[i].encode())])
                     axis_dataset.attrs.create("UNITS", [np.bytes_(axis_units[i].encode())])
                     axis_dataset.attrs.create("LONG_NAME", [np.bytes_(axis_longnames[i].encode())])
-                    axis_dataset.attrs.create("TYPE", [np.bytes_("linear".encode())])
+                    axis_dataset.attrs.create("TYPE", [np.bytes_(b"linear")])
 
                 if verbose:
                     logger.info(f"File created: {filename}")
 
-        logger.info(
-            f"The savename of the diagnostic is {savename}. Files will be saves as {savename}-000001.h5, {savename}-000002.h5, etc."
-        )
-
+        logger.info(f"The savename of the diagnostic is {savename}.")
+        logger.info(f"Files will be saved as {savename}-000001.h5, {savename}-000002.h5, etc.")
         logger.info("If you desire a different name, please set it with the 'name' method (setter).")
 
         if self._name is None:
@@ -822,17 +894,15 @@ class Diagnostic:
         scale_type: Literal["zero_centered", "pos", "neg", "default"] = "default",
         boundaries: np.ndarray = None,
     ):
-        """
-        **DEPRECATED**: Use `osiris_utils.vis.plot_3d` instead.
+        """**DEPRECATED**: Use `osiris_utils.vis.plot_3d` instead.
 
         Plots a 3D scatter plot of the diagnostic data (grid data).
         """
-        warnings.warn(
+        _msg = (
             "Diagnostic.plot_3d is deprecated and will be removed in a future version. "
-            "Please use osiris_utils.vis.plot_3d(diagnostic, idx, ...) instead.",
-            DeprecationWarning,
-            stacklevel=2,
+            "Please use osiris_utils.vis.plot_3d(diagnostic, idx, ...) instead."
         )
+        warnings.warn(_msg, DeprecationWarning, stacklevel=2)
         from ..vis.plot3d import plot_3d
 
         return plot_3d(self, idx, scale_type, boundaries)
@@ -843,10 +913,15 @@ class Diagnostic:
 
     def __repr__(self):
         """Detailed string representation of the diagnostic."""
-        return (
-            f"Diagnostic(species={self._species}, name={self._name}, quantity={self._quantity}, "
-            f"dim={self._dim}, maxiter={self._maxiter}, all_loaded={self._all_loaded})"
-        )
+        parts = [
+            f"species={self._species}",
+            f"name={self._name}",
+            f"quantity={self._quantity}",
+            f"dim={self._dim}",
+            f"maxiter={self._maxiter}",
+            f"all_loaded={self._all_loaded}",
+        ]
+        return f"Diagnostic({', '.join(parts)})"
 
     # Getters
     @property
@@ -936,9 +1011,7 @@ class Diagnostic:
         return [index * self._dt * self._ndump, self._tunits]
 
     def attributes_to_save(self, index: int = 0) -> None:
-        """
-        Prints the attributes of the diagnostic.
-        """
+        """Prints the attributes of the diagnostic."""
         logger.info(
             f"dt: {self._dt}\n"
             f"dim: {self._dim}\n"
@@ -948,7 +1021,7 @@ class Diagnostic:
             f"name: {self._name}\n"
             f"type: {self._type}\n"
             f"label: {self._label}\n"
-            f"units: {self._units}"
+            f"units: {self._units}",
         )
 
     @dx.setter

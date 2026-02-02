@@ -58,7 +58,7 @@ class InputDeckIO:
         if verbose:
             print(f"\nParsing input deck : {self._filename}")
 
-        with open(self._filename, "r", encoding="utf-8") as f:
+        with open(self._filename, encoding="utf-8") as f:
             lines = f.readlines()
 
         # remove comments
@@ -182,6 +182,29 @@ class InputDeckIO:
         }
 
     def set_param(self, section, param, value, i_use=None, unexistent_ok=False):
+        """
+        Set a parameter value in the input deck.
+
+        Parameters
+        ----------
+        section : str
+            The name of the section where the parameter is located.
+        param : str
+            The name of the parameter to set.
+        value : str or list or int or float
+            The value to set. If a list, it is converted to a comma-separated string.
+        i_use : int or list of int, optional
+            The index(es) of the section(s) to modify if multiple sections with the same name exist.
+            If None, all sections with the matching name are modified.
+        unexistent_ok : bool, optional
+            If True, allows setting a parameter that does not currently exist in the section.
+            Default is False.
+
+        Raises
+        ------
+        KeyError
+            If the section is not found, or if the parameter is not found (and unexistent_ok is False).
+        """
         # get all sections with the same name
         # (e.g. there might be multiple 'species')
         i_sections = [i for i, m in enumerate(self._sections) if m[0] == section]
@@ -206,11 +229,43 @@ class InputDeckIO:
                 self._sections[i][1][param] = str(value)
 
     def set_tag(self, tag, value):
+        """
+        Replace a tag in all parameters within the input deck.
+        This is useful for template replacement.
+
+        Parameters
+        ----------
+        tag : str
+            The tag substring to search for (e.g., "<TAG>").
+        value : str or int or float
+            The value to replace the tag with.
+        """
         for im, (_, params) in enumerate(self._sections):
             for p, v in params.items():
                 self._sections[im][1][p] = v.replace(tag, str(value))
 
     def get_param(self, section, param):
+        """
+        Get the value(s) of a parameter from a specific section.
+
+        Parameters
+        ----------
+        section : str
+            The name of the section.
+        param : str
+            The name of the parameter.
+
+        Returns
+        -------
+        values : list
+            A list of values for the parameter. Returns a list because there can be multiple
+            sections with the same name.
+
+        Raises
+        ------
+        KeyError
+            If the parameter is not found in one of the sections.
+        """
         i_sections = [i for i, m in enumerate(self._sections) if m[0] == section]
 
         if len(i_sections) == 0:
@@ -226,6 +281,16 @@ class InputDeckIO:
         return values
 
     def delete_param(self, section, param):
+        """
+        Delete a parameter from a specific section.
+
+        Parameters
+        ----------
+        section : str
+            The name of the section.
+        param : str
+            The name of the parameter to delete.
+        """
         sections_new = []
         for m_name, m_dict in self._sections:
             if m_name == section and param in m_dict:
@@ -234,6 +299,14 @@ class InputDeckIO:
         self._sections = sections_new
 
     def print_to_file(self, filename):
+        """
+        Write the current state of the input deck to a file.
+
+        Parameters
+        ----------
+        filename : str
+            The path to the output file.
+        """
         with open(filename, "w", encoding="utf-8") as f:
             for section, section_dict in self._sections:
                 f.write(f"{section}\n{{\n")

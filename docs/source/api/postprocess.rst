@@ -86,7 +86,7 @@ Derivative_Simulation Class
        from osiris_utils.postprocessing import Derivative_Simulation
        
        # Create a simulation interface
-       sim = Simulation('/path/to/input/deck')
+       sim = Simulation('/path/to/input/deck.inp')
        
        # Create a derivative processor for x₁ derivatives
        dx1 = Derivative_Simulation(sim, 'x1')
@@ -206,7 +206,7 @@ This example shows how to compute the z-component of curl(B):
     from osiris_utils.postprocessing import Derivative
     
     # Setup
-    sim = Simulation('/path/to/input/deck')
+    sim = Simulation('/path/to/input/deck.inp')
     dx1 = Derivative_Simulation(sim, 'x1')
     dx2 = Derivative_Simulation(sim, 'x2')
 
@@ -227,7 +227,7 @@ This example shows how to compute the divergence of E:
     from osiris_utils.postprocessing import Derivative_Diagnostic
     
     # Setup
-    e1 = Diagnostic('/path/to/folder', Species, "path/to/input/deck")
+    e1 = Diagnostic('/path/to/folder', species=None, input_deck="/path/to/input/deck.inp")
     
     # Create derivative processor for x₁ and x₂ derivatives
     de1_dx1 = Derivative_Diagnostic(e1, 'x1')
@@ -281,7 +281,7 @@ FFT_Simulation Class
        from osiris_utils.postprocessing import FFT_Simulation
        
        # Create a simulation interface
-       sim = Simulation('/path/to/input/deck')
+       sim = Simulation('/path/to/input/deck.inp')
        
        # Create an FFT processor for the first spatial dimension
        fft = FFT_Simulation(sim, 1)
@@ -379,7 +379,7 @@ This example shows how to compute and visualize a dispersion relation:
     import matplotlib.pyplot as plt
     
     # Setup
-    sim = Simulation('/path/to/input/deck')
+    sim = Simulation('/path/to/input/deck.inp')
     
     # Create FFT processor for both time and space
     # We'll do a 2D FFT - time (axis 0) and x1 (axis 1)
@@ -467,7 +467,7 @@ MFT_Simulation Class
        from osiris_utils.postprocessing import MFT_Simulation
        
        # Create a simulation interface
-       sim = Simulation('/path/to/input/deck')
+       sim = Simulation('/path/to/input/deck.inp')
        
        # Create MFT analyzer for x₁ direction (axis=1)
        mft = MFT_Simulation(sim, 1)
@@ -602,8 +602,72 @@ For large datasets, consider these performance optimizations:
    * Only call `load_all()` when analyzing the full time evolution
    * Use `delete()` and `delete_all()` to free memory when finished with results
 
-2. **Computation Efficiency**:
+   2. **Computation Efficiency**:
 
    * Averaging is computationally inexpensive compared to other operations
    * For 2D/3D data, consider which axis to average along based on your physics
    * For iterative analysis, calculate fluctuations only when needed
+
+Field Centering
+===============
+
+.. _field-centering-api:
+
+The `FieldCentering` module provides tools to center fields on the grid cells, converting from the Yee mesh positions to cell centers.
+
+FieldCentering_Simulation Class
+-------------------------------
+
+.. autoclass:: osiris_utils.postprocessing.field_centering.FieldCentering_Simulation
+   :members:
+   :special-members: __init__, __getitem__
+   :show-inheritance:
+   :noindex:
+
+   Post-processor for centering electromagnetic fields.
+
+   The FieldCentering_Simulation class provides a convenient interface for centering fields from the Yee mesh to cell centers.
+
+   **Key Features:**
+
+   * Centers fields from Yee mesh to cell centers
+   * Handles periodic boundaries
+   * Supports 1D, 2D, and 3D simulations
+   * Lazy evaluation
+
+   **Usage Examples:**
+
+   .. code-block:: python
+
+       from osiris_utils.data import Simulation
+       from osiris_utils.postprocessing import FieldCentering_Simulation
+
+       # Create a simulation interface
+       sim = Simulation('/path/to/input/deck.inp')
+
+       # Create a field centering processor
+       centered_sim = FieldCentering_Simulation(sim)
+
+       # Get centered E1 field
+       e1_centered = centered_sim['e1']
+
+       # Access specific timestep (interpolated on-demand)
+       timestep_10 = e1_centered[10]
+
+FieldCentering_Diagnostic Class
+-------------------------------
+
+.. autoclass:: osiris_utils.postprocessing.field_centering.FieldCentering_Diagnostic
+   :members:
+   :special-members: __init__, __getitem__
+   :show-inheritance:
+   :noindex:
+
+   Specialized diagnostic that represents the centered field.
+
+   This class handles the actual interpolation while maintaining the Diagnostic interface.
+
+   **Key Methods:**
+
+   * ``load_all()`` - Compute and store the complete centered field
+   * ``__getitem__(index)`` - Compute centered field for a specific timestep on-demand
