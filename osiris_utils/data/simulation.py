@@ -119,7 +119,7 @@ class Simulation:
 
         Example
         -------
-        >>> sim = Simulation('path/to/simulation', 'input_deck.txt')
+        >>> sim = Simulation('path/to/simulation/input_deck.txt')
         >>> nT = sim['electrons']['n'] * sim['electrons']['T11']
         >>> sim.add_diagnostic(nT, 'nT')
         >>> sim['nT']  # Access the custom diagnostic
