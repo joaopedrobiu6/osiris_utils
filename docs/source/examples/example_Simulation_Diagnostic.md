@@ -13,14 +13,14 @@ import osiris_utils as ou
 
 # Example notebook for the `Simulation` and `Diagnostic` classes
 
-### `Simulation`
+## `Simulation`
 The `Simulation` class takes in:
 - `simulation_folder`: the folder where the input deck is located
 - `species`: the species in case we are interested in diagnostics that are species-specific (such as vfl1, T11, etc.)
 
 Acts as a wrapper for the `Diagnostic` class, allowing for an easy access to diagnostics of the simulation using a **dictionary-like** syntax.
 
-### `Diagnostic`
+## `Diagnostic`
 
 The `Diagnostic` class takes in:
 - `simulation_folder`: the folder where the input deck is located

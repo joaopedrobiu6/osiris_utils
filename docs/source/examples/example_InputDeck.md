@@ -144,5 +144,6 @@ Once you did your changes, you can simply generate a new input deck with `print_
 
 ```python
 deck.print_to_file("edited-deck.1d")
-! cat edited-deck.1d
+with open("edited-deck.1d") as f:
+    print(f.read())
 ```
