@@ -46,7 +46,7 @@ print(sim.__dict__.keys())
 print(f"\n")
 
 # e3 is a Diagnostic object
-e3 = ou.Diagnostic("example_data", "electrons")
+e3 = ou.Diagnostic(simulation_folder="example_data")
 # now we need to load the data
 e3.get_quantity("e3")  # it knows the path there since OSIRIS always saves the data in the same way
 

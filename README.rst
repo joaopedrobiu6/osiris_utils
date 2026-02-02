@@ -73,7 +73,6 @@ osiris_utils includes a command-line interface for common operations. After inst
 
 **Examples:**
 
-Show simulation information::
 
 
 
@@ -81,7 +80,6 @@ Export data to different formats::
 
    osiris export file.h5 --format csv --output data.csv
    osiris export diagnostic/dir --format npy --output data.npy
-
 Generate quick plots::
 
    osiris plot file.h5 --save plot.png
