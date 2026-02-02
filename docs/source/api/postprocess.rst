@@ -86,7 +86,7 @@ Derivative_Simulation Class
        from osiris_utils.postprocessing import Derivative_Simulation
        
        # Create a simulation interface
-       sim = Simulation('/path/to/input/deck')
+       sim = Simulation('/path/to/input/deck.inp')
        
        # Create a derivative processor for x₁ derivatives
        dx1 = Derivative_Simulation(sim, 'x1')
@@ -206,7 +206,7 @@ This example shows how to compute the z-component of curl(B):
     from osiris_utils.postprocessing import Derivative
     
     # Setup
-    sim = Simulation('/path/to/input/deck')
+    sim = Simulation('/path/to/input/deck.inp')
     dx1 = Derivative_Simulation(sim, 'x1')
     dx2 = Derivative_Simulation(sim, 'x2')
 
@@ -227,7 +227,7 @@ This example shows how to compute the divergence of E:
     from osiris_utils.postprocessing import Derivative_Diagnostic
     
     # Setup
-    e1 = Diagnostic('/path/to/folder', Species, "path/to/input/deck")
+    e1 = Diagnostic('/path/to/folder', species=None, input_deck="/path/to/input/deck.inp")
     
     # Create derivative processor for x₁ and x₂ derivatives
     de1_dx1 = Derivative_Diagnostic(e1, 'x1')
@@ -281,7 +281,7 @@ FFT_Simulation Class
        from osiris_utils.postprocessing import FFT_Simulation
        
        # Create a simulation interface
-       sim = Simulation('/path/to/input/deck')
+       sim = Simulation('/path/to/input/deck.inp')
        
        # Create an FFT processor for the first spatial dimension
        fft = FFT_Simulation(sim, 1)
@@ -379,7 +379,7 @@ This example shows how to compute and visualize a dispersion relation:
     import matplotlib.pyplot as plt
     
     # Setup
-    sim = Simulation('/path/to/input/deck')
+    sim = Simulation('/path/to/input/deck.inp')
     
     # Create FFT processor for both time and space
     # We'll do a 2D FFT - time (axis 0) and x1 (axis 1)
@@ -467,7 +467,7 @@ MFT_Simulation Class
        from osiris_utils.postprocessing import MFT_Simulation
        
        # Create a simulation interface
-       sim = Simulation('/path/to/input/deck')
+       sim = Simulation('/path/to/input/deck.inp')
        
        # Create MFT analyzer for x₁ direction (axis=1)
        mft = MFT_Simulation(sim, 1)
@@ -643,7 +643,7 @@ FieldCentering_Simulation Class
        from osiris_utils.postprocessing import FieldCentering_Simulation
 
        # Create a simulation interface
-       sim = Simulation('/path/to/input/deck')
+       sim = Simulation('/path/to/input/deck.inp')
 
        # Create a field centering processor
        centered_sim = FieldCentering_Simulation(sim)
