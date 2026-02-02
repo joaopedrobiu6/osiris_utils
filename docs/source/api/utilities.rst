@@ -79,7 +79,7 @@ Particle Data
    .. code-block:: python
   
       import osiris_utils as ou  
-      raw = ou.raw = ou.OsirisRawFile("path/to/raw/file.h5")
+      raw = ou.OsirisRawFile("path/to/raw/file.h5")
       print(raw.data.keys())
       print(raw.data["x1"][0:10])  # Access x1 position of first 10 particles
 
@@ -107,7 +107,7 @@ Particle Data
          raw = ou.OsirisRawFile("path/to/raw/file/.../.h5")
          # Selecting 5 random tags from particles with energy>5
          mask = raw.data["ene"] >    5.
-         raw_to_file_tags("output.tag", type="random", n_tags=5, mask=mask)
+         raw.raw_to_file_tags("output.tag", type="random", n_tags=5, mask=mask)
 
 
 
@@ -149,7 +149,7 @@ TRACK Data
    .. code-block:: python
   
       import osiris_utils as ou
-      track = ou.OsirisTrackFile(path/to/track_file.h5)
+      track = ou.OsirisTrackFile("path/to/track_file.h5")
       print(track.data[0:10, :]["x1"]) # Access x1 position of first 10 particles over all time steps
 
 
@@ -175,7 +175,7 @@ Convert track file to the older more readable format
    .. code-block:: python
       
       >>> import osiris_utils as ou 
-      >>> ou.utils.convert_tracks('path/to/input_trackfile.h5')
+      >>> ou.convert_tracks('path/to/input_trackfile.h5')
       >>> # The output will be saved as 'path/to/input_trackfile-v2.h5'
 
    **Notes:**  
@@ -209,7 +209,7 @@ To create a tag file directly from raw data, see :class:`osiris_utils.data.data.
       import osiris_utils as ou 
       import numpy as np
       tags = np.array([[1, 12345], [2, 67890], [3, 11111]])  # Example tags
-      ou.utils.create_file_tags('output.tag', tags)
+      ou.create_file_tags('output.tag', tags)
       # This will generate a file 'output.tag' with the particle tags.
 
    **Notes:**  

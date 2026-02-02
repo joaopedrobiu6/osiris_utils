@@ -25,7 +25,7 @@ InputDeckIO
 
    .. code-block:: python
 
-       from osiris_utils.decks import InputDeckIO
+       from osiris_utils import InputDeckIO
 
        # Load an input deck
        deck = InputDeckIO("osiris.inp")
