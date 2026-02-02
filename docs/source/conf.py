@@ -46,6 +46,7 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx_copybutton",
     "sphinx_github_style",
+    "myst_parser",
 ]
 
 nb_execution_mode = "off"  # use stored output; avoids long CI builds

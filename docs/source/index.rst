@@ -7,6 +7,13 @@ OSIRIS Utils Documentation
 
 .. toctree::
    :maxdepth: 2
+   :caption: Examples:
+   :hidden:
+
+   examples
+
+.. toctree::
+   :maxdepth: 2
    :caption: Simulation and Diagnostic API:
    :hidden:
    
@@ -24,6 +31,7 @@ OSIRIS Utils Documentation
    :caption: Utilities API:
    :hidden:
    
+   api/decks
    api/utilities
 
 .. toctree::

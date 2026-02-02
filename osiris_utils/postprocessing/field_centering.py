@@ -28,17 +28,16 @@ class FieldCentering_Simulation(PostProcess):
     """
 
     def __init__(self, simulation: Simulation):
-        super().__init__("FieldCentering Simulation")
         """
         Class to center the field in the simulation.
 
         Parameters
         ----------
-        sim : Simulation
+        simulation : Simulation
             The simulation object.
-        field : str
-            The field to center.
         """
+        super().__init__("FieldCentering Simulation")
+
         # Accept Simulation-compatible objects (Simulation or other PostProcess subclasses)
         if not isinstance(simulation, Simulation):
             raise ValueError("simulation must be a Simulation-compatible object.")
@@ -115,6 +114,14 @@ class FieldCentering_Diagnostic(Diagnostic):
         self._all_loaded = False
 
     def load_all(self) -> np.ndarray:
+        """
+        Load all data and center the fields.
+
+        Returns
+        -------
+        data : np.ndarray
+            The centered field data.
+        """
         if self._data is not None:
             return self._data
 
