@@ -602,8 +602,72 @@ For large datasets, consider these performance optimizations:
    * Only call `load_all()` when analyzing the full time evolution
    * Use `delete()` and `delete_all()` to free memory when finished with results
 
-2. **Computation Efficiency**:
+   2. **Computation Efficiency**:
 
    * Averaging is computationally inexpensive compared to other operations
    * For 2D/3D data, consider which axis to average along based on your physics
    * For iterative analysis, calculate fluctuations only when needed
+
+Field Centering
+===============
+
+.. _field-centering-api:
+
+The `FieldCentering` module provides tools to center fields on the grid cells, converting from the Yee mesh positions to cell centers.
+
+FieldCentering_Simulation Class
+-------------------------------
+
+.. autoclass:: osiris_utils.postprocessing.field_centering.FieldCentering_Simulation
+   :members:
+   :special-members: __init__, __getitem__
+   :show-inheritance:
+   :noindex:
+
+   Post-processor for centering electromagnetic fields.
+
+   The FieldCentering_Simulation class provides a convenient interface for centering fields from the Yee mesh to cell centers.
+
+   **Key Features:**
+
+   * Centers fields from Yee mesh to cell centers
+   * Handles periodic boundaries
+   * Supports 1D, 2D, and 3D simulations
+   * Lazy evaluation
+
+   **Usage Examples:**
+
+   .. code-block:: python
+
+       from osiris_utils.data import Simulation
+       from osiris_utils.postprocessing import FieldCentering_Simulation
+
+       # Create a simulation interface
+       sim = Simulation('/path/to/input/deck')
+
+       # Create a field centering processor
+       centered_sim = FieldCentering_Simulation(sim)
+
+       # Get centered E1 field
+       e1_centered = centered_sim['e1']
+
+       # Access specific timestep (interpolated on-demand)
+       timestep_10 = e1_centered[10]
+
+FieldCentering_Diagnostic Class
+-------------------------------
+
+.. autoclass:: osiris_utils.postprocessing.field_centering.FieldCentering_Diagnostic
+   :members:
+   :special-members: __init__, __getitem__
+   :show-inheritance:
+   :noindex:
+
+   Specialized diagnostic that represents the centered field.
+
+   This class handles the actual interpolation while maintaining the Diagnostic interface.
+
+   **Key Methods:**
+
+   * ``load_all()`` - Compute and store the complete centered field
+   * ``__getitem__(index)`` - Compute centered field for a specific timestep on-demand

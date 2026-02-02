@@ -1,7 +1,7 @@
 Utilities API
 =============
 
-This document provides a reference to the osiris_utils utilities API.
+This document provides a reference to the `osiris_utils` utilities API, which includes tools for reading various OSIRIS data formats (Grid, Raw Particles, Tracks, HIST) and helper functions for common physics calculations and data operations.
 
 Data Readers Structures
 -----------------------
