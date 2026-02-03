@@ -227,14 +227,26 @@ class OsirisGridFile(OsirisData):
                 "units": self._file["AXIS/" + ax].attrs["UNITS"][0].decode("utf-8"),
                 "long_name": self._file["AXIS/" + ax].attrs["LONG_NAME"][0].decode("utf-8"),
                 "type": self._file["AXIS/" + ax].attrs["TYPE"][0].decode("utf-8"),
-                "plot_label": rf'${self._file["AXIS/" + ax].attrs["LONG_NAME"][0].decode("utf-8")}$'
-                + rf'$[{self._file["AXIS/" + ax].attrs["UNITS"][0].decode("utf-8")}]$',
+                "plot_label": rf'${self._file["AXIS/" + ax].attrs["LONG_NAME"][0].decode("utf-8")}$' + rf'$[{self._file["AXIS/" + ax].attrs["UNITS"][0].decode("utf-8")}]$',
             }
             self._axis.append(axis_data)
 
         # Only load data if explicitly requested. Otherwise keep a placeholder so metadata-only
         # initializations are cheap for large files.
         if load_data:
+            # Handle partial slicing by padding with (slice(None),)
+            if data_slice is not None:
+                if not isinstance(data_slice, tuple):
+                    data_slice = (data_slice,)
+
+                # Check if we need to pad
+                ndims = len(dset.shape)
+                if len(data_slice) < ndims:
+                    data_slice = data_slice + (slice(None),) * (ndims - len(data_slice))
+
+            # data slice should be transposed to match data storage order [x, y, z] to [z, y, x]
+            data_slice = data_slice[::-1] if data_slice is not None and len(dset.shape) > 1 else data_slice
+
             data = np.array(dset[:]) if data_slice is None else np.array(dset[data_slice])
             self._data = np.ascontiguousarray(data.T)
         else:
@@ -368,12 +380,10 @@ class OsirisRawFile(OsirisData):
     def __init__(self, filename):
         super().__init__(filename)
 
-        self._grid = np.array(
-            [
-                self._file["SIMULATION"].attrs["XMIN"],
-                self._file["SIMULATION"].attrs["XMAX"],
-            ]
-        ).T
+        self._grid = np.array([
+            self._file["SIMULATION"].attrs["XMIN"],
+            self._file["SIMULATION"].attrs["XMAX"],
+        ]).T
 
         self._quants = [byte.decode("utf-8") for byte in self._file.attrs["QUANTS"][:]]
         units_list = [byte.decode("utf-8") for byte in self._file.attrs["UNITS"][:]]
@@ -536,12 +546,10 @@ class OsirisTrackFile(OsirisData):
     def __init__(self, filename):
         super().__init__(filename)
 
-        self._grid = np.array(
-            [
-                self._file["SIMULATION"].attrs["XMIN"],
-                self._file["SIMULATION"].attrs["XMAX"],
-            ]
-        ).T
+        self._grid = np.array([
+            self._file["SIMULATION"].attrs["XMIN"],
+            self._file["SIMULATION"].attrs["XMAX"],
+        ]).T
 
         self._quants = [byte.decode("utf-8") for byte in self._file.attrs["QUANTS"][1:]]
         units_list = [byte.decode("utf-8") for byte in self._file.attrs["UNITS"][1:]]
@@ -605,17 +613,7 @@ class OsirisTrackFile(OsirisData):
 
     def __str__(self):
         # write me a template to print with the name, label, units, iter, grid, nx, dx, axis, dt, dim in a logical way
-        return (
-            rf"{self.name}"
-            + "\n"
-            + f"Iteration: {self.iter}"
-            + "\n"
-            + f"Grid: {self.grid}"
-            + "\n"
-            + f"dx: {self.dx}"
-            + "\n"
-            + f"Dimensions: {self.dim}D"
-        )
+        return rf"{self.name}" + "\n" + f"Iteration: {self.iter}" + "\n" + f"Grid: {self.grid}" + "\n" + f"dx: {self.dx}" + "\n" + f"Dimensions: {self.dim}D"
 
     def __array__(self):
         return np.asarray(self.data)
