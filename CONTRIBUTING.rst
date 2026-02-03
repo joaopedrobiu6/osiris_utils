@@ -13,8 +13,8 @@ Reporting Bugs
 How do I submit a good bug report?
 ----------------------------------
 
-Bugs are tracked as GitHub issues:
-`https://github.com/joaopedrobiu6/osiris_utils/issues/`
+Bugs are tracked as GitHub `issues.
+<https://github.com/joaopedrobiu6/osiris_utils/issues/>`
 
 To help maintainers reproduce (and fix) the problem quickly, please include:
 
