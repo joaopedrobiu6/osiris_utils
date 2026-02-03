@@ -9,7 +9,7 @@ from ..data.diagnostic import Diagnostic
 from ..data.simulation import Simulation
 from .postprocess import PostProcess
 
-OSIRIS_P = ["P11", "P12", "P13", "P21", "P22", "P23", "P31", "P32", "P33"]
+OSIRIS_P = ["P11", "P12", "P13", "P22", "P23", "P33"]
 
 __all__ = [
     "PressureCorrection_Simulation",
