@@ -19,12 +19,10 @@ class FFT_Simulation(PostProcess):
 
     Parameters
     ----------
-
     simulation : Simulation
         The simulation object.
-    axis : int
-        The axis to compute the FFT.
-
+    fft_axis : int or list of int
+        The axis or axes to compute the FFT.
     """
 
     def __init__(self, simulation: Simulation, fft_axis: int | list[int]) -> None:
@@ -84,13 +82,13 @@ class FFT_Diagnostic(Diagnostic):
     Methods
     -------
     load_all() -> np.ndarray
-        Load all data and compute FFT (possibly including time axis). Returns power spectrum |FFT|^2 stored in self._data.
-    _frame(index: int, data_slice: tuple | None = None) -> np.ndarray
+        Load all data and compute FFT (possibly including time axis). Returns power spectrum \|FFT\|^2 stored in self._data.
+    _frame(index: int, data_slice: tuple \| None = None) -> np.ndarray
         Per-timestep (lazy) FFT. Only allowed for spatial FFT. If fft_axis includes time (0), user must call load_all().
-        Returns power spectrum |FFT|^2.
+        Returns power spectrum \|FFT\|^2.
     omega() -> np.ndarray
         Get the angular frequency array for the FFT along the time dimension.
-    k(axis: int | None = None) -> np.ndarray | dict[int, np.ndarray]
+    k(axis: int \| None = None) -> np.ndarray \| dict[int, np.ndarray]
         Get the wavenumber array for the FFT along spatial dimension(s).
     """
 
@@ -102,7 +100,7 @@ class FFT_Diagnostic(Diagnostic):
         window: str | None = "hann",  # "hann" or None
         window_for_spatial: str | None = None,  # default None if periodic; override if desired
         detrend: str | None = "mean",  # "mean" or None
-        normalize: str = "ortho",  # "none" | "ortho" | "density"
+        normalize: str = "ortho",  # "none" or "ortho" or "density"
         assume_periodic: bool = False,  # affects default windowing for spatial FFT)
     ) -> None:
         if hasattr(diagnostic, "_species"):
@@ -161,7 +159,7 @@ class FFT_Diagnostic(Diagnostic):
     def load_all(self) -> np.ndarray:
         """
         Load all data and compute FFT (possibly including time axis).
-        Returns power spectrum |FFT|^2 stored in self._data.
+        Returns power spectrum \|FFT\|^2 stored in self._data.
         """
         if self._data is not None:
             print("Using cached data.")
@@ -218,7 +216,7 @@ class FFT_Diagnostic(Diagnostic):
         """
         Per-timestep (lazy) FFT. Only allowed for spatial FFT.
         If fft_axis includes time (0), user must call load_all().
-        Returns power spectrum |FFT|^2.
+        Returns power spectrum \|FFT\|^2.
         """
         axes_osiris = [self._fft_axis] if isinstance(self._fft_axis, int) else list(self._fft_axis)
 

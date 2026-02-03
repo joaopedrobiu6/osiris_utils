@@ -48,7 +48,7 @@ Usage examples
 ~~~~~~~~~~~~~~
 
 Basic access (lazy)
-^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: python
 
