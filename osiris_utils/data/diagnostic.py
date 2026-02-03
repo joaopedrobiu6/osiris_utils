@@ -16,8 +16,6 @@ from ..decks.decks import InputDeckIO
 from ..decks.species import Species
 from .data import OsirisGridFile
 
-__all__ = ["Diagnostic", "which_quantities"]
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)8s │ %(message)s")
 logger = logging.getLogger(__name__)
 

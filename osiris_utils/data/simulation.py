@@ -35,8 +35,6 @@ class Simulation:
         Delete a diagnostic.
     __getitem__(key)
         Get a diagnostic.
-
-
     """
 
     def __init__(self, input_deck_path: str) -> None:
