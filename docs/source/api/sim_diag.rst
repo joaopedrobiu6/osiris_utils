@@ -3,7 +3,7 @@ Simulation Interface
 
 .. _simulation-api:
 
-The `Simulation` class provides a high-level interface for handling OSIRIS simulation data and accessing various diagnostics.
+The ``Simulation`` class provides a high-level interface for handling OSIRIS simulation data and accessing diagnostics through a consistent, dictionary-like API.
 
 Simulation Class
 ----------------
@@ -14,81 +14,116 @@ Simulation Class
    :undoc-members:
    :noindex:
 
-   A wrapper class that manages access to multiple diagnostic quantities from an OSIRIS simulation.
-   
-   The Simulation class simplifies working with multiple diagnostics from the same simulation by:
-   
-   * Providing dictionary-style access to diagnostics using field/quantity names
-   * Managing the simulation path and species information centrally
-   * Caching loaded diagnostics for efficient reuse
-   
-   **Key Attributes:**
-   
-   * ``species`` - The plasma species being analyzed
-   * ``simulation_folder`` - Path to the OSIRIS simulation data
-   * ``diagnostics`` - Dictionary of loaded diagnostic objects
-   
-   **Usage Examples:**
-   
-   Basic usage with lazy loading:
-   
-   .. code-block:: python
-   
-       from osiris_utils.data import Simulation
-       
-       # Create a simulation interface
-       sim = Simulation('path/to/simulation/osiris.inp')
-       
-       # Access the E1 field diagnostic (doesn't load data yet) - this is a Diagnostic object
-       # Since it is a diagnostic not related with the species, the species argument is not needed
-       sim['e1']
-       
-       # For diagnostics related with the species, the species argument is needed
-       sim['electrons']['charge']
+A wrapper class that manages access to multiple diagnostic quantities from a single OSIRIS run.
 
-       # Load all timesteps for this diagnostic
-       e1_diag.load_all()
-       
-       # The diagnostic is now cached in the simulation object
-       # Access it again without recreating
-       same_e1_diag = sim['e1']
-   
-   Working with multiple diagnostics:
-   
-   .. code-block:: python
-   
-       # Access several diagnostics
-       e1 = sim['e1']
-       e2 = sim['e2']
-       b3 = sim['b3']
-       
-       # Load specific timesteps
-       e1[10:20, 0:10]  # Load timesteps 10-19 and x1 0-10
-       
-       # Clean up to free memory
-       sim.delete_diagnostic('e1')
-       sim.delete_all_diagnostics()
+**What Simulation gives you**
+
+- **Dictionary-style access** to diagnostics:
+
+  - ``sim["e1"]`` returns a non-species diagnostic (fields, global quantities, etc.)
+  - ``sim["electrons"]["charge"]`` returns a species diagnostic
+
+- **Centralized metadata**:
+
+  - simulation folder is inferred from the input deck path
+  - species list comes from the parsed input deck
+
+- **Caching of created diagnostics**:
+
+  - repeated access returns the same wrapper object
+  - you can delete cached diagnostics to free memory
+
+**Key attributes**
+
+- ``species``: list of species names found in the input deck
+- ``loaded_diagnostics``: dictionary of cached non-species diagnostics
+
+.. note::
+
+   ``Simulation`` does not automatically load data. Diagnostics are lazy by default.
+   Data is read only when you index a diagnostic or call ``load_all()``.
+
+
+Usage examples
+~~~~~~~~~~~~~~
+
+Basic access (lazy)
+^^^^^^^^^^^^^^^^^^
+
+.. code-block:: python
+
+   from osiris_utils.data import Simulation
+
+   sim = Simulation("/path/to/osiris.inp")
+
+   # Non-species diagnostic (no data read yet)
+   e1 = sim["e1"]
+
+   # Species diagnostic
+   charge = sim["electrons"]["charge"]
+
+Load specific timesteps and slices
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Diagnostics support:
+
+- time indexing: ``diag[i]`` and ``diag[i:j]``
+- tuple indexing: ``diag[i, x_slice, y_slice, ...]`` (time + spatial slicing)
+
+.. code-block:: python
+
+   e1 = sim["e1"]
+
+   # Single timestep (reads one file)
+   arr_t10 = e1[10]
+
+   # Multiple timesteps (reads only requested files)
+   arr_t10_20 = e1[10:20]
+
+   # Time index + spatial slicing (efficient: reads only slice from disk if supported)
+   # Example for 2D: (time, x1, x2)
+   arr_roi = e1[10, :, 100:200]
+
+Loading everything into memory
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: python
+
+   e1 = sim["e1"]
+   e1.load_all()          # loads all timesteps into memory
+   full = e1.data         # numpy array with shape (t, ...)
+
+Cache management
+^^^^^^^^^^^^^^^^
+
+.. code-block:: python
+
+   # remove one diagnostic from the simulation cache
+   sim.delete_diagnostic("e1")
+
+   # remove all cached diagnostics
+   sim.delete_all_diagnostics()
+
 
 Integration with Diagnostics
 ----------------------------
 
-The Simulation class works seamlessly with the :ref:`diagnostic-system` system:
+The workflow is:
 
-1. When you request a diagnostic with ``sim[quantity_name]`` or ``sim[species_name][quantity_name]``, it creates a Diagnostic object
-2. The first time you load data with ``.load_all()`` or indexing, the diagnostic is cached
-3. Subsequent accesses return the cached diagnostic for efficiency
-4. You can explicitly remove diagnostics from the cache to manage memory
-5. ``.load_all()`` loads all timesteps for the diagnostic
-6. To access a single iteration of the quantity, indexing gives you the data for the requested timesteps.
+1. ``sim[quantity]`` or ``sim[species][quantity]`` creates a ``Diagnostic`` wrapper (lazy)
+2. Accessing data (via indexing or ``load_all()``) reads from disk
+3. After the first ``load_all()``, the ``Simulation`` caches the diagnostic so future access returns the same object
+4. You can remove cached diagnostics explicitly to manage memory
 
-This approach allows for efficient workflow when analyzing large simulations with multiple fields and timesteps.
+This keeps interactive analysis fast while still scaling to large datasets.
+
 
 .. _diagnostic-system:
 
 Diagnostic System
 =================
 
-The `Diagnostic` class is the foundation of osiris_utils data handling, providing access to OSIRIS simulation diagnostics and support for derived quantities.
+The ``Diagnostic`` class is the foundation of data handling in ``osiris_utils``. It represents a time series of grid data stored in OSIRIS output files, plus any derived quantities created through operations.
 
 Diagnostic Base Class
 ---------------------
@@ -99,161 +134,131 @@ Diagnostic Base Class
    :undoc-members:
    :noindex:
 
-   The core class for accessing and manipulating OSIRIS diagnostic data. This class handles both raw OSIRIS data files and derived data from operations.
-   
-   **Key Features:**
-   
-   * Lazy loading system that only reads data when needed
-   * Support for mathematical operations between diagnostics
-   * Generator-based access for memory-efficient processing
-   * Automatic attribute handling for derived quantities
-   
-   **Key Attributes:**
-   
-   * ``species`` - The plasma species being analyzed (Species object)
-   * ``dx`` - Grid spacing in each direction
-   * ``nx`` - Number of grid points in each direction
-   * ``x`` - Grid coordinates
-   * ``data`` - The actual diagnostic data (when loaded)
-   * ``dim`` - Dimensionality of the data
-   * ``units`` - Physical units of the data
-   * ``dt`` - Time step between outputs
-   * ``ndump`` - Number of steps between dumps
-   * ``grid`` - Boundaries of the simulation grid in each direction (physical units)
-   * ``name`` - Name of the diagnostic quantity (for quantities directly obtained from OSIRIS data)
-   * ``label`` - LaTeX label for the quantity (for quantities directly obtained from OSIRIS data)
-   * ``axis`` - Axis information
-   * ``maxiter`` - Maximum number of iterations of the diagnostic
-   * ``tunits`` - Time units of the simulation
+**Key features**
 
-   
-   **Usage Examples:**
-   
-   Basic loading and access:
-   
-   .. code-block:: python
-   
-       # Create diagnostic for electron charge
-       # Note: Use Simulation class for easier access instead of Diagnostic directly
-       electrons = Species("electrons", rqm=-1, q=-1)
-       diag = Diagnostic("/path/to/simulation", species=electrons)
-       diag.get_quantity("charge")
-       
-       # Access specific timestep (without loading all data)
-       timestep_5 = diag[5]
-       
-       # Load all timesteps into memory
-       diag.load_all()
-       
-       # Now data is available as an array
-       print(diag.data.shape)
-   
-   Mathematical operations:
-   
-   .. code-block:: python
-   
-       # Operations between diagnostics
-       sim = Simulation("/path/to/simulation/osiris.inp")
-       e1 = sim["e1"]
-       vfl1 = sim["electron"]["vfl1"]
-       
-       # Create a derived diagnostic without loading data
-       e_times_v = (e1**2 + vfl1**2)**0.5
-       
-       # Access specific timestep of the result (calculated on-demand)
-       timestep_10 = e_times_v[10]
+- **Lazy loading**: reads only the requested timestep(s) from disk
+- **Time slicing**: supports ``diag[i]`` and ``diag[i:j]``
+- **Spatial slicing**: supports tuple indexing (time + spatial slices) when backed by OSIRIS HDF5
+- **Derived diagnostics**: arithmetic between diagnostics produces new diagnostics without immediately loading data
+- **Metadata propagation**: grid/time metadata is preserved for derived quantities
+
+**Common attributes**
+
+- ``dx``: grid spacing (float for 1D, array-like for >1D)
+- ``nx``: number of grid points
+- ``x``: coordinate arrays
+- ``dt``: simulation timestep (from file metadata)
+- ``ndump``: dump interval (from input deck when available; defaults to 1 otherwise)
+- ``grid``: physical bounds of each axis
+- ``axis``: axis metadata (names/labels/units)
+- ``dim``: dimensionality (1/2/3)
+- ``maxiter``: number of timesteps available for this diagnostic
+- ``name`` / ``label`` / ``units``: metadata when available
+- ``data``: full in-memory array after calling ``load_all()``
+
+Usage examples
+~~~~~~~~~~~~~~
+
+Create and access diagnostics
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+In most cases you should use ``Simulation`` rather than creating ``Diagnostic`` manually:
+
+.. code-block:: python
+
+   from osiris_utils.data import Simulation
+
+   sim = Simulation("/path/to/osiris.inp")
+
+   e1 = sim["e1"]
+   ne = sim["electrons"]["n"]
+
+   # read a single timestep (lazy)
+   e1_t10 = e1[10]
+
+   # read a time slice (lazy, reads only needed files)
+   ne_t0_20 = ne[0:20]
+
+Derived diagnostics (lazy)
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Operations between diagnostics return a new ``Diagnostic``-like object that can still be indexed lazily:
+
+.. code-block:: python
+
+   e1 = sim["e1"]
+   e2 = sim["e2"]
+   e3 = sim["e3"]
+
+   e_mag = (e1**2 + e2**2 + e3**2) ** 0.5
+
+   # computed on demand
+   e_mag_t10 = e_mag[10]
+
+   # can also load full result if desired
+   e_mag.load_all()
+   full = e_mag.data
+
 
 Available Diagnostic Quantities in OSIRIS
 -----------------------------------------
 
-The following diagnostic quantities are available for OSIRIS simulations:
+OSIRIS provides many diagnostics. In ``osiris_utils``, quantities are exposed via their OSIRIS-style names.
 
-**Field Quantities:**
+**Field quantities**
 
-* ``e1``, ``e2``, ``e3`` - Electric field components
-* ``b1``, ``b2``, ``b3`` - Magnetic field components
+- ``e1``, ``e2``, ``e3`` — electric field components
+- ``b1``, ``b2``, ``b3`` — magnetic field components
+- (and optionally ``part_*`` / ``ext_*`` variants if present in the output)
 
-**Particle Quantities:**
+**Species-dependent grid quantities**
 
-* ``n`` - Density
-* ``charge`` - Charge density
-* ``j1``, ``j2``, ``j3`` - Current density components
-* ``q1``, ``q2``, ``q3`` - Charge flux components
+- ``charge`` — charge density
+- ``j1``, ``j2``, ``j3`` — current density components
+- ``q1``, ``q2``, ``q3`` — charge flux components
+- ``n`` — convenience alias for density (implemented via OSIRIS charge with sign convention)
 
-**Velocity Distribution Quantities:**
+**Velocity / moment quantities**
 
-* ``vfl1``, ``vfl2``, ``vfl3`` - Flow velocity components
-* ``ufl1``, ``ufl2``, ``ufl3`` - Momentum components
-* Various pressure and temperature tensor components
+- ``vfl1``, ``vfl2``, ``vfl3`` — flow velocity components
+- ``ufl1``, ``ufl2``, ``ufl3`` — momentum components
+- pressure / temperature tensor components: ``P11``, ``P12``, ..., ``T11``, ...
 
-**Phase Space Quantities:**
+**Phase space quantities**
 
-* ``p1x1``, ``p1x2``, etc. - Phase space diagnostics
+- ``p1x1``, ``p1x2``, ... (depends on what was configured in the OSIRIS input)
 
-To see all available quantities:
+To list what the package recognizes:
 
 .. code-block:: python
 
-    from osiris_utils.data.diagnostic import which_quantities
-    which_quantities()
+   from osiris_utils.data.diagnostic import which_quantities
+   which_quantities()
 
-Memory-Efficient Processing
+
+Memory-efficient processing
 ---------------------------
 
-The `Diagnostic` class provides several ways to work with large datasets without loading everything into memory:
+For large simulations, prefer lazy access patterns:
 
-1. **Item access with** ``diag[index]`` - Loads only the requested timestep
-2. **Iteration with** ``for timestep in diag:`` - Processes one timestep at a time
-3. **Generator-based operations** - Mathematical operations create new diagnostics without loading data
+1. **Single timestep**: ``diag[i]``
+2. **Time slice**: ``diag[i:j]``
+3. **Spatial ROI**: ``diag[i, :, 100:200]`` (time + spatial slices)
 
-This lazy evaluation system allows you to work with large simulations that would otherwise exceed available memory.
+Only use ``load_all()`` when you truly need the full time series in memory.
 
-Visualization Methods
----------------------
 
-The `Diagnostic` class provides visualization methods for quick inspection of 3D data:
+Derived diagnostics and metadata propagation
+--------------------------------------------
 
-* ``plot_3d()`` - Creates 3D scatter plots of 3D field data
+Derived diagnostics created by arithmetic preserve important metadata:
 
-Derived Diagnostics
--------------------
+- grid spacing and coordinates (``dx``, ``x``, ``grid``)
+- dimensionality (``dim``) and timestep count (``maxiter``)
+- time metadata (``dt``, ``ndump``)
 
-One of the most powerful features of the Diagnostic system is that new diagnostics can be created through operations on existing ones. These derived diagnostics maintain all the benefits of the base class:
+This makes derived quantities “first-class” diagnostics that can be:
 
-.. code-block:: python
-
-    # Create base diagnostics
-    sim = Simulation("/path/to/simulation/osiris.inp")
-    e1 = sim["e1"]
-    e2 = sim["e2"] 
-    e3 = sim["e3"]
-    
-    # Create derived diagnostics through operations - e_magnitude and normalized_1 are Diagnostic objects
-    e_magnitude = (e1**2 + e2**2 + e3**2)**0.5  # E-field magnitude
-    normalized_e1 = e1 / e_magnitude            # Normalized E1 component
-    
-    # These are full diagnostics objects that support:
-    # - Lazy loading
-    # - Indexing
-    # - Further operations
-    # - Visualization
-    
-    # Access specific timesteps (calculated on demand)
-    timestep_10 = e_magnitude[10]
-    
-    # Apply mathematical functions
-    import numpy as np
-    log_e_magnitude = np.log10(e_magnitude)
-
-**Automatic Attribute Inheritance**
-
-When creating diagnostics through operations, metadata is intelligently propagated:
-
-1. Grid information (``dx``, ``nx``, ``x``) is preserved
-2. Axis information is maintained
-3. Time information (``dt``, ``ndump``) is maintained
-4. Dimension and array shapes remain consistent, as well as maximum iteration number
-
-**Chaining Operations**
-
-Operations can be chained to create complex derivations.
+- indexed like any other diagnostic
+- used in further operations
+- passed into post-processing routines (FFT, derivatives, MFT, etc.)

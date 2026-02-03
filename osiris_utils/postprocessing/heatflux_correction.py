@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Generator
 from typing import Any
 
 import numpy as np
@@ -21,7 +20,7 @@ __all__ = [
 
 class HeatfluxCorrection_Simulation(PostProcess):
     def __init__(self, simulation: Simulation):
-        super().__init__("HeatfluxCorrection Simulation")
+        super().__init__("HeatfluxCorrection Simulation", simulation)
         """
         Class to correct pressure tensor components by subtracting Reynolds stress.
 
@@ -32,9 +31,6 @@ class HeatfluxCorrection_Simulation(PostProcess):
         heatflux : str
             The heatflux component to center.
         """
-        if not isinstance(simulation, Simulation):
-            raise ValueError("simulation must be a Simulation-compatible object.")
-        self._simulation = simulation
         self._heatflux_corrected: dict[str, HeatfluxCorrection_Diagnostic] = {}
         self._species_handler: dict[str, HeatfluxCorrection_Species_Handler] = {}
 
@@ -60,11 +56,6 @@ class HeatfluxCorrection_Simulation(PostProcess):
             del self._heatflux_corrected[key]
         else:
             print(f"Heatflux {key} not found in simulation")
-
-    def process(self, diagnostic: Diagnostic) -> HeatfluxCorrection_Diagnostic:
-        """Apply heatflux correction to a diagnostic"""
-        # FIX: This is a bit of a hack, but it works for now
-        return HeatfluxCorrection_Diagnostic(diagnostic, self._simulation)
 
 
 class HeatfluxCorrection_Diagnostic(Diagnostic):
@@ -126,6 +117,18 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         self._data: np.ndarray | None = None
         self._all_loaded = False
 
+    def _compute(
+        self,
+        q: np.ndarray,
+        vfl_i: np.ndarray,
+        trace_P: np.ndarray,
+        vfl_dot_Pji: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Centralize the correction formula so eager/lazy always match.
+        """
+        return 2.0 * q - vfl_i * trace_P - 2.0 * vfl_dot_Pji
+
     def load_all(self) -> np.ndarray:
         if self._data is not None:
             return self._data
@@ -147,37 +150,41 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         q = self._diag.data
         vfl_i = self._vfl_i.data
 
-        trace_P = sum(Pjj.data for Pjj in self._Pjj_list)
+        trace_P = None
+        for Pjj in self._Pjj_list:
+            trace_P = Pjj.data if trace_P is None else trace_P + Pjj.data
 
-        # Sum over j: vfl_j * Pji
-        vfl_dot_Pji = sum(vfl_j.data * Pji.data for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list, strict=False))
+        vfl_dot_Pji = None
+        for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list, strict=False):
+            term = vfl_j.data * Pji.data
+            vfl_dot_Pji = term if vfl_dot_Pji is None else vfl_dot_Pji + term
 
-        self._data = 2 * q - vfl_i * trace_P - 2 * vfl_dot_Pji
+        self._data = self._compute(q, vfl_i, trace_P, vfl_dot_Pji)
         self._all_loaded = True
-
         return self._data
 
-    def __getitem__(self, index: int | slice) -> np.ndarray:
-        """Get data at a specific index"""
-        if self._all_loaded and self._data is not None:
-            return self._data[index]
+    def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
+        """
+        Lazy per-timestep correction. Reads only requested slices from disk,
+        provided the underlying diagnostics support data_slice.
+        """
+        # Read one timestep (and only the requested spatial slice)
+        q = self._diag._frame(index, data_slice=data_slice)
+        vfl_i = self._vfl_i._frame(index, data_slice=data_slice)
 
-        if isinstance(index, int):
-            return next(self._data_generator(index))
-        elif isinstance(index, slice):
-            start = 0 if index.start is None else index.start
-            step = 1 if index.step is None else index.step
-            stop = self._diag._maxiter if index.stop is None else index.stop
-            return np.array([next(self._data_generator(i)) for i in range(start, stop, step)])
-        else:
-            raise ValueError("Invalid index type. Use int or slice.")
+        # trace_P = sum_j Pjj
+        trace_P = None
+        for Pjj in self._Pjj_list:
+            arr = Pjj._frame(index, data_slice=data_slice)
+            trace_P = arr if trace_P is None else trace_P + arr
 
-    def _data_generator(self, index: int) -> Generator[np.ndarray, None, None]:
-        q = self._diag[index]
-        vfl_i = self._vfl_i[index]
-        trace_P = sum(Pjj[index] for Pjj in self._Pjj_list)
-        vfl_dot_Pji = sum(vfl_j[index] * Pji[index] for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list, strict=False))
-        yield 2 * q - 0.5 * vfl_i * trace_P - vfl_dot_Pji
+        # vfl_dot_Pji = sum_j vfl_j * Pji
+        vfl_dot_Pji = None
+        for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list, strict=False):
+            term = vfl_j._frame(index, data_slice=data_slice) * Pji._frame(index, data_slice=data_slice)
+            vfl_dot_Pji = term if vfl_dot_Pji is None else vfl_dot_Pji + term
+
+        return self._compute(q, vfl_i, trace_P, vfl_dot_Pji)
 
 
 class HeatfluxCorrection_Species_Handler:
@@ -215,7 +222,8 @@ class HeatfluxCorrection_Species_Handler:
 
             # Compute quantities for vfl_j * P_{ji}
             vfl_j_list = [self._species_handler[f"vfl{j}"] for j in range(1, diag._dim + 1)]
-            Pji_list = [PressureCorrection_Simulation(self._simulation)[diag._species._name][f"P{j}{i}"] for j in range(1, diag._dim + 1)]
+            pc = PressureCorrection_Simulation(self._simulation)
+            Pji_list = [pc[diag._species._name][f"P{j}{i}"] for j in range(1, diag._dim + 1)]
 
             self._heatflux_corrected[key] = HeatfluxCorrection_Diagnostic(diag, vfl_i, Pjj_list, vfl_j_list, Pji_list)
         return self._heatflux_corrected[key]

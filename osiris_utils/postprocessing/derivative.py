@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections import OrderedDict
 from typing import Any
 
 import numpy as np
 
 from ..data.diagnostic import Diagnostic
-from ..data.simulation import Simulation
 from .postprocess import PostProcess
 
 __all__ = ["Derivative_Diagnostic", "Derivative_Simulation", "Derivative_Species_Handler"]
@@ -44,55 +43,60 @@ class Derivative_Simulation(PostProcess):
 
     def __init__(
         self,
-        simulation: Simulation | Derivative_Simulation,
+        simulation: Any,  # Simulation-like (Simulation or PostProcess wrapper)
         deriv_type: str,
         axis: int | tuple[int, int] | None = None,
         order: int = 2,
     ):
-        super().__init__(f"Derivative({deriv_type})")
-        # Accept both Simulation and Derivative_Simulation objects
-        if not isinstance(simulation, (Simulation, Derivative_Simulation)):
-            raise ValueError("simulation must be a Simulation or Derivative_Simulation object.")
-        self._simulation = simulation
+        super().__init__(f"Derivative({deriv_type})", simulation)
+
+        # Capability checks (supports chaining)
+        if not hasattr(simulation, "__getitem__"):
+            raise TypeError("simulation must be Simulation-like: supports __getitem__.")
+        if not (hasattr(simulation, "_species") or hasattr(simulation, "species")):
+            raise TypeError("simulation must be Simulation-like: has _species or species.")
+
         self._deriv_type = deriv_type
-        self._axis = axis
-        self._derivatives_computed = {}
-        self._species_handler = {}
+        self._op_axis = axis
         self._order = order
 
-        # Copy species list to make this class behave like a Simulation
-        if hasattr(simulation, "_species"):
-            self._species = simulation._species
-        else:
-            self._species = []
+        self._derivatives_computed: dict[Any, Derivative_Diagnostic] = {}
+        self._species_handler: dict[Any, Derivative_Species_Handler] = {}
 
-    def __getitem__(self, key: Any) -> Derivative_Species_Handler | Derivative_Diagnostic:
-        if key in self._simulation._species:
+        # species already set by PostProcess, but keep it explicit if you want:
+        self._species = getattr(simulation, "_species", getattr(simulation, "species", []))
+
+    def __getitem__(self, key: Any):
+        if key in self._species:
             if key not in self._species_handler:
-                self._species_handler[key] = Derivative_Species_Handler(self._simulation[key], self._deriv_type, self._axis, self._order)
+                self._species_handler[key] = Derivative_Species_Handler(
+                    self._simulation[key],  # species handler from wrapped sim
+                    self._deriv_type,
+                    self._op_axis,
+                    self._order,
+                )
             return self._species_handler[key]
 
         if key not in self._derivatives_computed:
             self._derivatives_computed[key] = Derivative_Diagnostic(
                 diagnostic=self._simulation[key],
                 deriv_type=self._deriv_type,
-                axis=self._axis,
+                axis=self._op_axis,
                 order=self._order,
             )
         return self._derivatives_computed[key]
 
     def delete_all(self) -> None:
         self._derivatives_computed = {}
+        self._species_handler = {}
 
     def delete(self, key: Any) -> None:
         if key in self._derivatives_computed:
             del self._derivatives_computed[key]
+        elif key in self._species_handler:
+            del self._species_handler[key]
         else:
-            print(f"Derivative {key} not found in simulation")
-
-    def process(self, diagnostic: Diagnostic) -> Derivative_Diagnostic:
-        """Apply derivative to a diagnostic"""
-        return Derivative_Diagnostic(diagnostic, self._deriv_type, self._axis)
+            print(f"Derivative {key} not found")
 
     @property
     def species(self) -> list:
@@ -159,8 +163,8 @@ class Derivative_Diagnostic(Diagnostic):
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, "_species"):
             super().__init__(
-                simulation_folder=(diagnostic._simulation_folder if hasattr(diagnostic, "_simulation_folder") else None),
-                species=diagnostic._species,
+                simulation_folder=(getattr(diagnostic, "_simulation_folder", None)),
+                species=getattr(diagnostic, "_species", None),
             )
         else:
             super().__init__(None)
@@ -170,10 +174,13 @@ class Derivative_Diagnostic(Diagnostic):
         # self._name = f"D[{diagnostic._name}, {type}]"
         self._diag = diagnostic
         self._deriv_type = deriv_type
-        self._axis = axis if axis is not None else diagnostic._axis
+        self._op_axis = axis
         self._data = None
         self._all_loaded = False
         self._order = order
+
+        self._cache = OrderedDict()
+        self._cache_max = 6  # Maximum number of items to keep in cache (enough for 4th-order time stencil)
 
         # Copy all relevant attributes from diagnostic
         for attr in [
@@ -237,7 +244,9 @@ class Derivative_Diagnostic(Diagnostic):
         slices_m1[axis] = slice(1, -3)  # i-1: starts at 1, goes to -3
         slices_m2[axis] = slice(0, -4)  # i-2: starts at 0, goes to -4
 
-        result[tuple(slices_center)] = (-data[tuple(slices_p2)] + 8 * data[tuple(slices_p1)] - 8 * data[tuple(slices_m1)] + data[tuple(slices_m2)]) / (12 * dx)
+        result[tuple(slices_center)] = (
+            -data[tuple(slices_p2)] + 8 * data[tuple(slices_p1)] - 8 * data[tuple(slices_m1)] + data[tuple(slices_m2)]
+        ) / (12 * dx)
 
         # Boundary points using 2nd-order differences
         # First point: forward difference
@@ -300,38 +309,43 @@ class Derivative_Diagnostic(Diagnostic):
                 result = np.gradient(self._data, self._diag._dx[2], axis=3, edge_order=2)
 
             elif self._deriv_type == "xx":
-                if len(self._axis) != 2:
+                if len(self._op_axis) != 2:
                     raise ValueError("Axis must be a tuple with two elements.")
                 result = np.gradient(
                     np.gradient(
                         self._data,
-                        self._diag._dx[self._axis[0] - 1],
-                        axis=self._axis[0],
+                        self._diag._dx[self._op_axis[0] - 1],
+                        axis=self._op_axis[0],
                         edge_order=2,
                     ),
-                    self._diag._dx[self._axis[1] - 1],
-                    axis=self._axis[1],
+                    self._diag._dx[self._op_axis[1] - 1],
+                    axis=self._op_axis[1],
                     edge_order=2,
                 )
 
-            elif self._deriv_type == "xt":
-                if not isinstance(self._axis, int):
-                    raise ValueError("Axis must be an integer.")
+            elif self._deriv_type == "xx":
+                if not isinstance(self._op_axis, (tuple, list)) or len(self._op_axis) != 2:
+                    raise ValueError("Axis must be a tuple with two elements.")
                 result = np.gradient(
-                    np.gradient(self._data, self._diag._dt, axis=0, edge_order=2),
-                    self._diag._dx[self._axis - 1],
-                    axis=self._axis,
+                    np.gradient(
+                        self._data,
+                        self._diag._dx[self._op_axis[0] - 1],
+                        axis=self._op_axis[0],
+                        edge_order=2,
+                    ),
+                    self._diag._dx[self._op_axis[1] - 1],
+                    axis=self._op_axis[1],
                     edge_order=2,
                 )
 
             elif self._deriv_type == "tx":
-                if not isinstance(self._axis, int):
+                if not isinstance(self._op_axis, int):
                     raise ValueError("Axis must be an integer.")
                 result = np.gradient(
                     np.gradient(
                         self._data,
-                        self._diag._dx[self._axis - 1],
-                        axis=self._axis,
+                        self._diag._dx[self._op_axis - 1],
+                        axis=self._op_axis,
                         edge_order=2,
                     ),
                     self._diag._dt,
@@ -363,281 +377,153 @@ class Derivative_Diagnostic(Diagnostic):
         self._data = result
         return self._data
 
-    def _get_padded_slice(self, req_slice: int | slice, max_len: int, halo: int) -> tuple[slice, slice, bool]:
-        """
-        Calculate the read slice (with halo) and the crop slice to extract the original request.
+    def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
+        # dimension guards
+        if self._deriv_type in ("x2", "xt", "tx") and self._diag._dim < 2:
+            raise ValueError(f"{self._deriv_type} requested but diagnostic dim={self._diag._dim}")
+        if self._deriv_type in ("x3",) and self._diag._dim < 3:
+            raise ValueError(f"{self._deriv_type} requested but diagnostic dim={self._diag._dim}")
+        if self._deriv_type == "xx":
+            if not isinstance(self._op_axis, (tuple, list)) or len(self._op_axis) != 2:
+                raise ValueError("For 'xx', axis must be a tuple/list of two spatial axes (1..3).")
+            if max(self._op_axis) > self._diag._dim:
+                raise ValueError(f"xx requested for axes {self._op_axis} but dim={self._diag._dim}")
 
-        This method ensures that we read enough extra data (the halo) to compute derivatives
-        at the boundaries of the requested slice, while respecting the physical limits of the data array.
+        n = self._diag._maxiter
+        dt = float(self._diag._dt * self._diag._ndump)
 
-        Parameters
-        ----------
-        req_slice : int | slice
-            The requested index or slice from the user.
-        max_len : int
-            The maximum length of this dimension (grid size or time steps).
-        halo : int
-            The number of extra points needed on each side (1 for 2nd order, 2 for 4th order).
+        # ---------- helpers ----------
+        def spatial_axis_np_from_osiris(ax_osiris: int) -> int:
+            # OSIRIS spatial axes are 1..3; per-timestep array axes are 0..2
+            if not isinstance(ax_osiris, int):
+                raise ValueError("Axis must be int for spatial derivatives.")
+            if ax_osiris < 1 or ax_osiris > 3:
+                raise ValueError(f"Spatial axis must be 1..3, got {ax_osiris}")
+            return ax_osiris - 1
 
-        Returns
-        -------
-        read_slice : slice
-            The slice to read from the source data (includes halo).
-        crop_slice : slice
-            The slice to apply to the read chunk to get the exact requested data.
-        squeeze : bool
-            Whether the dimension was originally an integer and should be squeezed from the final result.
-        """
-        squeeze = False
+        def dx_for_np_axis(ax_np: int) -> float:
+            dx = self._diag._dx
+            if self._diag._dim == 1:
+                return float(dx[0] if isinstance(dx, (list, tuple, np.ndarray)) else dx)
+            return float(dx[ax_np])
 
-        if isinstance(req_slice, int):
-            squeeze = True
-            # Handle negative indices (e.g., -1 becomes max_len - 1)
-            if req_slice < 0:
-                req_slice += max_len
-            # Convert integer index to a single-element slice [i : i+1]
-            start, stop = req_slice, req_slice + 1
-        else:
-            # Handle slice object: normalize None to 0 or max_len
-            start = 0 if req_slice.start is None else req_slice.start
-            stop = max_len if req_slice.stop is None else req_slice.stop
-            # Handle negative start/stop indices
-            if start < 0:
-                start += max_len
-            if stop < 0:
-                stop += max_len
+        def d_dx(f: np.ndarray, ax_np: int, order: int) -> np.ndarray:
+            dx = dx_for_np_axis(ax_np)
+            if order == 2:
+                return np.gradient(f, dx, axis=ax_np, edge_order=2)
+            if order == 4:
+                return self._compute_fourth_order_spatial(f, dx, ax_np)
+            raise ValueError("Only order 2 and 4 supported.")
 
-        # We try to expand bounds by 'halo' on both sides
-        read_start = start - halo
-        read_stop = stop + halo
+        def d_dt_at(i: int, order: int) -> np.ndarray:
+            # Uses upstream frames, all with identical data_slice
+            if order == 2:
+                if i == 0:
+                    f0 = self._base(0, data_slice)
+                    f1 = self._base(1, data_slice)
+                    f2 = self._base(2, data_slice)
+                    return (-3 * f0 + 4 * f1 - f2) / (2 * dt)
+                if i == n - 1:
+                    f0 = self._base(n - 1, data_slice)
+                    f1 = self._base(n - 2, data_slice)
+                    f2 = self._base(n - 3, data_slice)
+                    return (3 * f0 - 4 * f1 + f2) / (2 * dt)
+                fp = self._base(i + 1, data_slice)
+                fm = self._base(i - 1, data_slice)
+                return (fp - fm) / (2 * dt)
 
-        # Ensure we don't try to read before index 0.
-        # NOTE: We assume non-periodic boundaries.
-        # If we are at the edge, we clamp the read to the physical limit.
-        # The derivative computation handles the reduced stencil size / lower order methods at these boundaries.
-        pad_left = 0
-        if read_start < 0:
-            read_start = 0
-            # Track how much we couldn't expand to the left.
-            # This shifts where our desired data sits relative to the read chunk start.
-            pad_left = start - 0
-        else:
-            # We successfully expanded by full halo, so the data of interest starts 'halo' index into the chunk
-            pad_left = halo
+            if order == 4:
+                # fall back near edges
+                if i < 2 or i > n - 3:
+                    return d_dt_at(i, order=2)
+                f_p2 = self._base(i + 2, data_slice)
+                f_p1 = self._base(i + 1, data_slice)
+                f_m1 = self._base(i - 1, data_slice)
+                f_m2 = self._base(i - 2, data_slice)
+                return (-f_p2 + 8 * f_p1 - 8 * f_m1 + f_m2) / (12 * dt)
 
-        # Ensure we don't read past the end of the array
-        if read_stop > max_len:
-            read_stop = max_len
+            raise ValueError("Only order 2 and 4 supported.")
 
-        read_slice = slice(read_start, read_stop)
+        # ---------- dispatch ----------
+        if self._deriv_type in ("x1", "x2", "x3"):
+            f = self._base(index, data_slice)
+            ax_np = {"x1": 0, "x2": 1, "x3": 2}[self._deriv_type]
+            return d_dx(f, ax_np, self._order)
 
-        # The 'read_slice' gives us a chunk of data. We now need to slice *that chunk*
-        # to get back exactly what the user asked for.
+        if self._deriv_type == "t":
+            return d_dt_at(index, self._order)
 
-        # The requested data starts at 'start'. The chunk starts at 'read_start'.
-        # So relative to the chunk, our data starts at:
-        relative_start = start - read_start
+        if self._deriv_type == "xx":
+            # second derivative along two spatial axes (can be same or different)
+            if not isinstance(self._op_axis, (tuple, list)) or len(self._op_axis) != 2:
+                raise ValueError("For 'xx', axis must be a tuple/list of two OSIRIS spatial axes, e.g. (1,2).")
+            ax1_np = spatial_axis_np_from_osiris(self._op_axis[0])
+            ax2_np = spatial_axis_np_from_osiris(self._op_axis[1])
 
-        # We need to extract the length of the original request
-        req_len = stop - start
+            f = self._base(index, data_slice)
+            # order=4 here is not implemented as a true 4th-order second derivative; keep order=2 behavior
+            g = d_dx(f, ax1_np, order=2)
+            return d_dx(g, ax2_np, order=2)
 
-        relative_stop = relative_start + req_len
+        if self._deriv_type == "xt":
+            # d/dx ( d/dt f )
+            if not isinstance(self._op_axis, int):
+                raise ValueError("For 'xt', axis must be an OSIRIS spatial axis int (1..3).")
+            ax_np = spatial_axis_np_from_osiris(self._op_axis)
 
-        # Handle stride/step from original request
-        step = 1
-        if isinstance(req_slice, slice) and req_slice.step is not None:
-            step = req_slice.step
+            ft = d_dt_at(index, order=2 if self._order == 4 else self._order)  # keep stable
+            return d_dx(ft, ax_np, order=2)
 
-        # This slice, when applied to the chunk, returns the original requested region
-        crop_slice = slice(relative_start, relative_stop, step)
+        if self._deriv_type == "tx":
+            # d/dt ( d/dx f )
+            if not isinstance(self._op_axis, int):
+                raise ValueError("For 'tx', axis must be an OSIRIS spatial axis int (1..3).")
+            ax_np = spatial_axis_np_from_osiris(self._op_axis)
 
-        return read_slice, crop_slice, squeeze
+            # do spatial derivative on each needed time frame, then time-stencil those
+            def spatial_frame(i: int) -> np.ndarray:
+                fi = self._base(i, data_slice)
+                return d_dx(fi, ax_np, order=2)
 
-    def _compute_derivative(self, data: np.ndarray, deriv_type: str, axis_map: dict) -> np.ndarray:
-        """
-        Compute derivative on a loaded data chunk.
+            if self._order == 2:
+                if index == 0:
+                    return (-3 * spatial_frame(0) + 4 * spatial_frame(1) - spatial_frame(2)) / (2 * dt)
+                if index == n - 1:
+                    return (3 * spatial_frame(n - 1) - 4 * spatial_frame(n - 2) + spatial_frame(n - 3)) / (2 * dt)
+                return (spatial_frame(index + 1) - spatial_frame(index - 1)) / (2 * dt)
 
-        This method handles the actual numerical differentiation. It is designed to work
-        on an arbitrary chunk of data, provided an 'axis_map' that links logical names
-        (like 't', 'x1') to the actual axes of the 'data' array.
+            if self._order == 4:
+                if index < 2 or index > n - 3:
+                    # edge fallback
+                    return (spatial_frame(min(index + 1, n - 1)) - spatial_frame(max(index - 1, 0))) / (2 * dt)
+                return (
+                    -spatial_frame(index + 2) + 8 * spatial_frame(index + 1) - 8 * spatial_frame(index - 1) + spatial_frame(index - 2)
+                ) / (12 * dt)
 
-        NOTE: This method does NOT assume periodic boundaries.
-        - For order 2: Uses np.gradient which applies 2nd-order accurate one-sided differences at boundaries.
-        - For order 4: Uses explicit lower-order (2nd order) stencils at the physical boundaries (indices 0, 1, -2, -1).
-        """
+            raise ValueError("Only order 2 and 4 supported.")
 
-        # axis_map maps 't'->0, 'x1'->1, etc.
+        raise ValueError("Invalid derivative type.")
 
-        if self._order == 2:
-            # --- Time Derivative (t) ---
-            if deriv_type == "t":
-                return np.gradient(data, self._diag._dt * self._diag._ndump, axis=axis_map['t'], edge_order=2)
+    def _cache_get(self, key):
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            return self._cache[key]
+        return None
 
-            # --- Spatial Derivatives (x1, x2, x3) ---
-            elif deriv_type in ["x1", "x2", "x3"]:
-                ax_idx = axis_map[deriv_type]
-                dx = self._diag._dx
-                # Handle dx being scalar (1D) or list (multi-D)
-                if self._dim > 1:
-                    dx = dx[int(deriv_type[1:]) - 1]  # x1 is index 0
-                else:
-                    dx = dx[0] if isinstance(dx, (list, tuple, np.ndarray)) else dx
+    def _cache_put(self, key, val):
+        self._cache[key] = val
+        self._cache.move_to_end(key)
+        if len(self._cache) > self._cache_max:
+            self._cache.popitem(last=False)
 
-                return np.gradient(data, dx, axis=ax_idx, edge_order=2)
-
-            # --- Mixed Derivatives (xx) ---
-            elif deriv_type == "xx":
-                if len(self._axis) != 2:
-                    raise ValueError("Axis must be a tuple with two elements.")
-
-                # Identify axes indices and spacing for both derivatives
-                ax1 = axis_map[f"x{self._axis[0]}"]
-                ax2 = axis_map[f"x{self._axis[1]}"]
-                dx1 = self._diag._dx[self._axis[0] - 1]
-                dx2 = self._diag._dx[self._axis[1] - 1]
-
-                # Apply gradients sequentially
-                res = np.gradient(data, dx1, axis=ax1, edge_order=2)
-                return np.gradient(res, dx2, axis=ax2, edge_order=2)
-
-            # --- Mixed Derivatives (xt) ---
-            elif deriv_type == "xt":
-                ax_mp = axis_map[f"x{self._axis}"]
-                dx = self._diag._dx[self._axis - 1]
-
-                # d/dt then d/dx
-                res = np.gradient(data, self._diag._dt, axis=axis_map['t'], edge_order=2)
-                return np.gradient(res, dx, axis=ax_mp, edge_order=2)
-
-            # --- Mixed Derivatives (tx) ---
-            elif deriv_type == "tx":
-                ax_mp = axis_map[f"x{self._axis}"]
-                dx = self._diag._dx[self._axis - 1]
-
-                # d/dx then d/dt
-                res = np.gradient(data, dx, axis=ax_mp, edge_order=2)
-                return np.gradient(res, self._diag._dt, axis=axis_map['t'], edge_order=2)
-
-        elif self._order == 4:
-            # --- 4th Order Spatial ---
-            if deriv_type in ["x1", "x2", "x3"]:
-                ax_idx = axis_map[deriv_type]
-                dx = self._diag._dx
-                if self._dim > 1:
-                    dx = dx[int(deriv_type[1:]) - 1]
-                else:
-                    dx = dx[0] if isinstance(dx, (list, tuple, np.ndarray)) else dx
-
-                # Ensure dx is scalar float for the helper function
-                if isinstance(dx, (list, tuple, np.ndarray)):
-                    dx = float(dx) if np.isscalar(dx) else float(dx[0])
-
-                return self._compute_fourth_order_spatial(data, dx, ax_idx)
-
-            # --- 4th Order Time ---
-            elif deriv_type == "t":
-                # Vectorized 4th order time using the spatial helper
-                # because 't' is just another axis here
-                axis = axis_map['t']
-                dt = self._diag._dt * self._diag._ndump
-                return self._compute_fourth_order_spatial(data, dt, axis)
-
-        raise ValueError(f"Derivative type {deriv_type} with order {self._order} not fully supported via slice optimization.")
-
-    def _read_and_compute(self, time_idx: int | slice, spatial_indices: tuple) -> np.ndarray:
-        """
-        Helper method to read partial data and compute derivative.
-        Used by both __getitem__ and _data_generator.
-        """
-        # Pad spatial indices if the user didn't specify all dimensions
-        if len(spatial_indices) < self._dim:
-            # Append slice(None) aka ':' for missing dimensions
-            spatial_indices = spatial_indices + (slice(None),) * (self._dim - len(spatial_indices))
-
-        halo = 2 if self._order == 4 else 1
-
-        # Identify which axes actually NEED a halo
-        axes_needing_halo = set()
-
-        if self._deriv_type == 't':
-            axes_needing_halo.add(0)  # Time axis
-        elif self._deriv_type.startswith('x') and len(self._deriv_type) == 2 and self._deriv_type[1].isdigit():
-            dim_idx = int(self._deriv_type[1])
-            axes_needing_halo.add(dim_idx)
-        elif self._deriv_type == 'xx':
-            axes_needing_halo.add(self._axis[0])
-            axes_needing_halo.add(self._axis[1])
-        elif self._deriv_type in ['xt', 'tx']:
-            axes_needing_halo.add(0)  # time
-            axes_needing_halo.add(self._axis)  # spatial
-
-        read_slices = []  # Slices to read from disk
-        crop_slices = []  # Slices to cut result
-        squeeze_map = []  # Dimensions to squeeze
-
-        # -> Process Time Axis (0)
-        max_t = self._diag._maxiter
-        h = halo if 0 in axes_needing_halo else 0
-        r_sl, c_sl, sq = self._get_padded_slice(time_idx, max_t, h)
-        read_slices.append(r_sl)
-        crop_slices.append(c_sl)
-        squeeze_map.append(sq)
-
-        # -> Process Spatial Axes (1..N)
-        nx_arr = self._diag._nx
-        if self._dim == 1 and np.isscalar(nx_arr):
-            nx_arr = [nx_arr]
-
-        for i, idx in enumerate(spatial_indices):
-            dim_axis = i + 1
-            max_len = nx_arr[i]
-            h = halo if dim_axis in axes_needing_halo else 0
-
-            r_sl, c_sl, sq = self._get_padded_slice(idx, max_len, h)
-            read_slices.append(r_sl)
-            crop_slices.append(c_sl)
-            squeeze_map.append(sq)
-
-        data_chunk = self._diag[tuple(read_slices)]
-
-        axis_map = {'t': 0}
-        for d in range(self._dim):
-            axis_map[f'x{d + 1}'] = d + 1
-
-        derivative_chunk = self._compute_derivative(data_chunk, self._deriv_type, axis_map)
-
-        result = derivative_chunk[tuple(crop_slices)]
-
-        for axis_idx in range(len(squeeze_map) - 1, -1, -1):
-            if squeeze_map[axis_idx]:
-                result = result.squeeze(axis=axis_idx)
-
-        return result
-
-    def _data_generator(self, index: int, data_slice: tuple | None = None) -> Generator[np.ndarray, None, None]:
-        """
-        Generate data for a specific index on-demand.
-        Standard method used by Diagnostic.__getitem__ and others.
-        """
-        if data_slice is None:
-            data_slice = ()
-        yield self._read_and_compute(index, data_slice)
-
-    def __getitem__(self, index: int | slice | tuple) -> np.ndarray:
-        """
-        Get data at a specific index, loading ONLY the necessary partial data (with halo)
-        to compute the derivative locally.
-        """
-        if self._all_loaded and self._data is not None:
-            return self._data[index]
-
-        if not isinstance(index, tuple):
-            index = (index,)
-
-        time_idx = index[0]
-        spatial_indices = index[1:]
-
-        return self._read_and_compute(time_idx, spatial_indices)
+    def _base(self, idx: int, data_slice: tuple | None):
+        # base diagnostic frame WITH slice (this is the key!)
+        key = (idx, data_slice)
+        v = self._cache_get(key)
+        if v is None:
+            v = self._diag._frame(idx, data_slice=data_slice)
+            self._cache_put(key, v)
+        return v
 
 
 class Derivative_Species_Handler:

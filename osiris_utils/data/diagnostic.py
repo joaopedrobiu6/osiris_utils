@@ -426,36 +426,6 @@ class Diagnostic:
     #
     ##########################################
 
-    def _data_generator(self, index: int, data_slice: tuple | None = None) -> Iterator[np.ndarray]:
-        """Data generator for a given index or slice.
-
-        Parameters
-        ----------
-        index : int
-            The index of the file to load.
-        data_slice : tuple, optional
-            The slice to apply to the data. This is a tuple of slices, one for each dimension.
-
-        Returns
-        -------
-        Iterator[np.ndarray]
-            An iterator that yields the data for the given index or slice.
-
-        """
-        if self._simulation_folder is None:
-            raise ValueError("Simulation folder not set.")
-        if self._file_list is None:
-            raise RuntimeError("File list not initialized. Call get_quantity() first.")
-        try:
-            file = self._file_list[index]
-        except IndexError as err:
-            raise RuntimeError(
-                f"File index {index} out of range (max {self._maxiter - 1}).",
-            ) from err
-        # Pass data_slice to OsirisGridFile - HDF5 will efficiently read only the requested slice from disk
-        data_object = OsirisGridFile(file, data_slice=data_slice)
-        yield (data_object.data if self._quantity not in OSIRIS_DENSITY else np.sign(self._species.rqm) * data_object.data)
-
     def load_all(self, n_workers: int | None = None, use_parallel: bool | None = None) -> np.ndarray:
         """Load all data into memory (all iterations), in a pre-allocated array.
 
@@ -544,6 +514,60 @@ class Diagnostic:
         self._data = None
         self._all_loaded = False
 
+    def _data_generator(self, index: int, data_slice: tuple | None = None) -> Iterator[np.ndarray]:
+        """Data generator for a given index or slice.
+
+        Parameters
+        ----------
+        index : int
+            The index of the file to load.
+        data_slice : tuple, optional
+            The slice to apply to the data. This is a tuple of slices, one for each dimension.
+
+        Returns
+        -------
+        Iterator[np.ndarray]
+            An iterator that yields the data for the given index or slice.
+
+        """
+        if self._simulation_folder is None:
+            raise ValueError("Simulation folder not set.")
+        if self._file_list is None:
+            raise RuntimeError("File list not initialized. Call get_quantity() first.")
+        try:
+            file = self._file_list[index]  # try to get the file at the given index
+        except IndexError as err:
+            raise RuntimeError(
+                f"File index {index} out of range (max {self._maxiter - 1}).",
+            ) from err
+        # Pass data_slice to OsirisGridFile - HDF5 will efficiently read only the requested slice from disk
+        data_object = OsirisGridFile(file, data_slice=data_slice)  # This is were the data is actually being read from disk
+        yield (data_object.data if self._quantity not in OSIRIS_DENSITY else np.sign(self._species.rqm) * data_object.data)
+
+    def _read_index(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
+        """Read and return the array for a single time index (keeps lazy behavior).
+
+        This helper centralizes the single-file read logic so callers avoid generator
+        overhead while keeping the operation lazy (we only read requested files).
+        """
+        if self._simulation_folder is None:
+            raise ValueError("Simulation folder not set.")
+        if self._file_list is None:
+            raise RuntimeError("File list not initialized. Call get_quantity() first.")
+        try:
+            file = self._file_list[index]
+        except IndexError as err:
+            raise RuntimeError(
+                f"File index {index} out of range (max {self._maxiter - 1}).",
+            ) from err
+
+        data_object = OsirisGridFile(file, data_slice=data_slice)
+        return data_object.data if self._quantity not in OSIRIS_DENSITY else np.sign(self._species.rqm) * data_object.data
+
+    def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
+        """Return one timestep (lazy). Overridden by derived diagnostics."""
+        return self._read_index(index, data_slice=data_slice)
+
     ###########################################
     #
     # Data access and iteration
@@ -586,17 +610,18 @@ class Diagnostic:
         >>> data = diag[0:10, :, 50:]   # Load timesteps 0-9 with spatial slice
 
         """
-        # Parse tuple indexing: (time_index, spatial_slice1, spatial_slice2, ...)
+        # This part separates index into time_index (time) and data_slice (space)
+        # In the case where index is a tuple, separate time index and spatial slices
+        # e.g., diag[5, :, 100:200] -> time_index=5, data_slice=(slice(None), slice(100,200))
         data_slice = None
         if isinstance(index, tuple):
             if len(index) == 0:
                 raise IndexError("Empty tuple index not supported")
-            time_index = index[0]
-            # Remaining indices are for spatial dimensions
+            time_index = index[0]  # first element is time index/slice
             if len(index) > 1:
-                data_slice = index[1:]
+                data_slice = index[1:]  # remaining elements are spatial slices
         else:
-            time_index = index
+            time_index = index  # index is just time index/slice
 
         # Quick path: all data already in memory
         if getattr(self, "_all_loaded", False) and self._data is not None:
@@ -613,51 +638,49 @@ class Diagnostic:
         # Handle int indices (including negatives)
         if isinstance(time_index, int):
             if time_index < 0:
-                time_index += self._maxiter
+                time_index += self._maxiter  # if negative, go from the end
             if not (0 <= time_index < self._maxiter):
                 raise IndexError(f"Index {time_index} out of range (0..{self._maxiter - 1})")
 
             # Load data immediately with optional spatial slicing
-            # HDF5 will read only the requested slice from disk (efficient!)
             try:
-                gen = data_gen(time_index, data_slice=data_slice)
-                return next(gen)
+                return self._frame(time_index, data_slice=data_slice)
             except Exception as e:
                 raise RuntimeError(f"Error loading data at index {time_index}") from e
 
-        # Handle slice indices
+        # if time is a slice
         if isinstance(time_index, slice):
-            start = time_index.start or 0
-            stop = time_index.stop if time_index.stop is not None else self._maxiter
-            step = time_index.step or 1
-            # Normalize negatives
-            if start < 0:
-                start += self._maxiter
-            if stop < 0:
-                stop += self._maxiter
-            # Clip to bounds
-            start = max(0, min(start, self._maxiter))
-            stop = max(0, min(stop, self._maxiter))
+            # Use slice.indices to correctly handle negative steps and defaults
+            start, stop, step = time_index.indices(getattr(self, "_maxiter", 0))
             indices = range(start, stop, step)
 
-            # Empty slice
-            if not indices:
-                # Determine single-step shape by peeking at index 0 (if possible)
+            # Empty slice in time: try to preserve spatial shape/dtype if possible
+            if len(indices) == 0:
                 try:
-                    dummy = next(data_gen(0, data_slice=data_slice))
+                    dummy = self._frame(0, data_slice=data_slice)
                     empty_shape = (0,) + dummy.shape
                     return np.empty(empty_shape, dtype=dummy.dtype)
                 except Exception:
                     return np.empty((0,))
 
-            # Collect and stack
-            data_list = []
-            for i in indices:
+            # Preallocate output using first requested index to determine shape/dtype
+            try:
+                first_idx = indices[0]
+                first_arr = self._frame(first_idx, data_slice=data_slice)
+            except Exception as e:
+                raise RuntimeError(f"Error loading timestep {first_idx}") from e
+
+            n = len(indices)
+            out = np.empty((n, *first_arr.shape), dtype=first_arr.dtype)
+
+            # Fill all slots (including first) in order
+            for pos, i in enumerate(indices):
                 try:
-                    data_list.append(next(data_gen(i, data_slice=data_slice)))
+                    out[pos] = self._frame(i, data_slice=data_slice)
                 except Exception as e:
                     raise RuntimeError(f"Error loading timestep {i}") from e
-            return np.stack(data_list, axis=0)
+
+            return out
 
         # If we don't know how to handle this
         raise ValueError("Cannot index this diagnostic. No data loaded and no generator available.")
@@ -681,45 +704,48 @@ class Diagnostic:
         """Universal helper for `self (op) other`.
         - If both operands are fully loaded, does eager numpy arithmetic.
         - Otherwise builds a lazy generator that applies op_func on each timestep.
+
+        Parameters
+        ----------
+        other : Diagnostic, float, or np.ndarray
+            The other operand.
+        op_func : Callable
+            The binary operation function (e.g., operator.add).
         """
-        # 1) Prepare the metadata clone
+        # nPrepare the metadata clone and set the name of the resulting diagnostic to "MISC"
         result = self._clone_meta()
         result.created_diagnostic_name = "MISC"
 
-        # 2) Determine iteration count
+        # Determine iteration count - set as minimum of both diagnostics if both are Diagnostics
         if isinstance(other, Diagnostic):
             result._maxiter = min(self._maxiter, other._maxiter)
         else:
             result._maxiter = self._maxiter
 
-        # 3) Eager path: both in RAM (or scalar/ndarray + self in RAM)
-        self_loaded = getattr(self, "_all_loaded", False)
-        other_loaded = isinstance(other, Diagnostic) and getattr(other, "_all_loaded", False)
+        # SELF ALL_LOADED & OTHER ALL LOADED / SCALAR/NDARRAY
+        self_loaded = getattr(self, "_all_loaded", False)  # check if self data is loaded
+        other_loaded = isinstance(other, Diagnostic) and getattr(other, "_all_loaded", False)  # check is other data is loaded
+        # if both are loaded, do eager operation
         if self_loaded and (other_loaded or not isinstance(other, Diagnostic)):
-            lhs = self._data
-            rhs = other._data if other_loaded else other
-            result._data = op_func(lhs, rhs)
-            result._all_loaded = True
-            return result
+            lhs = self._data  # self data
+            rhs = other._data if other_loaded else other  # data from the other Diagnostic if all_loaded, or scalar/ndarray
+            result._data = op_func(lhs, rhs)  # compute the operation
+            result._all_loaded = True  # new resulting Diagnostic is all loaded
+            return result  # return the result as a new Diagnostic
 
-        def _wrap(arr):
-            return lambda idx: (arr[idx],)
-
-        gen1 = _wrap(self._data) if self_loaded else self._data_generator
         if isinstance(other, Diagnostic):
-            gen2 = _wrap(other._data) if other_loaded else other._data_generator
+
+            def _frame(index: int, data_slice: tuple | None = None) -> np.ndarray:
+                return op_func(self._frame(index, data_slice=data_slice), other._frame(index, data_slice=data_slice))
+
         else:
-            gen2 = other  # scalar or ndarray
 
-        def _make_gen(idx):
-            seq1 = gen1(idx)
-            if callable(gen2):
-                seq2 = gen2(idx)
-                return (op_func(a, b) for a, b in zip(seq1, seq2, strict=False))
-            return (op_func(a, gen2) for a in seq1)
+            def _frame(index: int, data_slice: tuple | None = None) -> np.ndarray:
+                return op_func(self._frame(index, data_slice=data_slice), other)
 
-        result._data_generator = _make_gen
+        result._frame = _frame  # attach method dynamically
         result._all_loaded = False
+        result._data = None
         return result
 
     # Now define each operator in one line:
@@ -897,8 +923,8 @@ class Diagnostic:
         Plots a 3D scatter plot of the diagnostic data (grid data).
         """
         _msg = (
-            "Diagnostic.plot_3d is deprecated and will be removed in a future version. "
-            "Please use osiris_utils.vis.plot_3d(diagnostic, idx, ...) instead."
+            "Diagnostic.plot_3d is deprecated and will be removed in a future version."
+            + "Please use osiris_utils.vis.plot_3d(diagnostic, idx, ...) instead."
         )
         warnings.warn(_msg, DeprecationWarning, stacklevel=2)
         from ..vis.plot3d import plot_3d
@@ -937,7 +963,17 @@ class Diagnostic:
         return self._nx
 
     @property
-    def x(self) -> np.ndarray:
+    def x(self) -> np.ndarray | list[np.ndarray]:
+        # Return the coordinate array(s).
+        # For 1D data, return the single array directly to support plt.plot(diag.x, diag[0])
+        # For >1D data, return the list/array of axes.
+        if self._x is not None:
+            # Check if it's a list/array of arrays
+            try:
+                if len(self._x) == 1 and (self._dim == 1 or self._dim is None):
+                    return self._x[0]
+            except (TypeError, IndexError):
+                pass
         return self._x
 
     @property

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Generator
 from typing import Any
 
 import numpy as np
@@ -20,7 +19,7 @@ __all__ = [
 
 class PressureCorrection_Simulation(PostProcess):
     def __init__(self, simulation: Simulation):
-        super().__init__("PressureCorrection Simulation")
+        super().__init__("PressureCorrection Simulation", simulation)
         """
         Class to correct pressure tensor components by subtracting Reynolds stress.
 
@@ -31,9 +30,6 @@ class PressureCorrection_Simulation(PostProcess):
         pressure : str
             The pressure component to center.
         """
-        if not isinstance(simulation, Simulation):
-            raise ValueError("simulation must be a Simulation-compatible object.")
-        self._simulation = simulation
         self._pressure_corrected: dict[str, PressureCorrection_Diagnostic] = {}
         self._species_handler: dict[str, PressureCorrection_Species_Handler] = {}
 
@@ -45,8 +41,7 @@ class PressureCorrection_Simulation(PostProcess):
         if key not in OSIRIS_P:
             raise ValueError(f"Invalid pressure component {key}. Supported: {OSIRIS_P}.")
         if key not in self._pressure_corrected:
-            print("Weird that it got here - pressure is always species dependent on OSIRIS")
-            # self._pressure_corrected[key] = PressureCorrection_Diagnostic(self._simulation[key], self._simulation)
+            raise KeyError("Pressure diagnostics are species-dependent. Use sim['species']['P12'] not sim['P12'].")
         return self._pressure_corrected[key]
 
     def delete_all(self) -> None:
@@ -58,26 +53,13 @@ class PressureCorrection_Simulation(PostProcess):
         else:
             print(f"Pressure {key} not found in simulation")
 
-    def process(self, diagnostic: Diagnostic) -> PressureCorrection_Diagnostic:
-        """Apply pressure correction to a diagnostic"""
-        # FIX: This is a bit of a hack, but it works for now
-        return PressureCorrection_Diagnostic(diagnostic, self._simulation)
-
 
 class PressureCorrection_Diagnostic(Diagnostic):
     def __init__(self, diagnostic: Diagnostic, n: Diagnostic, ufl_j: Diagnostic, vfl_k: Diagnostic):
-        """
-        Class to correct the pressure in the simulation.
-
-        Parameters
-        ----------
-        diagnostic : Diagnostic
-            The diagnostic object.
-        """
         if hasattr(diagnostic, "_species"):
             super().__init__(
-                simulation_folder=(diagnostic._simulation_folder if hasattr(diagnostic, "_simulation_folder") else None),
-                species=diagnostic._species,
+                simulation_folder=getattr(diagnostic, "_simulation_folder", None),
+                species=getattr(diagnostic, "_species", None),
             )
         else:
             super().__init__(None)
@@ -88,8 +70,6 @@ class PressureCorrection_Diagnostic(Diagnostic):
             raise ValueError(f"Invalid pressure component {diagnostic._name}. Supported: {OSIRIS_P}")
 
         self._diag = diagnostic
-
-        # The density and velocities are now passed as arguments (so it can doesn't depend on the simulation)
         self._n = n
         self._ufl_j = ufl_j
         self._vfl_k = vfl_k
@@ -119,46 +99,31 @@ class PressureCorrection_Diagnostic(Diagnostic):
         if self._data is not None:
             return self._data
 
-        if not hasattr(self._diag, "_data") or self._diag._data is None:
+        # Ensure all operands are loaded
+        if not getattr(self._diag, "_all_loaded", False) or self._diag._data is None:
             self._diag.load_all()
+        if not getattr(self._n, "_all_loaded", False) or self._n._data is None:
+            self._n.load_all()
+        if not getattr(self._ufl_j, "_all_loaded", False) or self._ufl_j._data is None:
+            self._ufl_j.load_all()
+        if not getattr(self._vfl_k, "_all_loaded", False) or self._vfl_k._data is None:
+            self._vfl_k.load_all()
 
-        print(f"Loading {self._species._name} {self._original_name} diagnostic")
-        self._n.load_all()
-        self._ufl_j.load_all()
-        self._vfl_k.load_all()
-
-        # Then access the data
-        n = self._n.data
-        u = self._ufl_j.data
-        v = self._vfl_k.data
-
-        self._data = self._diag.data - n * v * u
+        # Core formula: Pjk - n * u_j * v_k
+        self._data = self._diag._data - self._n._data * self._ufl_j._data * self._vfl_k._data
         self._all_loaded = True
-
-        # Unload the data to save memory
-        # self._n.unload()
-        # self._ufl_j.unload()
-        # self._vfl_k.unload()
-
         return self._data
 
-    def __getitem__(self, index: int | slice) -> np.ndarray:
-        """Get data at a specific index"""
-        if self._all_loaded and self._data is not None:
-            return self._data[index]
-
-        if isinstance(index, int):
-            return next(self._data_generator(index))
-        elif isinstance(index, slice):
-            start = 0 if index.start is None else index.start
-            step = 1 if index.step is None else index.step
-            stop = self._diag._maxiter if index.stop is None else index.stop
-            return np.array([next(self._data_generator(i)) for i in range(start, stop, step)])
-        else:
-            raise ValueError("Invalid index type. Use int or slice.")
-
-    def _data_generator(self, index: int) -> Generator[np.ndarray, None, None]:
-        yield (self._diag[index] - self._n[index] * self._vfl_k[index] * self._ufl_j[index])
+    def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
+        """
+        Lazy per-timestep evaluation, supports spatial slicing.
+        data_slice applies to spatial axes only (same convention as Diagnostic).
+        """
+        P = self._diag._frame(index, data_slice=data_slice)
+        n = self._n._frame(index, data_slice=data_slice)
+        u = self._ufl_j._frame(index, data_slice=data_slice)
+        v = self._vfl_k._frame(index, data_slice=data_slice)
+        return P - n * u * v
 
 
 class PressureCorrection_Species_Handler:

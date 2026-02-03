@@ -3,62 +3,275 @@ Contributing to OSIRIS Utils
 
 Thank you for contributing!
 
-The following is a set of guidelines for contributing to our code. These are
-mostly guidelines, not rules, so feel free to use your best judgment!
+This document contains guidelines (not strict rules) for contributing to
+**osiris_utils**. If something here doesn't fit your use case, use your best
+judgment — and feel free to open an issue to discuss improvements.
 
 Reporting Bugs
 ~~~~~~~~~~~~~~
 
-How Do I Submit A (Good) Bug Report?
-------------------------------------
+How do I submit a good bug report?
+----------------------------------
 
-Bugs are tracked as `GitHub issues <https://github.com/joaopedrobiu6/osiris_utils/issues/>`__.
+Bugs are tracked as GitHub issues:
+`https://github.com/joaopedrobiu6/osiris_utils/issues/`
 
-Explain the problem and include additional details to help maintainers
-reproduce the problem:
+To help maintainers reproduce (and fix) the problem quickly, please include:
 
--  **Use a clear and descriptive title** for the issue to identify the
-   problem.
--  **Describe the exact steps which reproduce the problem** in as many
-   details as possible.
--  **Provide specific examples to demonstrate the steps**. Include links
-   to files or copy/pasteable snippets.
--  **Describe the behavior you observed after following the steps** and
-   point out what exactly is the problem with that behavior.
--  **Explain which behavior you expected to see instead and why.**
--  **Include plots** of results that you believe to be wrong.
+- **A clear and descriptive title**.
+- **Exact steps to reproduce**, in order.
+- **A minimal example** (copy/pasteable snippet) whenever possible.
+- **What you observed**, including the full traceback or error message.
+- **What you expected to happen**, and why.
+- **Relevant context**, such as:
+  - OS / Python version
+  - osiris_utils version or commit hash
+  - input deck details if relevant
+- **Plots** if the bug is about “wrong-looking” physics or unexpected results.
+
+If the bug involves post-processing or arithmetic with diagnostics, it helps a
+lot to include a small snippet like:
+
+.. code-block:: python
+
+   import osiris_utils as ou
+   sim = ou.Simulation("path/to/input_deck.txt")
+
+   # reproduce here
+   diag = sim["electrons"]["n"]
+   out = diag[0]
+   print(out.shape, out.dtype)
 
 Adding Post-Processing routines
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-How we contribute by adding post-processing classes? Here's a breakdown:
+Post-processing routines in **osiris_utils** are implemented as wrappers around
+the existing ``Simulation`` / ``Diagnostic`` interface.
 
-1. First, you should implement a class that operates on simulations, usually called - ``NameOfPostProcess_Simulation``:
+**Core idea**
 
-* Inherits from ``PostProcess``
-* It should have a ``__getitem__(self, key)`` with if statements to separate the species diagnostics from the general ones
+- Indexing must behave consistently across all diagnostics:
 
-2. A class to deal with the diagnostics - ``NameOfPostProcess_Diagnostic``
+  - ``diag[i]`` returns a single timestep ``np.ndarray``
+  - ``diag[i:j]`` returns a stacked array over time (shape ``(t, ...)``)
+  - ``diag[i, :, 10:20]`` must work (tuple indexing with spatial slicing)
 
-* Inherits from ``Diagnostic``
-* Must have a ``load_all``, ``_data_generator`` and ``__getitem__``. They need to have these names to work well with ``Diagnostic`` objects. The first two are more specific to the process that you want, and you can understand from the already implemented what stuff you need to take into account (usually that `load_all` makes the data have `(t, x, y, z)` and `_data_generator` only yields `(x, y, z)`, and once `load_all` is used, `_data_generator` should use already read data)
-* The access by indexing should only return ``np.ndarray``. If you need different stuff, for example, a list of ``np.ndarray``, implement it in auxiliary classes. 
-* Eg.: The Mean Field Theory should give us access to the averaged field and the fluctuations for each quantity. Since this would be 2 arrays and not 1, MFT has two diagnostic classes, one for averages and another for fluctuations.
+- Post-processed diagnostics should remain compatible with diagnostic operations:
 
-3. A class to deal with species-related diagnostics - ``NameOfProcess_Species_Handler``
+  - ``diag + other``, ``diag * other``, etc.
 
-* Does not inherit from anything
-* Just works as a wrapper for the dictionary-like syntax to be consistent.
+- Spatial slicing should be efficient when possible: pass the ``data_slice`` down
+  to the base diagnostic (so HDF5 can load only the requested region).
 
-By implementing it and taking these steps into consideration, the integration with the rest of the package should be fairly straightforward. 
-However, since post-processes may differ a lot from each other, some things may be more of a case-to-case situation. 
-If any help is needed, please open an issue or contact João Biu via `email <joaopedrofbiu@tecnico.ulisboa.pt>`__ or `GitHub <https://github.com/joaopedrobiu6>`__.
+The recommended structure is:
 
-To be consistent with the syntax of other classes:
+1) ``NameOfPostProcess_Simulation`` (simulation wrapper)
+2) ``NameOfPostProcess_Diagnostic`` (diagnostic wrapper)
+3) ``NameOfPostProcess_Species_Handler`` (species wrapper)
 
-.. code-block :: python
-                                                                                                                                 
-  sim = ou.Simulation("folder", "input_deck")
-  PostProcessExample_for_sim = PostProcessExample_Simulation(sim, ...)
-  PostProcessExample_for_sim["non_species_related_quantity"][index] # this should return the values of the post-processed quantity for that index
-  PostProcessExample_for_sim["species"]["quantity"][index] # this should return the value of the post-processed species-related quantity at the specified index
+1) Simulation-level wrapper: ``NameOfPostProcess_Simulation``
+-------------------------------------------------------------
+
+Implement a wrapper class that behaves like a ``Simulation``.
+
+**Requirements**
+
+- Inherits from ``PostProcess``
+- Stores the wrapped simulation in ``self._simulation``
+- Implements ``__getitem__`` that:
+
+  - returns a *species handler* when ``key`` is a species name
+  - returns a *post-processed diagnostic* when ``key`` is a quantity name
+
+- Uses caches (dicts) to avoid rebuilding wrappers repeatedly
+
+Typical skeleton:
+
+.. code-block:: python
+
+   class MyPost_Simulation(PostProcess):
+       def __init__(self, simulation: Simulation, ...):
+           super().__init__("MyPost", simulation)
+           self._computed = {}
+           self._species_handler = {}
+
+       def __getitem__(self, key):
+           if key in self._simulation._species:
+               if key not in self._species_handler:
+                   self._species_handler[key] = MyPost_Species_Handler(self._simulation[key], ...)
+               return self._species_handler[key]
+
+           if key not in self._computed:
+               self._computed[key] = MyPost_Diagnostic(self._simulation[key], ...)
+           return self._computed[key]
+
+**Note on “chainable” post-processes**
+
+Some post-processes (e.g. derivatives) should be chainable:
+
+.. code-block:: python
+
+   d1 = ou.Derivative_Simulation(sim, "x1")
+   d2 = ou.Derivative_Simulation(d1, "t")
+
+If your post-process needs to be chainable, avoid hard checks like:
+
+- ``isinstance(simulation, Simulation)``
+
+Instead, validate by capability:
+
+- has ``__getitem__``
+- has ``species`` or ``_species``
+
+2) Diagnostic-level wrapper: ``NameOfPostProcess_Diagnostic``
+-------------------------------------------------------------
+
+This class performs the actual post-processing while still behaving like a
+``Diagnostic``.
+
+**Requirements**
+
+- Inherits from ``Diagnostic``
+- Wraps a base diagnostic in ``self._diag``
+- Copies relevant metadata (e.g. ``_dt``, ``_dx``, ``_dim``, ``_maxiter``, etc.)
+- Implements:
+
+  - ``load_all()``: eager computation into ``self._data`` (shape ``(t, ...)``)
+  - ``_frame(index, data_slice=None)``: lazy single-timestep computation
+
+**Important:** you generally do **not** need to implement ``__getitem__``.
+The base ``Diagnostic.__getitem__`` already supports:
+
+- int indexing
+- time slices
+- tuple indexing ``(time_index, spatial_slices...)``
+
+and it calls:
+
+- ``self._frame(time_index, data_slice=data_slice)``
+
+So the minimal contract is:
+
+.. code-block:: python
+
+   class MyPost_Diagnostic(Diagnostic):
+       def load_all(self) -> np.ndarray:
+           ...
+
+       def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
+           ...
+
+**Shape conventions**
+
+- ``load_all()`` returns ``(t, x, y, z)`` (or lower dimensions depending on ``dim``)
+- ``_frame()`` returns one timestep ``(x, y, z)`` (or lower dimensions)
+
+**Slicing support**
+
+If your base diagnostic supports efficient disk slicing, pass it through:
+
+.. code-block:: python
+
+   f = self._diag._frame(index, data_slice=data_slice)
+
+That ensures ``diag[10, :, 100:200]`` loads only the requested region.
+
+3) Species handler: ``NameOfPostProcess_Species_Handler``
+---------------------------------------------------------
+
+Species handlers are thin wrappers for dictionary-like access.
+
+**Requirements**
+
+- Does **not** inherit from anything
+- Stores the wrapped species handler in ``self._species_handler``
+- Lazily builds post-processed diagnostics per key and caches them
+
+Example:
+
+.. code-block:: python
+
+   class MyPost_Species_Handler:
+       def __init__(self, species_handler, ...):
+           self._species_handler = species_handler
+           self._computed = {}
+
+       def __getitem__(self, key):
+           if key not in self._computed:
+               self._computed[key] = MyPost_Diagnostic(self._species_handler[key], ...)
+           return self._computed[key]
+
+Rules and common pitfalls
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- **Indexing should return only** ``np.ndarray``.
+  If you need multiple arrays (e.g., MFT average + fluctuations), create
+  auxiliary diagnostic classes and expose them via an additional layer:
+
+  .. code-block:: python
+
+     mft = ou.MFT_Simulation(sim, axis=1)["e3"]
+     avg = mft["avg"][0]
+     flt = mft["delta"][0]
+
+- **Avoid overriding ``Diagnostic.__getitem__``**.
+  If you override it, you must re-implement tuple slicing and time slicing
+  correctly, or indexing will break in subtle ways.
+
+- **Implement ``_frame(index, data_slice=None)``** for lazy access.
+  This is what enables:
+
+  - tuple indexing and spatial slicing
+  - arithmetic operation diagnostics (``diag + other``)
+  - consistent interaction with ``load_all``
+
+- **Time FFT cannot be computed from a single timestep**.
+  If your transform includes axis 0 (time), you must require ``load_all()``
+  (or implement a different algorithm explicitly designed for streaming).
+  A “per-timestep” FFT can only work for *spatial* axes.
+
+Consistent usage examples
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   import osiris_utils as ou
+
+   sim = ou.Simulation("path/to/input_deck.txt")
+
+   pp = MyPost_Simulation(sim, ...)
+
+   # Non-species diagnostic
+   arr = pp["e3"][10]
+
+   # Species diagnostic
+   arr = pp["electrons"]["n"][10]
+
+   # Spatial slicing
+   arr = pp["e3"][10, :, 100:200]
+   arr = pp["electrons"]["n"][0:10, :, 50:]
+
+Pull Requests
+~~~~~~~~~~~~~
+
+General expectations for PRs:
+
+- Keep PRs focused: one feature/fix per PR if possible.
+- Include an explanation of *why* the change is needed (not only what changed).
+- If you introduce a new post-process:
+  - follow the structure described above
+  - include at least a small usage example
+  - add/update documentation if user-facing behavior changes
+- If the PR changes physics / normalization / conventions, include a plot or a
+  small validation test case.
+
+If you're unsure about design choices (especially around performance or API
+consistency), open an issue first to discuss.
+
+Contact
+~~~~~~~
+
+If you need help, open an issue or contact João Biu via email:
+``joaopedrofbiu@tecnico.ulisboa.pt``
+or GitHub:
+``https://github.com/joaopedrobiu6``
