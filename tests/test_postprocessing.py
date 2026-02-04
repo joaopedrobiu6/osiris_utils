@@ -29,6 +29,10 @@ class MockDiagnostic:
             # For 1D, it needs to be subscriptable for fft.py:231
             self._dx = [dx] * max(1, self._dim)
 
+    @property
+    def data(self):
+        return self._data
+
     def __getitem__(self, index):
         return self._data[index]
 
@@ -48,7 +52,7 @@ def test_derivative_t():
     mock = MockDiagnostic(data, dt=1.0, ndump=1, dx=1.0, axis=1)
 
     # Compute derivative in 't'
-    deriv = Derivative_Diagnostic(mock, deriv_type='t')
+    deriv = Derivative_Diagnostic(mock, deriv_type='t', order=2)
     res = deriv.load_all()
 
     # Gradient uses central difference interior, one-sided edges.
@@ -107,8 +111,8 @@ def test_fft_simple():
     res = fft_diag.load_all()  # Returns |FFT|^2 shifted.
 
     # Check frequency array
-    # omega() returns frequencies shifted.
-    freqs = fft_diag.omega()
+    # k() returns wavenumbers.
+    freqs = fft_diag.k(1)
 
     # Peak should be at k0 = +/- 3.
     # Find index of max

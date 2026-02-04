@@ -51,6 +51,10 @@ class MockDiagnostic:
             # For 1D, it needs to be subscriptable for fft.py:231
             self._dx = [dx] * max(1, self._dim)
 
+    @property
+    def data(self):
+        return self._data
+
     def __getitem__(self, index):
         return self._data[index]
 
@@ -228,7 +232,55 @@ def test_derivative_4th_order():
     print("=" * 60)
 
 
+def test_derivative_stencil():
+    print("\n" + "=" * 60)
+    print("Testing Derivative via Explicit Stencil")
+    print("=" * 60)
+
+    # f(x) = x^3. df/dx = 3x^2.
+    x = np.linspace(0, 5, 50)
+    dx = x[1] - x[0]
+    data = (x**3).reshape(1, -1)
+
+    # Standard 5-point central difference for 1st derivative
+    # The code calculates optimal coefficients for the given points.
+    stencil = [-2, -1, 0, 1, 2]
+
+    mock = MockDiagnostic(data, dt=1.0, dx=dx, axis=0)
+
+    print("Computing 1st derivative with stencil [-2, -1, 0, 1, 2]...")
+    deriv = ou.Derivative_Diagnostic(mock, deriv_type='x1', stencil=stencil, deriv_order=1)
+    res = deriv.load_all()
+
+    expected = 3 * x**2
+
+    # Check interior points where stencil fits fully
+    # Indices [2, -2] (exclusive of last 2)
+    interior_res = res[0, 2:-2]
+    interior_exp = expected[2:-2]
+
+    print(f"Max error (1st deriv): {np.max(np.abs(interior_res - interior_exp))}")
+    assert np.allclose(interior_res, interior_exp, atol=1e-4), "Stencil 1st deriv failed"
+
+    # Test 2nd derivative with 3-point stencil
+    # f(x) = x^3. f''(x) = 6x.
+    print("\nComputing 2nd derivative with stencil [-1, 0, 1]...")
+    deriv2 = ou.Derivative_Diagnostic(mock, deriv_type='x1', stencil=[-1, 0, 1], deriv_order=2)
+    res2 = deriv2.load_all()
+
+    expected2 = 6 * x
+    interior_res2 = res2[0, 1:-1]
+    interior_exp2 = expected2[1:-1]
+
+    print(f"Max error (2nd deriv): {np.max(np.abs(interior_res2 - interior_exp2))}")
+    assert np.allclose(interior_res2, interior_exp2, atol=1e-4), "Stencil 2nd deriv failed"
+
+    print("Stencil tests PASSED.")
+    print("=" * 60)
+
+
 if __name__ == "__main__":
     test_derivative_2nd_order()
     test_derivative_4th_order()
+    test_derivative_stencil()
     print("\nAll tests passed!")
