@@ -1,3 +1,3 @@
-from .database import DatabaseCreator
+from .database import DatabaseBuildConfig, DatabaseCreator
 
-__all__ = ["DatabaseCreator"]
+__all__ = ["DatabaseCreator", "DatabaseBuildConfig"]
