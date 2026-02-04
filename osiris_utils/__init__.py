@@ -9,7 +9,7 @@ except _meta.PackageNotFoundError:  # package is being run from a checkout
     # Fallback for `pip install -e .` or direct source use
     __version__ = "0.0.0.dev0"
 
-from .ar.anomalous_resistivity import AnomalousResistivity, AnomalousResistivityConfig
+from .ar.anomalous_resistivity import AnomalousResistivity, AnomalousResistivityConfig, vlasov_electric_field
 from .data.data import (
     OsirisData,
     OsirisGridFile,
@@ -19,7 +19,7 @@ from .data.data import (
 )
 from .data.diagnostic import Diagnostic
 from .data.simulation import Simulation, Species_Handler
-from .database import DatabaseCreator
+from .database import DatabaseBuildConfig, DatabaseCreator
 from .decks.decks import InputDeckIO
 from .decks.species import Species
 from .postprocessing.derivative import Derivative_Diagnostic, Derivative_Simulation
@@ -59,8 +59,10 @@ __all__ = [
     # Anomalous Resistivity
     "AnomalousResistivity",
     "AnomalousResistivityConfig",
+    "vlasov_electric_field",
     # Database
     "DatabaseCreator",
+    "DatabaseBuildConfig",
     # Data Singles
     "OsirisGridFile",
     "OsirisRawFile",
