@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import math
 from collections import OrderedDict
+from collections.abc import Iterable
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -34,19 +37,21 @@ class Derivative_Simulation(PostProcess):
     axis : int or tuple
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
     order : int
-        The order of the derivative. Currently only 2 and 4 are supported.
-        Order 2 uses central differences with edge_order=2 in numpy.gradient.
-        Order 4 uses a higher order finite difference scheme. For the edge points,
-        a lower order scheme is used to avoid going out of bounds.
-
+        Scheme selector (2 or 4). Ignored if stencil is provided.
+    stencil : Iterable[int] or None
+        Integer offsets (in grid steps), e.g. [-2,-1,0,1,2] or [0,1,2,3].
+    deriv_order : int
+        Derivative order (1 for first derivative, 2 for second derivative, ...).
     """
 
     def __init__(
         self,
-        simulation: Any,  # Simulation-like (Simulation or PostProcess wrapper)
+        simulation: Any,
         deriv_type: str,
         axis: int | tuple[int, int] | None = None,
-        order: int = 2,
+        order: int = 4,
+        stencil: Iterable[int] | None = None,
+        deriv_order: int = 1,
     ):
         super().__init__(f"Derivative({deriv_type})", simulation)
 
@@ -58,22 +63,27 @@ class Derivative_Simulation(PostProcess):
 
         self._deriv_type = deriv_type
         self._op_axis = axis
-        self._order = order
+        self._order = int(order)
+
+        # NEW (general FD options)
+        self._stencil = None if stencil is None else tuple(int(s) for s in stencil)
+        self._deriv_order = int(deriv_order)
 
         self._derivatives_computed: dict[Any, Derivative_Diagnostic] = {}
         self._species_handler: dict[Any, Derivative_Species_Handler] = {}
 
-        # species already set by PostProcess, but keep it explicit if you want:
         self._species = getattr(simulation, "_species", getattr(simulation, "species", []))
 
     def __getitem__(self, key: Any):
         if key in self._species:
             if key not in self._species_handler:
                 self._species_handler[key] = Derivative_Species_Handler(
-                    self._simulation[key],  # species handler from wrapped sim
+                    self._simulation[key],
                     self._deriv_type,
                     self._op_axis,
                     self._order,
+                    stencil=self._stencil,
+                    deriv_order=self._deriv_order,
                 )
             return self._species_handler[key]
 
@@ -83,6 +93,8 @@ class Derivative_Simulation(PostProcess):
                 deriv_type=self._deriv_type,
                 axis=self._op_axis,
                 order=self._order,
+                stencil=self._stencil,
+                deriv_order=self._deriv_order,
             )
         return self._derivatives_computed[key]
 
@@ -109,22 +121,7 @@ class Derivative_Simulation(PostProcess):
         return self._derivatives_computed
 
     def add_diagnostic(self, diagnostic: Diagnostic, name: str | None = None) -> str:
-        """Add a custom diagnostic to the derivative simulation.
-
-        Parameters
-        ----------
-        diagnostic : Diagnostic
-            The diagnostic to add.
-        name : str, optional
-            The name to use as the key for accessing the diagnostic.
-            If None, an auto-generated name will be used.
-
-        Returns
-        -------
-        str
-            The name (key) used to store the diagnostic
-
-        """
+        """Add a custom diagnostic to the derivative simulation."""
         if name is None:
             i = 1
             while f"custom_diag_{i}" in self._derivatives_computed:
@@ -149,6 +146,13 @@ class Derivative_Diagnostic(Diagnostic):
         The type of derivative to compute. Options are: 't', 'x1', 'x2', 'x3', 'xx', 'xt' and 'tx'.
     axis : int or tuple
         The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types
+    order : int
+        Scheme selector (2 or 4). Ignored if stencil is provided.
+    stencil : Iterable[int] or None
+        Integer offsets (in grid steps), e.g. [-2,-1,0,1,2] or [0,1,2,3].
+    deriv_order : int
+        Derivative order (1 for first derivative, 2 for second derivative, ...).
+        Only used if stencil is provided.
 
     Methods
     -------
@@ -159,7 +163,15 @@ class Derivative_Diagnostic(Diagnostic):
 
     """
 
-    def __init__(self, diagnostic: Diagnostic, deriv_type: str, axis: int | tuple[int, int] | None = None, order: int = 2) -> None:
+    def __init__(
+        self,
+        diagnostic: Diagnostic,
+        deriv_type: str,
+        axis: int | tuple[int, int] | None = None,
+        order: int = 4,
+        stencil: Iterable[int] | None = None,
+        deriv_order: int = 1,
+    ) -> None:
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, "_species"):
             super().__init__(
@@ -171,13 +183,15 @@ class Derivative_Diagnostic(Diagnostic):
 
         self.postprocess_name = "DERIV"
 
-        # self._name = f"D[{diagnostic._name}, {type}]"
         self._diag = diagnostic
         self._deriv_type = deriv_type
         self._op_axis = axis
         self._data = None
         self._all_loaded = False
-        self._order = order
+        self._order = int(order)
+
+        self._stencil = None if stencil is None else tuple(int(s) for s in stencil)
+        self._deriv_order = int(deriv_order)
 
         self._cache = OrderedDict()
         self._cache_max = 6  # Maximum number of items to keep in cache (enough for 4th-order time stencil)
@@ -197,6 +211,279 @@ class Derivative_Diagnostic(Diagnostic):
         ]:
             if hasattr(diagnostic, attr):
                 setattr(self, attr, getattr(diagnostic, attr))
+
+        self._edge_plan_cache: dict[tuple[int, int, tuple[int, ...], int], tuple[list[int], list[tuple[int, ...]]]] = {}
+
+    @staticmethod
+    def _validate_stencil(stencil: tuple[int, ...], deriv_order: int) -> None:
+        if len(stencil) == 0:
+            raise ValueError("Stencil cannot be empty")
+        if len(set(stencil)) != len(stencil):
+            raise ValueError(f"Stencil offsets must be distinct. Got {stencil}.")
+        if deriv_order < 0:
+            raise ValueError("deriv_order must be >= 0")
+        if deriv_order >= len(stencil):
+            raise ValueError(f"Need len(stencil) > deriv_order. Got len={len(stencil)} deriv_order={deriv_order}.")
+
+    # Compute FD coefficients for given stencil and derivative order
+    @staticmethod
+    @lru_cache(maxsize=2048)
+    def _fd_unit_coeffs(stencil: tuple[int, ...], deriv_order: int) -> np.ndarray:
+        """Unit-spacing coefficients (h=1). Scale by 1/h^d when applying.
+
+        Parameters
+        ----------
+        stencil : tuple[int,...]
+            The stencil offsets (in grid steps).
+        deriv_order : int
+            The derivative order.
+
+        Returns
+        -------
+        np.ndarray
+            The finite difference coefficients.
+
+        Maths
+        -----
+        Computes sum_j c_j s_j^n = n! * delta_{n,d},   n = 0..N-1
+        """
+        Derivative_Diagnostic._validate_stencil(stencil, deriv_order)
+
+        s = np.asarray(stencil, dtype=float)
+        N = s.size
+
+        # V[n,j] = s_j^n, n=0..N-1
+        V = np.vander(s, N=N, increasing=True).T  # (N,N)
+        rhs = np.zeros(N, dtype=float)
+        rhs[deriv_order] = math.factorial(deriv_order)
+
+        return np.linalg.solve(V, rhs)
+
+    @staticmethod
+    def _shift_stencil_to_fit(stencil: np.ndarray, i: int, n: int) -> np.ndarray:
+        """Shift stencil by an integer k so i + (s_j + k) in [0,n-1] for all j.
+        Prefer k=0 if feasible.
+
+        Parameters
+        ----------
+        stencil : np.ndarray
+            The stencil offsets (in grid steps).
+        i : int
+            The current index where the stencil will be applied.
+        n : int
+            The total number of points along the axis.
+
+        Returns
+        -------
+        np.ndarray
+            The shifted stencil.
+
+        Examples
+        --------
+        >>> s = np.array([-2, -1, 0, 1, 2])
+        >>> Derivative_Diagnostic._shift_stencil_to_fit(s, i=1, n=10)
+        array([-1,  0,  1,  2,  3])
+
+        >>> Derivative_Diagnostic._shift_stencil_to_fit(s, i=9, n=10)
+        array([5, 6, 7, 8, 9])
+
+        >>> Derivative_Diagnostic._shift_stencil_to_fit(s, i=5, n=10)
+        array([-2, -1,  0,  1,  2])
+        """
+        s = stencil.astype(int)
+
+        k_min = -(10**18)
+        k_max = 10**18
+        for sj in s:
+            k_min = max(k_min, -i - sj)
+            k_max = min(k_max, (n - 1) - i - sj)
+
+        if k_min > k_max:
+            raise ValueError(f"Stencil {stencil.tolist()} cannot be shifted to fit at i={i}, n={n}.")
+
+        if k_min <= 0 <= k_max:
+            k = 0
+        else:
+            # pick nearest feasible integer
+            k = k_min if abs(k_min) < abs(k_max) else k_max
+
+        return s + int(k)
+
+    def _edge_plan(self, n: int, axis: int, stencil: tuple[int, ...], deriv_order: int):
+        """Precompute which indices need shifted stencils and what those shifted stencils are.
+
+        Parameters
+        ----------
+        n : int
+            Number of points along the axis.
+        axis : int
+            Axis along which the derivative is computed.
+        stencil : tuple[int,...]
+            The stencil offsets (in grid steps).
+        deriv_order : int
+            The derivative order.
+
+        Returns
+        -------
+        idxs : list[int]
+            Indices where shifted stencils are needed.
+        stencils : list[tuple[int,...]]
+            Shifted stencils (same length as idxs)
+
+        Examples
+        --------
+        >>> Derivative_Diagnostic()._edge_plan(n=10, axis=1, stencil=(-2, -1, 0, 1, 2), deriv_order=1)
+        ([0, 1, 8, 9], [(-2, -1, 0, 1, 2), (-1, 0, 1, 2, 3), (5, 6, 7, 8, 9), (6, 7, 8, 9, 10)])
+        """
+        # Check cache
+        key = (n, axis, stencil, deriv_order)
+        if key in self._edge_plan_cache:
+            return self._edge_plan_cache[key]
+
+        # Pass stencil as np array for easier min/max
+        s0 = np.asarray(stencil, dtype=int)
+        smin = int(s0.min())  # minimum shift
+        smax = int(s0.max())  # maximum shift
+
+        start = -smin
+        stop = n - smax  # interior indices are [start, stop)
+        idxs: list[int] = []
+        stencils: list[tuple[int, ...]] = []
+
+        # left edge
+        for i in range(0, max(0, start)):
+            s_i = self._shift_stencil_to_fit(s0, i=i, n=n)
+            idxs.append(i)
+            stencils.append(tuple(int(x) for x in s_i.tolist()))
+
+        # right edge
+        for i in range(max(0, stop), n):
+            s_i = self._shift_stencil_to_fit(s0, i=i, n=n)
+            idxs.append(i)
+            stencils.append(tuple(int(x) for x in s_i.tolist()))
+
+        self._edge_plan_cache[key] = (idxs, stencils)
+        return idxs, stencils
+
+    def _apply_stencil_unshifted_interior(
+        self,
+        data: np.ndarray,
+        h: float,
+        axis: int,
+        stencil: tuple[int, ...],
+        deriv_order: int,
+    ) -> tuple[np.ndarray, tuple[int, int]]:
+        """Apply unshifted stencil on the interior region where it fits. Returns (out, (start,stop)).
+
+        Parameters
+        ----------
+        data : np.ndarray
+            The input data array.
+        h : float
+            The grid spacing.
+        axis : int
+            The axis along which to apply the stencil.
+        stencil : tuple[int,...]
+            The stencil offsets (in grid steps).
+        deriv_order : int
+            The derivative order.
+
+        Returns
+        -------
+        out : np.ndarray
+            The output array with the derivative applied in the interior region.
+        (start, stop) : tuple[int, int]
+            The start and stop indices of the interior region where the stencil was applied.
+        """
+        s0 = np.asarray(stencil, dtype=int)
+        n = data.shape[axis]
+        smin = int(s0.min())
+        smax = int(s0.max())
+
+        start = -smin
+        stop = n - smax
+        out = np.zeros_like(data, dtype=float)
+
+        if stop <= start:
+            return out, (start, stop)
+
+        c_unit = self._fd_unit_coeffs(stencil, deriv_order)
+        c = c_unit / (float(h) ** deriv_order)
+
+        tgt = [slice(None)] * data.ndim
+        tgt[axis] = slice(start, stop)
+        interior_view = data[tuple(tgt)]
+
+        acc = np.zeros_like(interior_view, dtype=float)
+        for cj, sj in zip(c, s0, strict=False):
+            src = [slice(None)] * data.ndim
+            src[axis] = slice(start + sj, stop + sj)
+            acc += cj * data[tuple(src)]
+        out[tuple(tgt)] = acc
+
+        return out, (start, stop)
+
+    def _fd_apply_along_axis(
+        self,
+        data: np.ndarray,
+        h: float,
+        axis: int,
+        deriv_order: int,
+        stencil: tuple[int, ...],
+    ) -> np.ndarray:
+        """Apply arbitrary stencil along an axis:
+        - vectorized interior (unshifted)
+        - precomputed shifted stencils at edges
+
+        Parameters
+        ----------
+        data : np.ndarray
+            The input data array.
+        h : float
+            The grid spacing.
+        axis : int
+            The axis along which to apply the stencil.
+        deriv_order : int
+            The derivative order.
+        stencil : tuple[int,...]
+            The stencil offsets (in grid steps).
+
+        Returns
+        -------
+        np.ndarray
+            The output array with the derivative applied.
+        """
+        self._validate_stencil(stencil, deriv_order)
+
+        n = data.shape[axis]
+        # Central interior (vectorized)
+        out, (start, stop) = self._apply_stencil_unshifted_interior(data, h, axis, stencil, deriv_order)
+
+        # edges plan + apply (small loops only over edge indices)
+        idxs, stencils = self._edge_plan(n, axis, stencil, deriv_order)
+
+        # Apply edge stencils
+        for i, s_i in zip(idxs, stencils, strict=False):
+            # Compute coefficients for this shifted stencil
+            c_unit = self._fd_unit_coeffs(s_i, deriv_order)
+            # Scale by h^d
+            c_i = c_unit / (float(h) ** deriv_order)
+            # Convert stencil to array of ints
+            s_arr = np.asarray(s_i, dtype=int)
+
+            # Target index
+            tgt = [slice(None)] * data.ndim
+            tgt[axis] = i
+
+            # Apply stencil at index i
+            acc = 0.0
+            for cj, sj in zip(c_i, s_arr, strict=False):
+                src = [slice(None)] * data.ndim
+                src[axis] = i + int(sj)
+                acc = acc + cj * data[tuple(src)]
+            out[tuple(tgt)] = acc
+
+        return out
 
     @staticmethod
     def _compute_fourth_order_spatial(data: np.ndarray, dx: float, axis: int) -> np.ndarray:
@@ -276,52 +563,55 @@ class Derivative_Diagnostic(Diagnostic):
         return result
 
     def load_all(self) -> np.ndarray:
-        """Load all data and compute the derivative"""
+        """Load all data and compute the derivative."""
         if self._data is not None:
             print("Using cached derivative")
             return self._data
 
-        # Load diagnostic data if needed
         if not self._diag._all_loaded:
             self._diag.load_all()
 
-        # Use diagnostic data
-        print("Using cached data from diagnostic")
         self._data = self._diag._data
+
+        def dx_for_axis_data(ax: int) -> float:
+            # data in load_all includes time axis at 0, spatial axes start at 1
+            if self._dim > 1:
+                return float(self._diag._dx[ax - 1])
+            dx0 = self._diag._dx
+            return float(dx0[0] if isinstance(dx0, (list, tuple, np.ndarray)) else dx0)
+
+        if self._stencil is not None:
+            self._validate_stencil(self._stencil, self._deriv_order)
+
+            if self._deriv_type == "t":
+                h = float(self._diag._dt * self._diag._ndump)
+                result = self._fd_apply_along_axis(self._data, h=h, axis=0, deriv_order=self._deriv_order, stencil=self._stencil)
+
+            elif self._deriv_type in ("x1", "x2", "x3"):
+                axis_map = {"x1": 1, "x2": 2, "x3": 3}
+                ax = axis_map[self._deriv_type]
+                dx = dx_for_axis_data(ax)
+                result = self._fd_apply_along_axis(self._data, h=dx, axis=ax, deriv_order=self._deriv_order, stencil=self._stencil)
+
+            else:
+                raise ValueError("Explicit stencil is supported for deriv_type in {'t','x1','x2','x3'} in load_all().")
+
+            self._all_loaded = True
+            self._data = result
+            return self._data
 
         if self._order == 2:
             if self._deriv_type == "t":
                 result = np.gradient(self._data, self._diag._dt * self._diag._ndump, axis=0, edge_order=2)
 
             elif self._deriv_type == "x1":
-                # Handle dx - extract scalar for 1D, use first element for multi-D
-                dx = self._diag._dx
-                if self._dim == 1 and isinstance(dx, (list, tuple, np.ndarray)):
-                    dx = dx[0] if len(dx) >= 1 else dx
-                elif self._dim > 1:
-                    dx = self._diag._dx[0]
-                result = np.gradient(self._data, dx, axis=1, edge_order=2)
+                result = np.gradient(self._data, dx_for_axis_data(1), axis=1, edge_order=2)
 
             elif self._deriv_type == "x2":
-                result = np.gradient(self._data, self._diag._dx[1], axis=2, edge_order=2)
+                result = np.gradient(self._data, dx_for_axis_data(2), axis=2, edge_order=2)
 
             elif self._deriv_type == "x3":
-                result = np.gradient(self._data, self._diag._dx[2], axis=3, edge_order=2)
-
-            elif self._deriv_type == "xx":
-                if len(self._op_axis) != 2:
-                    raise ValueError("Axis must be a tuple with two elements.")
-                result = np.gradient(
-                    np.gradient(
-                        self._data,
-                        self._diag._dx[self._op_axis[0] - 1],
-                        axis=self._op_axis[0],
-                        edge_order=2,
-                    ),
-                    self._diag._dx[self._op_axis[1] - 1],
-                    axis=self._op_axis[1],
-                    edge_order=2,
-                )
+                result = np.gradient(self._data, dx_for_axis_data(3), axis=3, edge_order=2)
 
             elif self._deriv_type == "xx":
                 if not isinstance(self._op_axis, (tuple, list)) or len(self._op_axis) != 2:
@@ -356,23 +646,16 @@ class Derivative_Diagnostic(Diagnostic):
                 raise ValueError("Invalid derivative type.")
 
         elif self._order == 4:
-            if self._deriv_type in ["x1", "x2", "x3"]:
-                axis = {"x1": 1, "x2": 2, "x3": 3}[self._deriv_type]
-                # Extract dx as a scalar
-                if self._dim > 1:
-                    dx = self._diag._dx[axis - 1]
-                else:
-                    # For 1D, _dx might be a list with one element or a scalar
-                    dx = self._diag._dx[0] if isinstance(self._diag._dx, (list, tuple, np.ndarray)) else self._diag._dx
-                # Ensure dx is a scalar float
-                if isinstance(dx, (list, tuple, np.ndarray)):
-                    dx = float(dx) if np.isscalar(dx) else float(dx[0])
-                # Use vectorized helper function for massive speedup
-                result = self._compute_fourth_order_spatial(self._data, dx, axis)
+            if self._deriv_type in ("x1", "x2", "x3"):
+                axis_map = {"x1": 1, "x2": 2, "x3": 3}
+                ax = axis_map[self._deriv_type]
+                dx = dx_for_axis_data(ax)
+                result = self._compute_fourth_order_spatial(self._data, dx, ax)
             else:
                 raise ValueError("Order 4 is only implemented for spatial derivatives 'x1', 'x2' and 'x3'.")
+        else:
+            raise ValueError("Only order 2 and 4 supported.")
 
-        # Store the result in the cache
         self._all_loaded = True
         self._data = result
         return self._data
@@ -389,12 +672,12 @@ class Derivative_Diagnostic(Diagnostic):
             if max(self._op_axis) > self._diag._dim:
                 raise ValueError(f"xx requested for axes {self._op_axis} but dim={self._diag._dim}")
 
-        n = self._diag._maxiter
+        n = int(self._diag._maxiter)
         dt = float(self._diag._dt * self._diag._ndump)
 
         # ---------- helpers ----------
         def spatial_axis_np_from_osiris(ax_osiris: int) -> int:
-            # OSIRIS spatial axes are 1..3; per-timestep array axes are 0..2
+            # OSIRIS spatial axes are 1..3; per-timestep frame axes are 0..2
             if not isinstance(ax_osiris, int):
                 raise ValueError("Axis must be int for spatial derivatives.")
             if ax_osiris < 1 or ax_osiris > 3:
@@ -407,17 +690,38 @@ class Derivative_Diagnostic(Diagnostic):
                 return float(dx[0] if isinstance(dx, (list, tuple, np.ndarray)) else dx)
             return float(dx[ax_np])
 
-        def d_dx(f: np.ndarray, ax_np: int, order: int) -> np.ndarray:
+        def d_dx_frame(f: np.ndarray, ax_np: int) -> np.ndarray:
             dx = dx_for_np_axis(ax_np)
-            if order == 2:
+
+            # stencil overrides legacy order
+            if self._stencil is not None:
+                self._validate_stencil(self._stencil, self._deriv_order)
+                return self._fd_apply_along_axis(f, h=dx, axis=ax_np, deriv_order=self._deriv_order, stencil=self._stencil)
+
+            if self._order == 2:
                 return np.gradient(f, dx, axis=ax_np, edge_order=2)
-            if order == 4:
+            if self._order == 4:
                 return self._compute_fourth_order_spatial(f, dx, ax_np)
             raise ValueError("Only order 2 and 4 supported.")
 
-        def d_dt_at(i: int, order: int) -> np.ndarray:
-            # Uses upstream frames, all with identical data_slice
-            if order == 2:
+        def d_dt_at(i: int) -> np.ndarray:
+            # stencil overrides legacy order
+            if self._stencil is not None:
+                self._validate_stencil(self._stencil, self._deriv_order)
+
+                s0 = np.asarray(self._stencil, dtype=int)
+                s_i = self._shift_stencil_to_fit(s0, i=i, n=n)
+                s_i_tup = tuple(int(x) for x in s_i.tolist())
+
+                c_unit = self._fd_unit_coeffs(s_i_tup, self._deriv_order)
+                c = c_unit / (dt**self._deriv_order)
+
+                acc = 0.0
+                for cj, sj in zip(c, s_i, strict=False):
+                    acc = acc + cj * self._base(i + int(sj), data_slice)
+                return acc
+
+            if self._order == 2:
                 if i == 0:
                     f0 = self._base(0, data_slice)
                     f1 = self._base(1, data_slice)
@@ -432,10 +736,23 @@ class Derivative_Diagnostic(Diagnostic):
                 fm = self._base(i - 1, data_slice)
                 return (fp - fm) / (2 * dt)
 
-            if order == 4:
-                # fall back near edges
+            if self._order == 4:
                 if i < 2 or i > n - 3:
-                    return d_dt_at(i, order=2)
+                    # edge fallback to 2nd-order
+                    if i == 0:
+                        f0 = self._base(0, data_slice)
+                        f1 = self._base(1, data_slice)
+                        f2 = self._base(2, data_slice)
+                        return (-3 * f0 + 4 * f1 - f2) / (2 * dt)
+                    if i == n - 1:
+                        f0 = self._base(n - 1, data_slice)
+                        f1 = self._base(n - 2, data_slice)
+                        f2 = self._base(n - 3, data_slice)
+                        return (3 * f0 - 4 * f1 + f2) / (2 * dt)
+                    fp = self._base(min(i + 1, n - 1), data_slice)
+                    fm = self._base(max(i - 1, 0), data_slice)
+                    return (fp - fm) / (2 * dt)
+
                 f_p2 = self._base(i + 2, data_slice)
                 f_p1 = self._base(i + 1, data_slice)
                 f_m1 = self._base(i - 1, data_slice)
@@ -444,46 +761,39 @@ class Derivative_Diagnostic(Diagnostic):
 
             raise ValueError("Only order 2 and 4 supported.")
 
-        # ---------- dispatch ----------
         if self._deriv_type in ("x1", "x2", "x3"):
             f = self._base(index, data_slice)
             ax_np = {"x1": 0, "x2": 1, "x3": 2}[self._deriv_type]
-            return d_dx(f, ax_np, self._order)
+            return d_dx_frame(f, ax_np)
 
         if self._deriv_type == "t":
-            return d_dt_at(index, self._order)
+            return d_dt_at(index)
 
         if self._deriv_type == "xx":
-            # second derivative along two spatial axes (can be same or different)
-            if not isinstance(self._op_axis, (tuple, list)) or len(self._op_axis) != 2:
-                raise ValueError("For 'xx', axis must be a tuple/list of two OSIRIS spatial axes, e.g. (1,2).")
             ax1_np = spatial_axis_np_from_osiris(self._op_axis[0])
             ax2_np = spatial_axis_np_from_osiris(self._op_axis[1])
 
             f = self._base(index, data_slice)
-            # order=4 here is not implemented as a true 4th-order second derivative; keep order=2 behavior
-            g = d_dx(f, ax1_np, order=2)
-            return d_dx(g, ax2_np, order=2)
+
+            g = np.gradient(f, dx_for_np_axis(ax1_np), axis=ax1_np, edge_order=2)
+            return np.gradient(g, dx_for_np_axis(ax2_np), axis=ax2_np, edge_order=2)
 
         if self._deriv_type == "xt":
-            # d/dx ( d/dt f )
             if not isinstance(self._op_axis, int):
                 raise ValueError("For 'xt', axis must be an OSIRIS spatial axis int (1..3).")
             ax_np = spatial_axis_np_from_osiris(self._op_axis)
 
-            ft = d_dt_at(index, order=2 if self._order == 4 else self._order)  # keep stable
-            return d_dx(ft, ax_np, order=2)
+            ft = d_dt_at(index)
+            return np.gradient(ft, dx_for_np_axis(ax_np), axis=ax_np, edge_order=2)
 
         if self._deriv_type == "tx":
-            # d/dt ( d/dx f )
             if not isinstance(self._op_axis, int):
                 raise ValueError("For 'tx', axis must be an OSIRIS spatial axis int (1..3).")
             ax_np = spatial_axis_np_from_osiris(self._op_axis)
 
-            # do spatial derivative on each needed time frame, then time-stencil those
             def spatial_frame(i: int) -> np.ndarray:
                 fi = self._base(i, data_slice)
-                return d_dx(fi, ax_np, order=2)
+                return np.gradient(fi, dx_for_np_axis(ax_np), axis=ax_np, edge_order=2)
 
             if self._order == 2:
                 if index == 0:
@@ -494,7 +804,6 @@ class Derivative_Diagnostic(Diagnostic):
 
             if self._order == 4:
                 if index < 2 or index > n - 3:
-                    # edge fallback
                     return (spatial_frame(min(index + 1, n - 1)) - spatial_frame(max(index - 1, 0))) / (2 * dt)
                 return (
                     -spatial_frame(index + 2) + 8 * spatial_frame(index + 1) - 8 * spatial_frame(index - 1) + spatial_frame(index - 2)
@@ -517,7 +826,6 @@ class Derivative_Diagnostic(Diagnostic):
             self._cache.popitem(last=False)
 
     def _base(self, idx: int, data_slice: tuple | None):
-        # base diagnostic frame WITH slice (this is the key!)
         key = (idx, data_slice)
         v = self._cache_get(key)
         if v is None:
@@ -543,15 +851,34 @@ class Derivative_Species_Handler:
 
     """
 
-    def __init__(self, species_handler: Any, deriv_type: str, axis: int | tuple[int, int] | None = None, order: int = 2) -> None:
+    def __init__(
+        self,
+        species_handler: Any,
+        deriv_type: str,
+        axis: int | tuple[int, int] | None = None,
+        order: int = 4,
+        stencil: Iterable[int] | None = None,
+        deriv_order: int = 1,
+    ) -> None:
         self._species_handler = species_handler
         self._deriv_type = deriv_type
         self._axis = axis
-        self._order = order
+        self._order = int(order)
+
+        self._stencil = None if stencil is None else tuple(int(s) for s in stencil)
+        self._deriv_order = int(deriv_order)
+
         self._derivatives_computed: dict[Any, Derivative_Diagnostic] = {}
 
     def __getitem__(self, key: Any) -> Derivative_Diagnostic:
         if key not in self._derivatives_computed:
             diag = self._species_handler[key]
-            self._derivatives_computed[key] = Derivative_Diagnostic(diag, self._deriv_type, self._axis, self._order)
+            self._derivatives_computed[key] = Derivative_Diagnostic(
+                diagnostic=diag,
+                deriv_type=self._deriv_type,
+                axis=self._axis,
+                order=self._order,
+                stencil=self._stencil,
+                deriv_order=self._deriv_order,
+            )
         return self._derivatives_computed[key]
