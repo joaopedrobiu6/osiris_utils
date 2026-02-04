@@ -212,8 +212,6 @@ class Derivative_Diagnostic(Diagnostic):
             if hasattr(diagnostic, attr):
                 setattr(self, attr, getattr(diagnostic, attr))
 
-        self._edge_plan_cache: dict[tuple[int, int, tuple[int, ...], int], tuple[list[int], list[tuple[int, ...]]]] = {}
-
     @staticmethod
     def _validate_stencil(stencil: tuple[int, ...], deriv_order: int) -> None:
         if len(stencil) == 0:
@@ -309,7 +307,9 @@ class Derivative_Diagnostic(Diagnostic):
 
         return s + int(k)
 
-    def _edge_plan(self, n: int, axis: int, stencil: tuple[int, ...], deriv_order: int):
+    @staticmethod
+    @lru_cache(maxsize=128)
+    def _edge_plan(n: int, axis: int, stencil: tuple[int, ...], deriv_order: int):
         """Precompute which indices need shifted stencils and what those shifted stencils are.
 
         Parameters
@@ -332,13 +332,9 @@ class Derivative_Diagnostic(Diagnostic):
 
         Examples
         --------
-        >>> Derivative_Diagnostic()._edge_plan(n=10, axis=1, stencil=(-2, -1, 0, 1, 2), deriv_order=1)
+        >>> Derivative_Diagnostic._edge_plan(n=10, axis=1, stencil=(-2, -1, 0, 1, 2), deriv_order=1)
         ([0, 1, 8, 9], [(-2, -1, 0, 1, 2), (-1, 0, 1, 2, 3), (5, 6, 7, 8, 9), (6, 7, 8, 9, 10)])
         """
-        # Check cache
-        key = (n, axis, stencil, deriv_order)
-        if key in self._edge_plan_cache:
-            return self._edge_plan_cache[key]
 
         # Pass stencil as np array for easier min/max
         s0 = np.asarray(stencil, dtype=int)
@@ -352,17 +348,16 @@ class Derivative_Diagnostic(Diagnostic):
 
         # left edge
         for i in range(0, max(0, start)):
-            s_i = self._shift_stencil_to_fit(s0, i=i, n=n)
+            s_i = Derivative_Diagnostic._shift_stencil_to_fit(s0, i=i, n=n)
             idxs.append(i)
             stencils.append(tuple(int(x) for x in s_i.tolist()))
 
         # right edge
         for i in range(max(0, stop), n):
-            s_i = self._shift_stencil_to_fit(s0, i=i, n=n)
+            s_i = Derivative_Diagnostic._shift_stencil_to_fit(s0, i=i, n=n)
             idxs.append(i)
             stencils.append(tuple(int(x) for x in s_i.tolist()))
 
-        self._edge_plan_cache[key] = (idxs, stencils)
         return idxs, stencils
 
     def _apply_stencil_unshifted_interior(
