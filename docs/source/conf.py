@@ -138,7 +138,7 @@ html_theme_options = {
     "logo_only": True,
     "prev_next_buttons_location": "both",
     "style_external_links": False,
-    "style_nav_header_background": "#3c4142",
+    "style_nav_header_background": "#f6f6f2",
     # Toc options
     "collapse_navigation": True,
     "sticky_navigation": True,
@@ -155,7 +155,7 @@ html_css_files = ["custom.css"]
 
 # The name of an image file (relative to this directory) to place at the top
 # of the sidebar.
-html_logo = '_static/Imagem1.png'
+html_logo = '_static/logo.png'
 
 # The name of an image file (within the static path) to use as favicon of the
 # docs.  This file should be a Windows icon file (.ico) being 16x16 or 32x32

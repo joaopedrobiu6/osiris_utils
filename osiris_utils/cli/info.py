@@ -16,16 +16,16 @@ def register_parser(subparsers) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  osiris info path/to/simulation          # Show all simulation info
-  osiris info path/to/file.h5             # Show single file info
-  osiris info path/to/simulation --brief  # Show summary only
+  utils info path/to/input.deck           # Show all simulation info
+  utils info path/to/file.h5              # Show single file info
+  utils info path/to/input.deck --brief   # Show summary only
         """,
     )
 
     parser.add_argument(
         "path",
         type=str,
-        help="Path to OSIRIS simulation directory or HDF5 file",
+        help="Path to OSIRIS input deck or HDF5 file",
     )
 
     parser.add_argument(
@@ -46,11 +46,19 @@ def run(args: argparse.Namespace) -> int:
         return 1
 
     # Determine if path is a file or directory
-    # Determine if path is a file or directory
     if path.is_file():
+        if path.name in ["os-stdin", "input.deck", "deck.in"] or path.suffix == ".deck":
+            return show_simulation_info(path, args.brief, args.verbose)
         return show_file_info(path, args.brief)
     elif path.is_dir():
-        return show_simulation_info(path, args.brief, args.verbose)
+        # Fallback for folder access: try to find the deck automatically
+        for candidate in ["os-stdin", "input.deck", "deck.in"]:
+            deck_path = path / candidate
+            if deck_path.exists():
+                return show_simulation_info(deck_path, args.brief, args.verbose)
+
+        print(f"Error: No input deck found in {path}", file=sys.stderr)
+        return 1
     else:
         print(f"Error: '{path}' is not a file or directory", file=sys.stderr)
         return 1
@@ -90,22 +98,12 @@ def show_file_info(filepath: Path, brief: bool = False) -> int:
         return 1
 
 
-def show_simulation_info(simpath: Path, brief: bool = False, verbose: bool = False) -> int:
+def show_simulation_info(deck_path: Path, brief: bool = False, verbose: bool = False) -> int:
     """Display information about an OSIRIS simulation."""
+    simpath = deck_path.parent
+    input_deck = deck_path
+
     try:
-        # Look for input deck
-        input_deck = None
-        for candidate in ["os-stdin", "input.deck", "deck.in"]:
-            deck_path = simpath / candidate
-            if deck_path.exists():
-                input_deck = deck_path
-                break
-
-        if input_deck is None:
-            print(f"Error: No input deck found in {simpath}", file=sys.stderr)
-            print("  (Looking for: os-stdin, input.deck, deck.in)", file=sys.stderr)
-            return 1
-
         # Load simulation
         sim = ou.Simulation(str(input_deck))
 
