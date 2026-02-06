@@ -1,6 +1,6 @@
 /* Sidebar background */
 .wy-nav-side {
-  background: #88cbf8;
+  background: #367582;
   /* Change to your preferred color */
 }
 
@@ -11,12 +11,18 @@
 
 /* Sidebar link hover color */
 .wy-menu-vertical a:hover {
-  background-color: #36a8f3;
+  background-color: #5d256d;
+}
+
+.wy-menu-vertical header,
+.wy-menu-vertical p.caption,
+span.caption-text {
+  color: #414141;
 }
 
 /* Selected item in sidebar */
 .wy-menu-vertical li.current {
-  background: #2f93f0;
+  background: #f6f6f2;
 }
 
 .wy-menu-vertical li.current>a {
@@ -30,16 +36,16 @@ h3,
 h4,
 h5,
 h6 {
-  color: #57bafb;
+  color: #263876;
 }
 
 a:hover {
-  color: #a5c0fe;
+  color: #f6f6f2;
 }
 
 /* Code block background */
 .highlight {
-  background: #000000;
+  background: #414141;
 }
 
 /* Keep your existing settings for content width */

@@ -1,4 +1,4 @@
-OSIRIS_UTILS
+Utils
 ============
 .. image:: https://raw.githubusercontent.com/joaopedrobiu6/osiris_utils/main/docs/source/_static/logo.png
    :width: 200px
