@@ -19,16 +19,16 @@ def register_parser(subparsers) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  osiris validate path/to/simulation      # Check entire simulation
-  osiris validate file.h5                 # Check single file
-  osiris validate sim --check-missing     # Check for missing timesteps
+  utils validate path/to/input.deck       # Check entire simulation
+  utils validate file.h5                  # Check single file
+  utils validate input.deck --check-missing # Check for missing timesteps
         """,
     )
 
     parser.add_argument(
         "path",
         type=str,
-        help="Path to OSIRIS simulation directory or HDF5 file",
+        help="Path to OSIRIS input deck or HDF5 file",
     )
 
     parser.add_argument(
@@ -59,13 +59,30 @@ def run(args: argparse.Namespace) -> int:
 
     try:
         if path.is_file():
-            e, w = validate_file(path)
-            errors += e
-            warnings += w
+            # Check if it's a deck file
+            if path.name in ["os-stdin", "input.deck", "deck.in"] or path.suffix == ".deck":
+                e, w = validate_simulation(path, args.check_missing)
+                errors += e
+                warnings += w
+            else:
+                e, w = validate_file(path)
+                errors += e
+                warnings += w
         elif path.is_dir():
-            e, w = validate_simulation(path, args.check_missing)
-            errors += e
-            warnings += w
+            # Fallback
+            deck_found = False
+            for candidate in ["os-stdin", "input.deck", "deck.in"]:
+                deck_path = path / candidate
+                if deck_path.exists():
+                    e, w = validate_simulation(deck_path, args.check_missing)
+                    errors += e
+                    warnings += w
+                    deck_found = True
+                    break
+
+            if not deck_found:
+                print(f"Error: No input deck found in {path}", file=sys.stderr)
+                return 1
         else:
             print(f"Error: '{path}' is not a file or directory", file=sys.stderr)
             return 1
@@ -146,9 +163,9 @@ def validate_file(filepath: Path) -> tuple[int, int]:
     return errors, warnings
 
 
-def validate_simulation(simpath: Path, check_missing: bool = False) -> tuple[int, int]:
+def validate_simulation(deck_path: Path, check_missing: bool = False) -> tuple[int, int]:
     """
-    Validate an entire simulation directory.
+    Validate an entire simulation directory given the input deck.
 
     Returns
     -------
@@ -158,22 +175,11 @@ def validate_simulation(simpath: Path, check_missing: bool = False) -> tuple[int
     errors = 0
     warnings = 0
 
+    simpath = deck_path.parent
+    input_deck = deck_path
+
     print(f"Validating simulation: {simpath}")
-
-    # Check for input deck
-    input_deck = None
-    for candidate in ["os-stdin", "input.deck", "deck.in"]:
-        deck_path = simpath / candidate
-        if deck_path.exists():
-            input_deck = deck_path
-            break
-
-    if input_deck is None:
-        print("Error: No input deck found")
-        errors += 1
-        return errors, warnings
-    else:
-        print(f"Found input deck: {input_deck.name}")
+    print(f"Found input deck: {input_deck.name}")
 
     # Try to load simulation
     try:

@@ -14,6 +14,13 @@ OSIRIS Utils Documentation
 
 .. toctree::
    :maxdepth: 2
+   :caption: Command Line Interface:
+   :hidden:
+
+   api/cli
+
+.. toctree::
+   :maxdepth: 2
    :caption: Simulation and Diagnostic API:
    :hidden:
    

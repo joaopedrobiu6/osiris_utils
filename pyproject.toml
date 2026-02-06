@@ -40,7 +40,7 @@ classifiers = [
 ]
 
 [project.scripts]
-osiris = "osiris_utils.cli:main"
+utils = "osiris_utils.cli:main"
 
 [project.urls]
 "Source Code"   = "https://github.com/joaopedrobiu6/osiris_utils"

@@ -1,6 +1,6 @@
 OSIRIS_UTILS
 ============
-.. image:: https://raw.githubusercontent.com/joaopedrobiu6/osiris_utils/main/docs/source/_static/Imagem1.png
+.. image:: https://raw.githubusercontent.com/joaopedrobiu6/osiris_utils/main/docs/source/_static/logo.png
    :width: 200px
    :align: right
 
@@ -59,43 +59,43 @@ Quick-start
 Command-Line Interface
 ----------------------
 
-osiris_utils includes a command-line interface for common operations. After installation, the ``osiris`` command becomes available::
+osiris_utils includes a command-line interface for common operations. After installation, the ``utils`` command becomes available::
 
-   osiris --version                     # Check version
-   osiris --help                        # Show available commands
+   utils --version                     # Check version
+   utils --help                        # Show available commands
 
 **Available Commands:**
 
-- ``osiris info`` - Display metadata about OSIRIS files and simulations
-- ``osiris export`` - Convert data to CSV, JSON, or NumPy formats
-- ``osiris plot`` - Create quick visualizations
-- ``osiris validate`` - Check file integrity
+- ``utils info`` - Display metadata about OSIRIS files and simulations
+- ``utils export`` - Convert data to CSV, JSON, or NumPy formats
+- ``utils plot`` - Create quick visualizations
+- ``utils validate`` - Check file integrity
 
 **Examples:**
 
 Show simulation information::
 
-   osiris info path/to/simulation
-   osiris info path/to/file.h5 --brief
+   utils info path/to/input.deck
+   utils info path/to/file.h5 --brief
 
 Export data to different formats::
 
-   osiris export file.h5 --format csv --output data.csv
-   osiris export diagnostic/dir --format npy --output data.npy
+   utils export file.h5 --format csv --output data.csv
+   utils export diagnostic/dir --format npy --output data.npy
 
 Generate quick plots::
 
-   osiris plot file.h5 --save plot.png
-   osiris plot file.h5 --save plot.png --title "Ez Field" --cmap viridis
+   utils plot file.h5 --save plot.png
+   utils plot file.h5 --save plot.png --title "Ez Field" --cmap viridis
 
 Validate simulation data::
 
-   osiris validate path/to/simulation
-   osiris validate path/to/simulation --check-missing
+   utils validate path/to/input.deck
+   utils validate path/to/input.deck --check-missing
 
 For detailed help on any command::
 
-   osiris <command> --help
+   utils <command> --help
 
 
 Documentation
