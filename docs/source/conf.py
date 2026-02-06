@@ -53,6 +53,24 @@ except Exception:
 
 release = version
 
+# For Sphinx `version` show only major.minor (e.g. 1.2) while `release`
+# keeps the full package version (e.g. 1.2.6.dev1+g0d899bbc3).
+try:
+    import re
+
+    # Strip off any local version or build metadata first
+    _base = release.split("+", 1)[0]
+    m = re.match(r"^(\d+)(?:\.(\d+))?", _base)
+    if m:
+        major = m.group(1)
+        minor = m.group(2) or "0"
+        version = f"{major}.{minor}"
+    else:
+        # Fallback: use the full release string if parsing fails
+        version = release
+except Exception:
+    version = release
+
 
 # -- General configuration ---------------------------------------------------
 
