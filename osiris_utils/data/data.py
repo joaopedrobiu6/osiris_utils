@@ -227,7 +227,8 @@ class OsirisGridFile(OsirisData):
                 "units": self._file["AXIS/" + ax].attrs["UNITS"][0].decode("utf-8"),
                 "long_name": self._file["AXIS/" + ax].attrs["LONG_NAME"][0].decode("utf-8"),
                 "type": self._file["AXIS/" + ax].attrs["TYPE"][0].decode("utf-8"),
-                "plot_label": rf'${self._file["AXIS/" + ax].attrs["LONG_NAME"][0].decode("utf-8")}$' + rf'$[{self._file["AXIS/" + ax].attrs["UNITS"][0].decode("utf-8")}]$',
+                "plot_label": rf'${self._file["AXIS/" + ax].attrs["LONG_NAME"][0].decode("utf-8")}$'
+                + rf'$[{self._file["AXIS/" + ax].attrs["UNITS"][0].decode("utf-8")}]$',
             }
             self._axis.append(axis_data)
 
@@ -613,7 +614,17 @@ class OsirisTrackFile(OsirisData):
 
     def __str__(self):
         # write me a template to print with the name, label, units, iter, grid, nx, dx, axis, dt, dim in a logical way
-        return rf"{self.name}" + "\n" + f"Iteration: {self.iter}" + "\n" + f"Grid: {self.grid}" + "\n" + f"dx: {self.dx}" + "\n" + f"Dimensions: {self.dim}D"
+        return (
+            rf"{self.name}"
+            + "\n"
+            + f"Iteration: {self.iter}"
+            + "\n"
+            + f"Grid: {self.grid}"
+            + "\n"
+            + f"dx: {self.dx}"
+            + "\n"
+            + f"Dimensions: {self.dim}D"
+        )
 
     def __array__(self):
         return np.asarray(self.data)
