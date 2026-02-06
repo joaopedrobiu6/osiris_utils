@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -82,13 +83,13 @@ class FFT_Diagnostic(Diagnostic):
     Methods
     -------
     load_all() -> np.ndarray
-        Load all data and compute FFT (possibly including time axis). Returns power spectrum \|FFT\|^2 stored in self._data.
-    _frame(index: int, data_slice: tuple \| None = None) -> np.ndarray
+        Load all data and compute FFT (possibly including time axis). Returns power spectrum `|FFT|^2` stored in self._data.
+    _frame(index: int, data_slice: tuple | None = None) -> np.ndarray
         Per-timestep (lazy) FFT. Only allowed for spatial FFT. If fft_axis includes time (0), user must call load_all().
-        Returns power spectrum \|FFT\|^2.
+        Returns power spectrum `|FFT|^2`.
     omega() -> np.ndarray
         Get the angular frequency array for the FFT along the time dimension.
-    k(axis: int \| None = None) -> np.ndarray \| dict[int, np.ndarray]
+    k(axis: int | None = None) -> np.ndarray | dict[int, np.ndarray]
         Get the wavenumber array for the FFT along spatial dimension(s).
     """
 
@@ -157,9 +158,9 @@ class FFT_Diagnostic(Diagnostic):
             self._kmax = np.pi / np.array([self._dx[ax - 1] for ax in axes if ax != 0])
 
     def load_all(self) -> np.ndarray:
-        """
+        r"""
         Load all data and compute FFT (possibly including time axis).
-        Returns power spectrum \|FFT\|^2 stored in self._data.
+        Returns power spectrum `|FFT|^2` stored in self._data.
         """
         if self._data is not None:
             print("Using cached data.")
@@ -202,7 +203,7 @@ class FFT_Diagnostic(Diagnostic):
                 pbar.update(0.5)
 
         # Useful for time FFT
-        self.omega_max = np.pi / (self._dt * self._ndump)
+        # self.omega_max is a property, no need to set it
 
         # Optional "density" scaling (includes dt/dx factors)
         if self._normalize == "density":
@@ -213,10 +214,10 @@ class FFT_Diagnostic(Diagnostic):
         return self._data
 
     def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
-        """
+        r"""
         Per-timestep (lazy) FFT. Only allowed for spatial FFT.
         If fft_axis includes time (0), user must call load_all().
-        Returns power spectrum \|FFT\|^2.
+        Returns power spectrum `|FFT|^2`.
         """
         axes_osiris = [self._fft_axis] if isinstance(self._fft_axis, int) else list(self._fft_axis)
 
@@ -264,7 +265,9 @@ class FFT_Diagnostic(Diagnostic):
 
         return np.abs(fft) ** 2
 
-    def _get_window(self, length: int, kind: str | None) -> np.ndarray | None:
+    @staticmethod
+    @lru_cache(maxsize=128)
+    def _get_window(length: int, kind: str | None) -> np.ndarray | None:
         """
         Get the window array of given kind and length.
 

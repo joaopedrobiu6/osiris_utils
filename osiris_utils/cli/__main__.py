@@ -25,18 +25,18 @@ def main(argv: list[str] | None = None) -> int:
 
     """
     parser = argparse.ArgumentParser(
-        prog="osiris",
+        prog="utils",
         description="Command-line tools for OSIRIS plasma simulation data analysis",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  osiris info path/to/simulation          # Show simulation metadata
-  osiris export file.h5 --format csv      # Export data to CSV
-  osiris plot file.h5 --save plot.png     # Create quick plot
-  osiris validate path/to/simulation      # Check file integrity
+  utils info path/to/input.deck           # Show simulation metadata
+  utils export file.h5 --format csv       # Export data to CSV
+  utils plot file.h5 --save plot.png      # Create quick plot
+  utils validate path/to/input.deck       # Check file integrity
 
 For help on a specific command:
-  osiris <command> --help
+  utils <command> --help
         """,
     )
 
