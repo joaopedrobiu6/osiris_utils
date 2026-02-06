@@ -26,7 +26,31 @@ sys.path.append(os.path.abspath("../.."))
 project = "osiris_utils"
 copyright = "2025, João Biu"
 author = "João Biu"
-version = "v1.2.0"
+
+# Obtain package version in a robust way:
+# 1. Try importlib.metadata.version for an installed package
+# 2. If that fails (development checkout), import the package and read
+#    `__version__` which falls back to a sensible default in source
+# 3. Final fallback to a safe default string
+try:
+    # Python 3.8+ has importlib.metadata in the stdlib
+    from importlib import metadata as _metadata
+
+    try:
+        version = _metadata.version("osiris_utils")
+    except _metadata.PackageNotFoundError:
+        # Package not installed; import local package to get __version__
+        try:
+            from osiris_utils import __version__ as version
+        except Exception:
+            version = "0.0.0"
+except Exception:
+    # As a very last resort, attempt to import package directly
+    try:
+        from osiris_utils import __version__ as version
+    except Exception:
+        version = "0.0.0"
+
 release = version
 
 
