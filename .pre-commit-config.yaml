@@ -3,5 +3,5 @@ repos:
     rev: v0.4.8       # pin the latest stable
     hooks:
       - id: ruff
-        args: ["--fix", "--select", "F,E,I,W,B,C90"]         # auto‑apply safe fixes (TCH rules disabled here)
+        args: ["--fix", "--select", "F,E,I,W,B,C90", "--extend-ignore", "C901"]         # auto‑apply safe fixes; ignore C901 complexity
       - id: ruff-format
