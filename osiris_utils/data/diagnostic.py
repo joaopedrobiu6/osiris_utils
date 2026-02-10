@@ -86,6 +86,7 @@ OSIRIS_PHA = [
     "gammax1",
     "gammax2",
     "gammax3",
+    "gamma",
 ]  # there may be more that I don't know
 OSIRIS_ALL = OSIRIS_DENSITY + OSIRIS_SPECIE_REPORTS + OSIRIS_SPECIE_REP_UDIST + OSIRIS_FLD + OSIRIS_PHA
 
