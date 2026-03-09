@@ -42,6 +42,8 @@ class Derivative_Simulation(PostProcess):
         Integer offsets (in grid steps), e.g. [-2,-1,0,1,2] or [0,1,2,3].
     deriv_order : int
         Derivative order (1 for first derivative, 2 for second derivative, ...).
+    periodic : bool
+        If True, derivatives are computed with periodic boundary conditions.
     """
 
     def __init__(
@@ -52,6 +54,7 @@ class Derivative_Simulation(PostProcess):
         order: int = 4,
         stencil: Iterable[int] | None = None,
         deriv_order: int = 1,
+        periodic: bool = False,
     ):
         super().__init__(f"Derivative({deriv_type})", simulation)
 
@@ -68,6 +71,7 @@ class Derivative_Simulation(PostProcess):
         # NEW (general FD options)
         self._stencil = None if stencil is None else tuple(int(s) for s in stencil)
         self._deriv_order = int(deriv_order)
+        self._periodic = periodic
 
         self._derivatives_computed: dict[Any, Derivative_Diagnostic] = {}
         self._species_handler: dict[Any, Derivative_Species_Handler] = {}
@@ -84,6 +88,7 @@ class Derivative_Simulation(PostProcess):
                     self._order,
                     stencil=self._stencil,
                     deriv_order=self._deriv_order,
+                    periodic=self._periodic,
                 )
             return self._species_handler[key]
 
@@ -95,6 +100,7 @@ class Derivative_Simulation(PostProcess):
                 order=self._order,
                 stencil=self._stencil,
                 deriv_order=self._deriv_order,
+                periodic=self._periodic,
             )
         return self._derivatives_computed[key]
 
@@ -153,6 +159,8 @@ class Derivative_Diagnostic(Diagnostic):
     deriv_order : int
         Derivative order (1 for first derivative, 2 for second derivative, ...).
         Only used if stencil is provided.
+    periodic : bool
+        If True, derivatives are computed with periodic boundary conditions.
 
     Methods
     -------
@@ -171,6 +179,7 @@ class Derivative_Diagnostic(Diagnostic):
         order: int = 4,
         stencil: Iterable[int] | None = None,
         deriv_order: int = 1,
+        periodic: bool = False,
     ) -> None:
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, "_species"):
@@ -192,6 +201,7 @@ class Derivative_Diagnostic(Diagnostic):
 
         self._stencil = None if stencil is None else tuple(int(s) for s in stencil)
         self._deriv_order = int(deriv_order)
+        self._periodic = periodic
 
         self._cache = OrderedDict()
         self._cache_max = 6  # Maximum number of items to keep in cache (enough for 4th-order time stencil)
@@ -450,6 +460,15 @@ class Derivative_Diagnostic(Diagnostic):
         """
         self._validate_stencil(stencil, deriv_order)
 
+        c_unit = self._fd_unit_coeffs(stencil, deriv_order)
+        c = c_unit / (float(h) ** deriv_order)
+
+        if self._periodic:
+            out = np.zeros_like(data, dtype=float)
+            for cj, sj in zip(c, stencil, strict=False):
+                out += cj * np.roll(data, shift=-int(sj), axis=axis)
+            return out
+
         n = data.shape[axis]
         # Central interior (vectorized)
         out, (start, stop) = self._apply_stencil_unshifted_interior(data, h, axis, stencil, deriv_order)
@@ -479,6 +498,20 @@ class Derivative_Diagnostic(Diagnostic):
             out[tuple(tgt)] = acc
 
         return out
+
+    @staticmethod
+    def _periodic_first_derivative(data: np.ndarray, h: float, axis: int, order: int) -> np.ndarray:
+        """Periodic first derivative using centered finite differences."""
+        if order == 2:
+            return (np.roll(data, shift=-1, axis=axis) - np.roll(data, shift=1, axis=axis)) / (2 * h)
+        if order == 4:
+            return (
+                -np.roll(data, shift=-2, axis=axis)
+                + 8 * np.roll(data, shift=-1, axis=axis)
+                - 8 * np.roll(data, shift=1, axis=axis)
+                + np.roll(data, shift=2, axis=axis)
+            ) / (12 * h)
+        raise ValueError("Only order 2 and 4 supported.")
 
     @staticmethod
     def _compute_fourth_order_spatial(data: np.ndarray, dx: float, axis: int) -> np.ndarray:
@@ -597,46 +630,76 @@ class Derivative_Diagnostic(Diagnostic):
 
         if self._order == 2:
             if self._deriv_type == "t":
-                result = np.gradient(self._data, self._diag._dt * self._diag._ndump, axis=0, edge_order=2)
+                dt = float(self._diag._dt * self._diag._ndump)
+                if self._periodic:
+                    result = self._periodic_first_derivative(self._data, h=dt, axis=0, order=2)
+                else:
+                    result = np.gradient(self._data, dt, axis=0, edge_order=2)
 
             elif self._deriv_type == "x1":
-                result = np.gradient(self._data, dx_for_axis_data(1), axis=1, edge_order=2)
+                dx = dx_for_axis_data(1)
+                if self._periodic:
+                    result = self._periodic_first_derivative(self._data, h=dx, axis=1, order=2)
+                else:
+                    result = np.gradient(self._data, dx, axis=1, edge_order=2)
 
             elif self._deriv_type == "x2":
-                result = np.gradient(self._data, dx_for_axis_data(2), axis=2, edge_order=2)
+                dx = dx_for_axis_data(2)
+                if self._periodic:
+                    result = self._periodic_first_derivative(self._data, h=dx, axis=2, order=2)
+                else:
+                    result = np.gradient(self._data, dx, axis=2, edge_order=2)
 
             elif self._deriv_type == "x3":
-                result = np.gradient(self._data, dx_for_axis_data(3), axis=3, edge_order=2)
+                dx = dx_for_axis_data(3)
+                if self._periodic:
+                    result = self._periodic_first_derivative(self._data, h=dx, axis=3, order=2)
+                else:
+                    result = np.gradient(self._data, dx, axis=3, edge_order=2)
 
             elif self._deriv_type == "xx":
                 if not isinstance(self._op_axis, (tuple, list)) or len(self._op_axis) != 2:
                     raise ValueError("Axis must be a tuple with two elements.")
-                result = np.gradient(
-                    np.gradient(
-                        self._data,
-                        self._diag._dx[self._op_axis[0] - 1],
-                        axis=self._op_axis[0],
+                ax1 = self._op_axis[0]
+                ax2 = self._op_axis[1]
+                dx1 = float(self._diag._dx[ax1 - 1])
+                dx2 = float(self._diag._dx[ax2 - 1])
+                if self._periodic:
+                    g = self._periodic_first_derivative(self._data, h=dx1, axis=ax1, order=2)
+                    result = self._periodic_first_derivative(g, h=dx2, axis=ax2, order=2)
+                else:
+                    result = np.gradient(
+                        np.gradient(
+                            self._data,
+                            dx1,
+                            axis=ax1,
+                            edge_order=2,
+                        ),
+                        dx2,
+                        axis=ax2,
                         edge_order=2,
-                    ),
-                    self._diag._dx[self._op_axis[1] - 1],
-                    axis=self._op_axis[1],
-                    edge_order=2,
-                )
+                    )
 
             elif self._deriv_type == "tx":
                 if not isinstance(self._op_axis, int):
                     raise ValueError("Axis must be an integer.")
-                result = np.gradient(
-                    np.gradient(
-                        self._data,
-                        self._diag._dx[self._op_axis - 1],
-                        axis=self._op_axis,
+                dx = float(self._diag._dx[self._op_axis - 1])
+                dt = float(self._diag._dt * self._diag._ndump)
+                if self._periodic:
+                    gx = self._periodic_first_derivative(self._data, h=dx, axis=self._op_axis, order=2)
+                    result = self._periodic_first_derivative(gx, h=dt, axis=0, order=2)
+                else:
+                    result = np.gradient(
+                        np.gradient(
+                            self._data,
+                            dx,
+                            axis=self._op_axis,
+                            edge_order=2,
+                        ),
+                        dt,
+                        axis=0,
                         edge_order=2,
-                    ),
-                    self._diag._dt,
-                    axis=0,
-                    edge_order=2,
-                )
+                    )
             else:
                 raise ValueError("Invalid derivative type.")
 
@@ -645,7 +708,10 @@ class Derivative_Diagnostic(Diagnostic):
                 axis_map = {"x1": 1, "x2": 2, "x3": 3}
                 ax = axis_map[self._deriv_type]
                 dx = dx_for_axis_data(ax)
-                result = self._compute_fourth_order_spatial(self._data, dx, ax)
+                if self._periodic:
+                    result = self._periodic_first_derivative(self._data, h=dx, axis=ax, order=4)
+                else:
+                    result = self._compute_fourth_order_spatial(self._data, dx, ax)
             else:
                 raise ValueError("Order 4 is only implemented for spatial derivatives 'x1', 'x2' and 'x3'.")
         else:
@@ -694,8 +760,12 @@ class Derivative_Diagnostic(Diagnostic):
                 return self._fd_apply_along_axis(f, h=dx, axis=ax_np, deriv_order=self._deriv_order, stencil=self._stencil)
 
             if self._order == 2:
+                if self._periodic:
+                    return self._periodic_first_derivative(f, h=dx, axis=ax_np, order=2)
                 return np.gradient(f, dx, axis=ax_np, edge_order=2)
             if self._order == 4:
+                if self._periodic:
+                    return self._periodic_first_derivative(f, h=dx, axis=ax_np, order=4)
                 return self._compute_fourth_order_spatial(f, dx, ax_np)
             raise ValueError("Only order 2 and 4 supported.")
 
@@ -704,19 +774,34 @@ class Derivative_Diagnostic(Diagnostic):
             if self._stencil is not None:
                 self._validate_stencil(self._stencil, self._deriv_order)
 
-                s0 = np.asarray(self._stencil, dtype=int)
-                s_i = self._shift_stencil_to_fit(s0, i=i, n=n)
-                s_i_tup = tuple(int(x) for x in s_i.tolist())
+                if self._periodic:
+                    s_i = np.asarray(self._stencil, dtype=int)
+                    s_i_tup = tuple(int(x) for x in s_i.tolist())
+
+                    def idx_fn(jj):
+                        return (i + int(jj)) % n
+
+                else:
+                    s0 = np.asarray(self._stencil, dtype=int)
+                    s_i = self._shift_stencil_to_fit(s0, i=i, n=n)
+                    s_i_tup = tuple(int(x) for x in s_i.tolist())
+
+                    def idx_fn(jj):
+                        return i + int(jj)
 
                 c_unit = self._fd_unit_coeffs(s_i_tup, self._deriv_order)
                 c = c_unit / (dt**self._deriv_order)
 
                 acc = 0.0
                 for cj, sj in zip(c, s_i, strict=False):
-                    acc = acc + cj * self._base(i + int(sj), data_slice)
+                    acc = acc + cj * self._base(idx_fn(sj), data_slice)
                 return acc
 
             if self._order == 2:
+                if self._periodic:
+                    fp = self._base((i + 1) % n, data_slice)
+                    fm = self._base((i - 1) % n, data_slice)
+                    return (fp - fm) / (2 * dt)
                 if i == 0:
                     f0 = self._base(0, data_slice)
                     f1 = self._base(1, data_slice)
@@ -732,6 +817,12 @@ class Derivative_Diagnostic(Diagnostic):
                 return (fp - fm) / (2 * dt)
 
             if self._order == 4:
+                if self._periodic:
+                    f_p2 = self._base((i + 2) % n, data_slice)
+                    f_p1 = self._base((i + 1) % n, data_slice)
+                    f_m1 = self._base((i - 1) % n, data_slice)
+                    f_m2 = self._base((i - 2) % n, data_slice)
+                    return (-f_p2 + 8 * f_p1 - 8 * f_m1 + f_m2) / (12 * dt)
                 if i < 2 or i > n - 3:
                     # edge fallback to 2nd-order
                     if i == 0:
@@ -769,9 +860,8 @@ class Derivative_Diagnostic(Diagnostic):
             ax2_np = spatial_axis_np_from_osiris(self._op_axis[1])
 
             f = self._base(index, data_slice)
-
-            g = np.gradient(f, dx_for_np_axis(ax1_np), axis=ax1_np, edge_order=2)
-            return np.gradient(g, dx_for_np_axis(ax2_np), axis=ax2_np, edge_order=2)
+            g = d_dx_frame(f, ax1_np)
+            return d_dx_frame(g, ax2_np)
 
         if self._deriv_type == "xt":
             if not isinstance(self._op_axis, int):
@@ -779,7 +869,7 @@ class Derivative_Diagnostic(Diagnostic):
             ax_np = spatial_axis_np_from_osiris(self._op_axis)
 
             ft = d_dt_at(index)
-            return np.gradient(ft, dx_for_np_axis(ax_np), axis=ax_np, edge_order=2)
+            return d_dx_frame(ft, ax_np)
 
         if self._deriv_type == "tx":
             if not isinstance(self._op_axis, int):
@@ -788,7 +878,7 @@ class Derivative_Diagnostic(Diagnostic):
 
             def spatial_frame(i: int) -> np.ndarray:
                 fi = self._base(i, data_slice)
-                return np.gradient(fi, dx_for_np_axis(ax_np), axis=ax_np, edge_order=2)
+                return d_dx_frame(fi, ax_np)
 
             if self._order == 2:
                 if index == 0:
@@ -854,15 +944,15 @@ class Derivative_Species_Handler:
         order: int = 4,
         stencil: Iterable[int] | None = None,
         deriv_order: int = 1,
+        periodic: bool = False,
     ) -> None:
         self._species_handler = species_handler
         self._deriv_type = deriv_type
         self._axis = axis
         self._order = int(order)
-
         self._stencil = None if stencil is None else tuple(int(s) for s in stencil)
         self._deriv_order = int(deriv_order)
-
+        self._periodic = periodic
         self._derivatives_computed: dict[Any, Derivative_Diagnostic] = {}
 
     def __getitem__(self, key: Any) -> Derivative_Diagnostic:
@@ -875,5 +965,6 @@ class Derivative_Species_Handler:
                 order=self._order,
                 stencil=self._stencil,
                 deriv_order=self._deriv_order,
+                periodic=self._periodic,
             )
         return self._derivatives_computed[key]
