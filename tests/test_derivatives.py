@@ -279,6 +279,69 @@ def test_derivative_stencil():
     print("=" * 60)
 
 
+def test_derivative_periodic_mean_zero_spatial():
+    # For periodic boundaries, the mean of d/dx over a full periodic axis must be zero.
+    nx = 128
+    x = np.linspace(0.0, 2.0 * np.pi, nx, endpoint=False)
+    dx = x[1] - x[0]
+
+    # Multiple harmonics keep the signal periodic on the discrete grid.
+    f = np.sin(3.0 * x) + 0.5 * np.cos(5.0 * x)
+    data = f.reshape(1, -1)
+
+    mock = MockDiagnostic(data, dt=1.0, dx=dx, axis=0)
+
+    # Check legacy order-2 periodic path
+    deriv2 = ou.Derivative_Diagnostic(mock, deriv_type="x1", order=2, periodic=True)
+    res2 = deriv2.load_all()
+    assert np.allclose(np.mean(res2, axis=1), 0.0, atol=1e-12)
+
+    # Check legacy order-4 periodic path
+    deriv4 = ou.Derivative_Diagnostic(mock, deriv_type="x1", order=4, periodic=True)
+    res4 = deriv4.load_all()
+    assert np.allclose(np.mean(res4, axis=1), 0.0, atol=1e-12)
+
+    # Check explicit-stencil periodic path
+    deriv_stencil = ou.Derivative_Diagnostic(
+        mock,
+        deriv_type="x1",
+        stencil=[-2, -1, 0, 1, 2],
+        deriv_order=1,
+        periodic=True,
+    )
+    res_stencil = deriv_stencil.load_all()
+    assert np.allclose(np.mean(res_stencil, axis=1), 0.0, atol=1e-12)
+
+
+def test_derivative_periodic_mean_zero_time():
+    # For periodic boundaries, the mean of d/dt over a full periodic axis must be zero.
+    nt = 120
+    nx = 4
+    t = np.linspace(0.0, 2.0 * np.pi, nt, endpoint=False)
+    dt = t[1] - t[0]
+
+    # Build a periodic time signal for each spatial point.
+    data = np.empty((nt, nx), dtype=float)
+    for j in range(nx):
+        data[:, j] = np.sin((j + 1) * t) + 0.3 * np.cos((j + 2) * t)
+
+    mock = MockDiagnostic(data, dt=dt, dx=1.0, axis=1, ndump=1)
+
+    deriv_t = ou.Derivative_Diagnostic(mock, deriv_type="t", order=2, periodic=True)
+    res_t = deriv_t.load_all()
+    assert np.allclose(np.mean(res_t, axis=0), 0.0, atol=1e-12)
+
+    deriv_t_stencil = ou.Derivative_Diagnostic(
+        mock,
+        deriv_type="t",
+        stencil=[-2, -1, 0, 1, 2],
+        deriv_order=1,
+        periodic=True,
+    )
+    res_t_stencil = deriv_t_stencil.load_all()
+    assert np.allclose(np.mean(res_t_stencil, axis=0), 0.0, atol=1e-12)
+
+
 if __name__ == "__main__":
     test_derivative_2nd_order()
     test_derivative_4th_order()
