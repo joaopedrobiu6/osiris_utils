@@ -125,7 +125,9 @@ class AnomalousResistivity(AnomalousResistivityABC):
         # Pressure gradients always needed if include_pressure
         if self._config.include_pressure:
             self._ensure_diagnostic(sp, Derivative_Diagnostic(sp["nT11"], "x1", stencil=[-2, -1, 0, 1, 2], deriv_order=1), "dnT11_dx1")
-            self._ensure_diagnostic(sp, Derivative_Diagnostic(sp["nT12"], "x2", stencil=[-2, -1, 0, 1, 2], deriv_order=1), "dnT12_dx2")
+            self._ensure_diagnostic(
+                sp, Derivative_Diagnostic(sp["nT12"], "x2", stencil=[-2, -1, 0, 1, 2], deriv_order=1, periodic=True), "dnT12_dx2"
+            )
 
         # Time derivative needed only if enabled
         if self._config.include_time_derivative:
@@ -251,10 +253,26 @@ class AnomalousResistivity(AnomalousResistivityABC):
             dnT11_dx_dd = Derivative_Diagnostic(
                 sm[sp]["n"]["delta"] * sm[sp]["T11"]["delta"], "x1", stencil=[-2, -1, 0, 1, 2], deriv_order=1
             )
-            dnT12_dx_ad = Derivative_Diagnostic(sm[sp]["n"]["avg"] * sm[sp]["T12"]["delta"], "x2", stencil=[-2, -1, 0, 1, 2], deriv_order=1)
-            dnT12_dx_da = Derivative_Diagnostic(sm[sp]["n"]["delta"] * sm[sp]["T12"]["avg"], "x2", stencil=[-2, -1, 0, 1, 2], deriv_order=1)
+            dnT12_dx_ad = Derivative_Diagnostic(
+                sm[sp]["n"]["avg"] * sm[sp]["T12"]["delta"],
+                "x2",
+                stencil=[-1, 0, 1],
+                deriv_order=1,
+                periodic=True,
+            )
+            dnT12_dx_da = Derivative_Diagnostic(
+                sm[sp]["n"]["delta"] * sm[sp]["T12"]["avg"],
+                "x2",
+                stencil=[-1, 0, 1],
+                deriv_order=1,
+                periodic=True,
+            )
             dnT12_dx_dd = Derivative_Diagnostic(
-                sm[sp]["n"]["delta"] * sm[sp]["T12"]["delta"], "x2", stencil=[-2, -1, 0, 1, 2], deriv_order=1
+                sm[sp]["n"]["delta"] * sm[sp]["T12"]["delta"],
+                "x2",
+                stencil=[-1, 0, 1],
+                deriv_order=1,
+                periodic=True,
             )
 
             terms["press_dnT11_dx_ad_over_n"] = dnT11_dx_ad / sim[sp]["n"]
