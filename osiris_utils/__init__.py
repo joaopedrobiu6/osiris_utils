@@ -13,6 +13,7 @@ from .data.data import (
     OsirisData,
     OsirisGridFile,
     OsirisHIST,
+    OsirisTIMINGS,
     OsirisRawFile,
     OsirisTrackFile,
 )
@@ -59,6 +60,7 @@ __all__ = [
     "OsirisRawFile",
     "OsirisData",
     "OsirisHIST",
+    "OsirisTIMINGS",
     "OsirisTrackFile",
     # Data Diagnostic and Simulation
     "Simulation",
