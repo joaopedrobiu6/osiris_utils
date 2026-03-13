@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import os
 from typing import Literal
 
 import h5py
 import numpy as np
 import pandas as pd
-import os
 
 from osiris_utils.utils import create_file_tags
 
@@ -57,7 +57,7 @@ class OsirisData:
         # self._file = None
 
         self._verbose = False
-        
+
         if self._filename.endswith(".h5"):
             self._open_file_hdf5(self._filename)
             self._load_basic_attributes(self._file)
@@ -69,7 +69,7 @@ class OsirisData:
             raise ValueError(
                 "The file should be an HDF5 file with the extension .h5, a HIST file ending with \"_ene\", \
                 or a timings files starting with \"timings\"."
-                )
+            )
 
     def _load_basic_attributes(self, f: h5py.File) -> None:
         """Load common attributes from HDF5 file"""
@@ -134,7 +134,7 @@ class OsirisData:
             header=1,
             skiprows=lambda i: i == 3,
             on_bad_lines="skip",
-            )
+        )
 
         try:
             with open(filename) as f:
@@ -408,10 +408,12 @@ class OsirisRawFile(OsirisData):
     def __init__(self, filename):
         super().__init__(filename)
 
-        self._grid = np.array([
-            self._file["SIMULATION"].attrs["XMIN"],
-            self._file["SIMULATION"].attrs["XMAX"],
-        ]).T
+        self._grid = np.array(
+            [
+                self._file["SIMULATION"].attrs["XMIN"],
+                self._file["SIMULATION"].attrs["XMAX"],
+            ]
+        ).T
 
         self._quants = [byte.decode("utf-8") for byte in self._file.attrs["QUANTS"][:]]
         units_list = [byte.decode("utf-8") for byte in self._file.attrs["UNITS"][:]]
@@ -604,10 +606,12 @@ class OsirisTrackFile(OsirisData):
     def __init__(self, filename):
         super().__init__(filename)
 
-        self._grid = np.array([
-            self._file["SIMULATION"].attrs["XMIN"],
-            self._file["SIMULATION"].attrs["XMAX"],
-        ]).T
+        self._grid = np.array(
+            [
+                self._file["SIMULATION"].attrs["XMIN"],
+                self._file["SIMULATION"].attrs["XMAX"],
+            ]
+        ).T
 
         self._quants = [byte.decode("utf-8") for byte in self._file.attrs["QUANTS"][1:]]
         units_list = [byte.decode("utf-8") for byte in self._file.attrs["UNITS"][1:]]

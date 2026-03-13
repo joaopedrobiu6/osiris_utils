@@ -13,8 +13,8 @@ from .data.data import (
     OsirisData,
     OsirisGridFile,
     OsirisHIST,
-    OsirisTIMINGS,
     OsirisRawFile,
+    OsirisTIMINGS,
     OsirisTrackFile,
 )
 from .data.diagnostic import Diagnostic
