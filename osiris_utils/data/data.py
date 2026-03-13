@@ -66,7 +66,10 @@ class OsirisData:
         elif os.path.basename(self._filename).startswith("timings"):
             self._open_timings_file(self._filename)
         else:
-            raise ValueError("The file should be an HDF5 file with the extension .h5, a HIST file ending with \"_ene\", or a timings files starting with \"timings\".")
+            raise ValueError(
+                "The file should be an HDF5 file with the extension .h5, a HIST file ending with \"_ene\", \
+                or a timings files starting with \"timings\"."
+                )
 
     def _load_basic_attributes(self, f: h5py.File) -> None:
         """Load common attributes from HDF5 file"""
@@ -138,7 +141,7 @@ class OsirisData:
                 line = f.readlines()[0]
             iteration = line.strip().split("=")[-1].strip()
             self._df.attrs["iterations"] = int(iteration)
-        except:
+        except Exception:
             print("Error reading iterations.")
             pass
 
