@@ -119,6 +119,17 @@ HIST Data
 
    Processes HIST file from OSIRIS diagnostics.
 
+
+
+TIMINGS Data
+~~~~~~~~~
+
+TIMINGS Data
+.. autoclass:: osiris_utils.data.data.Osiris
+   :inherited-members: grid, nx, dx, x, axis, data, units, label
+
+   Processes TIMINGS Data file from OSIRIS diagnostics.
+
 TRACK Data
 ~~~~~~~~~~
 

@@ -14,6 +14,7 @@ from .data.data import (
     OsirisGridFile,
     OsirisHIST,
     OsirisRawFile,
+    OsirisTIMINGS,
     OsirisTrackFile,
 )
 from .data.diagnostic import Diagnostic
@@ -59,6 +60,7 @@ __all__ = [
     "OsirisRawFile",
     "OsirisData",
     "OsirisHIST",
+    "OsirisTIMINGS",
     "OsirisTrackFile",
     # Data Diagnostic and Simulation
     "Simulation",
