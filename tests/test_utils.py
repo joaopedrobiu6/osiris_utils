@@ -1,7 +1,11 @@
+from pathlib import Path
+
+import h5py
 import numpy as np
 import pytest
 
 from osiris_utils.utils import (
+    convert_tracks,
     courant2D,
     create_file_tags,
     filesize_estimation,
@@ -165,3 +169,42 @@ def test_create_file_tags(tmp_path):
     line_3 = content[7].split()
     assert line_3[0] == "12"
     assert line_3[1] == "1"
+
+
+def test_convert_tracks(tmp_path):
+    """Test convert_tracks by writing a minimal IDL-format track h5 file."""
+    # Two tracks: track 1 has 3 points, track 2 has 2 points.
+    # nquants = 3 (t, x1, p1), so data has 2 columns (x1, p1).
+    fname = tmp_path / "tracks.h5"
+    ntracks = 2
+    niter = 2
+    quants = np.array([b"t", b"x1", b"p1"])
+    itermap = np.array([[1, 3, 0], [2, 2, 0]], dtype=np.int64)
+    data = np.arange(10, dtype=np.float64).reshape(5, 2)
+
+    with h5py.File(fname, "w") as f:
+        f.create_dataset("data", data=data)
+        f.create_dataset("itermap", data=itermap)
+        f.attrs["NTRACKS"] = np.array([ntracks])
+        f.attrs["NITER"] = np.array([niter])
+        f.attrs["QUANTS"] = quants
+        sim = f.create_group("SIMULATION")
+        sim.attrs["dt"] = 0.1
+
+    result = convert_tracks(str(fname))
+
+    out_path = Path(result)
+    assert out_path.exists()
+    assert result.endswith("-v2.h5")
+
+    with h5py.File(out_path, "r") as f:
+        assert "1" in f  # track 1 group
+        assert "2" in f  # track 2 group
+        assert len(f["1"][b"t"]) == 3
+        assert len(f["2"][b"t"]) == 2
+
+
+def test_save_data_invalid_option(tmp_path):
+    """save_data raises ValueError for unrecognised option."""
+    with pytest.raises(ValueError, match="Option must be"):
+        save_data(np.ones(3), str(tmp_path / "out.txt"), option="hdf5")
