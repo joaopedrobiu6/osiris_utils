@@ -16,14 +16,19 @@ __all__ = [
     "vlasov_electric_field",
 ]
 
+_X1_STENCIL = [-2, -1, 0, 1, 2]
+_X2_STENCIL = [-1, 0, 1]
+
 
 @dataclass(frozen=True)
 class AnomalousResistivityConfig:
     """Configuration for anomalous resistivity computation."""
 
     species: str = "electrons"
-    include_time_derivative: bool = True
+    mft_axis: int = 2
+    include_time_derivative: bool = False
     include_convection: bool = True
+    include_transverse_advection: bool = False
     include_pressure: bool = True
     include_magnetic_force: bool = True
 
@@ -55,6 +60,10 @@ class AnomalousResistivity(AnomalousResistivityABC):
     Notes:
     - Adds diagnostics into the provided simulation (idempotently where possible).
     - Respects config flags for which terms are included.
+    - `eta` uses the thesis pressure decomposition (7 cross-terms).
+    - `eta_new` uses the simplified formulation (4 terms) from the research code.
+    - `include_transverse_advection` adds the `- vfl2 * dvfl1_dx2` term to e_vlasov
+      and the `- vfl2' * (dvfl1/dx2)'` fluctuation term to eta / eta_new.
     """
 
     def __init__(self, simulation, species: str = "electrons", config: AnomalousResistivityConfig | None = None):
@@ -113,8 +122,8 @@ class AnomalousResistivity(AnomalousResistivityABC):
     def compute_vlasov_electric_field(self):
         logger.info("Computing Vlasov electric field...")
 
-        d_dx1 = Derivative_Simulation(self._simulation, "x1", stencil=[-2, -1, 0, 1, 2], deriv_order=1)
-        d_dt = Derivative_Simulation(self._simulation, "t", stencil=[-2, -1, 0, 1, 2], deriv_order=1)
+        d_dx1 = Derivative_Simulation(self._simulation, "x1", stencil=_X1_STENCIL, deriv_order=1)
+        d_dt = Derivative_Simulation(self._simulation, "t", stencil=_X1_STENCIL, deriv_order=1)
 
         sp = self._simulation[self.species]
 
@@ -122,23 +131,21 @@ class AnomalousResistivity(AnomalousResistivityABC):
         self._ensure_diagnostic(sp, sp["n"] * sp["T11"], "nT11")
         self._ensure_diagnostic(sp, sp["n"] * sp["T12"], "nT12")
 
-        # Pressure gradients always needed if include_pressure
         if self._config.include_pressure:
-            self._ensure_diagnostic(sp, Derivative_Diagnostic(sp["nT11"], "x1", stencil=[-2, -1, 0, 1, 2], deriv_order=1), "dnT11_dx1")
+            self._ensure_diagnostic(sp, Derivative_Diagnostic(sp["nT11"], "x1", stencil=_X1_STENCIL, deriv_order=1), "dnT11_dx1")
             self._ensure_diagnostic(
-                sp, Derivative_Diagnostic(sp["nT12"], "x2", stencil=[-2, -1, 0, 1, 2], deriv_order=1, periodic=True), "dnT12_dx2"
+                sp, Derivative_Diagnostic(sp["nT12"], "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True), "dnT12_dx2"
             )
 
-        # Time derivative needed only if enabled
         if self._config.include_time_derivative:
             self._ensure_diagnostic(sp, d_dt[self.species]["vfl1"], "dvfl1_dt")
 
-        # Convection needs dvfl1_dx1
         if self._config.include_convection:
             self._ensure_diagnostic(sp, d_dx1[self.species]["vfl1"], "dvfl1_dx1")
 
-        # Magnetic force terms need b2/b3 (already validated)
-        # No additional diagnostics required.
+        if self._config.include_transverse_advection:
+            d_dx2 = Derivative_Simulation(self._simulation, "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True)
+            self._ensure_diagnostic(sp, d_dx2[self.species]["vfl1"], "dvfl1_dx2")
 
         E_vlasov = self._compute_vlasov_field_terms()
         self._ensure_diagnostic(self._simulation, E_vlasov, "e_vlasov")
@@ -155,6 +162,9 @@ class AnomalousResistivity(AnomalousResistivityABC):
 
         if self._config.include_convection:
             terms.append(-1 * sim[sp]["vfl1"] * sim[sp]["dvfl1_dx1"])
+
+        if self._config.include_transverse_advection:
+            terms.append(-1 * sim[sp]["vfl2"] * sim[sp]["dvfl1_dx2"])
 
         if self._config.include_pressure:
             pressure_term = (-1 / sim[sp]["n"]) * (sim[sp]["dnT11_dx1"] + sim[sp]["dnT12_dx2"])
@@ -173,13 +183,13 @@ class AnomalousResistivity(AnomalousResistivityABC):
     def compute_mean_field_terms(self):
         logger.info("Computing mean field terms...")
 
-        self.sim_mft = MFT_Simulation(self._simulation, mft_axis=2)
+        self.sim_mft = MFT_Simulation(self._simulation, mft_axis=self._config.mft_axis)
 
         # Avg pressure derivative used in multiple places (computed directly)
         dnT11_dx_avg = Derivative_Diagnostic(
             self.sim_mft[self.species]["n"]["avg"] * self.sim_mft[self.species]["T11"]["avg"],
             "x1",
-            stencil=[-2, -1, 0, 1, 2],
+            stencil=_X1_STENCIL,
             deriv_order=1,
         )
         self.dnT11_dx_avg = dnT11_dx_avg
@@ -208,6 +218,9 @@ class AnomalousResistivity(AnomalousResistivityABC):
         if self._config.include_convection:
             terms.append(self.sim_mft[self.species]["vfl1"]["avg"] * self.sim_mft[self.species]["dvfl1_dx1"]["avg"])
 
+        if self._config.include_transverse_advection:
+            terms.append(self.sim_mft[self.species]["vfl2"]["avg"] * self.sim_mft[self.species]["dvfl1_dx2"]["avg"])
+
         if self._config.include_pressure:
             terms.append((1 / self.sim_mft[self.species]["n"]["avg"]) * dnT11_dx_avg)
 
@@ -224,7 +237,7 @@ class AnomalousResistivity(AnomalousResistivityABC):
         Compute mean-field-theory RHS terms.
 
         These are gated by config flags so disabling a physics contribution
-        also removes its MFT terms from eta.
+        also removes its MFT terms from eta / eta_new.
         """
         sm = self.sim_mft
         sp = self.species
@@ -232,115 +245,101 @@ class AnomalousResistivity(AnomalousResistivityABC):
 
         terms: dict[str, Any] = {}
 
-        # Convection-like fluctuation term: v1' * (dv1/dx1)'
         if self._config.include_convection:
-            # dvfl1_dx1 delta is available via MFT diagnostics of dvfl1_dx1 (computed during vlasov if convection=True)
             terms["conv_v1_dv1dx1"] = sm[sp]["vfl1"]["delta"] * sm[sp]["dvfl1_dx1"]["delta"]
 
-        # Magnetic-force fluctuation terms
+        if self._config.include_transverse_advection:
+            terms["conv_v2_dv1dx2"] = sm[sp]["vfl2"]["delta"] * sm[sp]["dvfl1_dx2"]["delta"]
+
         if self._config.include_magnetic_force:
             terms["mag_v2_b3"] = sm[sp]["vfl2"]["delta"] * sm["b3"]["delta"]
             terms["mag_v3_b2"] = sm[sp]["vfl3"]["delta"] * sm["b2"]["delta"]
 
-        # Pressure-related fluctuation/gradient terms
         if self._config.include_pressure:
-            # The original code included a "density fluctuation" correction term:
+            # Thesis decomposition: 7 cross-terms (avg×delta, delta×avg, delta×delta for xx and xy)
             terms["press_density_fluct_corr"] = (dnT11_dx_avg / sim[sp]["n"]) * (sm[sp]["n"]["delta"] / sm[sp]["n"]["avg"])
 
-            # Build explicitly (more readable than the previous factory)
-            dnT11_dx_ad = Derivative_Diagnostic(sm[sp]["n"]["avg"] * sm[sp]["T11"]["delta"], "x1", stencil=[-2, -1, 0, 1, 2], deriv_order=1)
-            dnT11_dx_da = Derivative_Diagnostic(sm[sp]["n"]["delta"] * sm[sp]["T11"]["avg"], "x1", stencil=[-2, -1, 0, 1, 2], deriv_order=1)
-            dnT11_dx_dd = Derivative_Diagnostic(
-                sm[sp]["n"]["delta"] * sm[sp]["T11"]["delta"], "x1", stencil=[-2, -1, 0, 1, 2], deriv_order=1
-            )
+            dnT11_dx_ad = Derivative_Diagnostic(sm[sp]["n"]["avg"] * sm[sp]["T11"]["delta"], "x1", stencil=_X1_STENCIL, deriv_order=1)
+            dnT11_dx_da = Derivative_Diagnostic(sm[sp]["n"]["delta"] * sm[sp]["T11"]["avg"], "x1", stencil=_X1_STENCIL, deriv_order=1)
+            dnT11_dx_dd = Derivative_Diagnostic(sm[sp]["n"]["delta"] * sm[sp]["T11"]["delta"], "x1", stencil=_X1_STENCIL, deriv_order=1)
             dnT12_dx_ad = Derivative_Diagnostic(
-                sm[sp]["n"]["avg"] * sm[sp]["T12"]["delta"],
-                "x2",
-                stencil=[-1, 0, 1],
-                deriv_order=1,
-                periodic=True,
+                sm[sp]["n"]["avg"] * sm[sp]["T12"]["delta"], "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True
             )
             dnT12_dx_da = Derivative_Diagnostic(
-                sm[sp]["n"]["delta"] * sm[sp]["T12"]["avg"],
-                "x2",
-                stencil=[-1, 0, 1],
-                deriv_order=1,
-                periodic=True,
+                sm[sp]["n"]["delta"] * sm[sp]["T12"]["avg"], "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True
             )
             dnT12_dx_dd = Derivative_Diagnostic(
-                sm[sp]["n"]["delta"] * sm[sp]["T12"]["delta"],
-                "x2",
-                stencil=[-1, 0, 1],
-                deriv_order=1,
-                periodic=True,
+                sm[sp]["n"]["delta"] * sm[sp]["T12"]["delta"], "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True
             )
 
             terms["press_dnT11_dx_ad_over_n"] = dnT11_dx_ad / sim[sp]["n"]
             terms["press_dnT11_dx_da_over_n"] = dnT11_dx_da / sim[sp]["n"]
             terms["press_dnT11_dx_dd_over_n"] = dnT11_dx_dd / sim[sp]["n"]
-
             terms["press_dnT12_dx_ad_over_n"] = dnT12_dx_ad / sim[sp]["n"]
             terms["press_dnT12_dx_da_over_n"] = dnT12_dx_da / sim[sp]["n"]
             terms["press_dnT12_dx_dd_over_n"] = dnT12_dx_dd / sim[sp]["n"]
 
-        # Wrap all into MFT diagnostics
-        return {name: MFT_Diagnostic(expr, mft_axis=2) for name, expr in terms.items()}
+            # New decomposition: 4 terms using full-sim pressure minus delta×delta correction
+            # d/dx1 (n * T11) / n * (n_delta / n_avg)  -  d/dx1 (n_delta * T11_delta) / n_avg
+            dnT11_full_dx1 = Derivative_Diagnostic(sim[sp]["n"] * sim[sp]["T11"], "x1", stencil=_X1_STENCIL, deriv_order=1)
+            dnT12_full_dx2 = Derivative_Diagnostic(sim[sp]["n"] * sim[sp]["T12"], "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True)
+            terms["press_new_xx_mixed"] = (dnT11_full_dx1 / sim[sp]["n"]) * (sm[sp]["n"]["delta"] / sm[sp]["n"]["avg"])
+            terms["press_new_xx_dd"] = dnT11_dx_dd / sm[sp]["n"]["avg"]
+            terms["press_new_xy_mixed"] = (dnT12_full_dx2 / sim[sp]["n"]) * (sm[sp]["n"]["delta"] / sm[sp]["n"]["avg"])
+            terms["press_new_xy_dd"] = dnT12_dx_dd / sm[sp]["n"]["avg"]
+
+        return {name: MFT_Diagnostic(expr, mft_axis=self._config.mft_axis) for name, expr in terms.items()}
 
     def _compute_eta_values(self, mft_terms: dict[str, MFT_Diagnostic]) -> dict[str, Any]:
         """
-        Compute eta and eta_dom using the same sign conventions as the original code,
-        but now mapped onto descriptive term names.
+        Compute eta (thesis 7-term pressure decomposition) and eta_new (simplified 4-term).
 
-        Original mapping (approx):
-          term1 -> -conv fluct
-          term2 -> -v2'b3'
-          term3 -> +v3'b2'
-          term4 -> +density fluct correction
-          term5-10 -> -(pressure product derivative terms)/n
+        Sign conventions:
+          -conv fluct, -v2'b3', +v3'b2', +density_fluct_corr, -(all press cross-terms)/n
         """
-        coeffs: dict[str, float] = {}
+        thesis_coeffs: dict[str, float] = {}
+        new_coeffs: dict[str, float] = {}
 
-        # convection
         if self._config.include_convection:
-            coeffs["conv_v1_dv1dx1"] = -1.0
+            thesis_coeffs["conv_v1_dv1dx1"] = -1.0
+            new_coeffs["conv_v1_dv1dx1"] = -1.0
 
-        # magnetic
+        if self._config.include_transverse_advection:
+            thesis_coeffs["conv_v2_dv1dx2"] = -1.0
+            new_coeffs["conv_v2_dv1dx2"] = -1.0
+
         if self._config.include_magnetic_force:
-            coeffs["mag_v2_b3"] = -1.0
-            coeffs["mag_v3_b2"] = +1.0
+            thesis_coeffs["mag_v2_b3"] = -1.0
+            thesis_coeffs["mag_v3_b2"] = +1.0
+            new_coeffs["mag_v2_b3"] = -1.0
+            new_coeffs["mag_v3_b2"] = +1.0
 
-        # pressure
         if self._config.include_pressure:
-            coeffs["press_density_fluct_corr"] = +1.0
-            coeffs["press_dnT11_dx_ad_over_n"] = -1.0
-            coeffs["press_dnT11_dx_da_over_n"] = -1.0
-            coeffs["press_dnT11_dx_dd_over_n"] = -1.0
-            coeffs["press_dnT12_dx_ad_over_n"] = -1.0
-            coeffs["press_dnT12_dx_da_over_n"] = -1.0
-            coeffs["press_dnT12_dx_dd_over_n"] = -1.0
+            # Thesis: density-fluctuation correction + 6 cross-term derivatives
+            thesis_coeffs["press_density_fluct_corr"] = +1.0
+            thesis_coeffs["press_dnT11_dx_ad_over_n"] = -1.0
+            thesis_coeffs["press_dnT11_dx_da_over_n"] = -1.0
+            thesis_coeffs["press_dnT11_dx_dd_over_n"] = -1.0
+            thesis_coeffs["press_dnT12_dx_ad_over_n"] = -1.0
+            thesis_coeffs["press_dnT12_dx_da_over_n"] = -1.0
+            thesis_coeffs["press_dnT12_dx_dd_over_n"] = -1.0
+            # New: 4-term formulation
+            new_coeffs["press_new_xx_mixed"] = +1.0
+            new_coeffs["press_new_xx_dd"] = -1.0
+            new_coeffs["press_new_xy_mixed"] = +1.0
+            new_coeffs["press_new_xy_dd"] = -1.0
 
-        eta = 0.0
-        for name, c in coeffs.items():
-            if name in mft_terms:
-                eta = eta + c * mft_terms[name]["avg"]
+        def _weighted_sum(coeffs):
+            result = 0.0
+            for name, c in coeffs.items():
+                if name in mft_terms:
+                    result = result + c * mft_terms[name]["avg"]
+            return result
 
-        # "eta_dom" in your original code used a subset; preserve a similar notion:
-        dom_names = {
-            "mag_v2_b3",
-            "press_density_fluct_corr",
-            "press_dnT11_dx_ad_over_n",
-            "press_dnT11_dx_da_over_n",
-            "press_dnT11_dx_dd_over_n",
-            "press_dnT12_dx_ad_over_n",
-            "press_dnT12_dx_da_over_n",
-            "press_dnT12_dx_dd_over_n",
+        return {
+            "eta": _weighted_sum(thesis_coeffs),
+            "eta_new": _weighted_sum(new_coeffs),
         }
-        eta_dom = 0.0
-        for name, c in coeffs.items():
-            if name in dom_names and name in mft_terms:
-                eta_dom = eta_dom + c * mft_terms[name]["avg"]
-
-        return {"eta": eta, "eta_dom": eta_dom}
 
     def _get_average_quantities(self, dnT11_dx_avg) -> dict[str, Any]:
         out = {
@@ -359,6 +358,9 @@ class AnomalousResistivity(AnomalousResistivityABC):
 
         if self._config.include_convection:
             out["dvfl1_dx1_avg"] = self.sim_mft[self.species]["dvfl1_dx1"]["avg"]
+
+        if self._config.include_transverse_advection:
+            out["dvfl1_dx2_avg"] = self.sim_mft[self.species]["dvfl1_dx2"]["avg"]
 
         return out
 
