@@ -1,13 +1,15 @@
 """Tests for osiris_utils.postprocessing.postprocess.PostProcess."""
-import pytest
+
 from unittest.mock import MagicMock
 
-from osiris_utils.postprocessing.postprocess import PostProcess
+import pytest
 
+from osiris_utils.postprocessing.postprocess import PostProcess
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 class MinimalSim:
     """Minimal simulation-like object with _species and __getitem__."""
@@ -22,6 +24,7 @@ class MinimalSim:
 
 class NoGetItemSim:
     """Has species attribute but no __getitem__."""
+
     _species = ["electrons"]
 
 
@@ -36,6 +39,7 @@ class NoSpeciesSim:
 # Initialisation
 # ---------------------------------------------------------------------------
 
+
 class TestPostProcessInit:
     def test_init_with_underscore_species(self):
         sim = MinimalSim(["electrons", "ions"])
@@ -44,14 +48,14 @@ class TestPostProcessInit:
 
     def test_init_prefers_underscore_species_over_dot_species(self):
         sim = MinimalSim(["electrons"])
-        sim.species = ["ions"]          # dot-species differs on purpose
+        sim.species = ["ions"]  # dot-species differs on purpose
         pp = PostProcess("test", sim)
         # _species takes priority
         assert pp.species == ["electrons"]
 
     def test_init_falls_back_to_dot_species(self):
         sim = MagicMock()
-        del sim._species                # remove _species
+        del sim._species  # remove _species
         sim.species = ["protons"]
         pp = PostProcess("test", sim)
         assert pp.species == ["protons"]
@@ -69,6 +73,7 @@ class TestPostProcessInit:
 # Properties
 # ---------------------------------------------------------------------------
 
+
 class TestPostProcessProperties:
     def test_loaded_diagnostics_delegates(self):
         sim = MinimalSim()
@@ -78,7 +83,7 @@ class TestPostProcessProperties:
         assert pp.loaded_diagnostics is sentinel
 
     def test_loaded_diagnostics_returns_empty_when_absent(self):
-        sim = MinimalSim()          # no loaded_diagnostics attribute
+        sim = MinimalSim()  # no loaded_diagnostics attribute
         pp = PostProcess("test", sim)
         assert pp.loaded_diagnostics == {}
 
@@ -86,6 +91,7 @@ class TestPostProcessProperties:
 # ---------------------------------------------------------------------------
 # add_diagnostic
 # ---------------------------------------------------------------------------
+
 
 class TestPostProcessAddDiagnostic:
     def test_add_diagnostic_delegates_to_simulation(self):
@@ -100,7 +106,7 @@ class TestPostProcessAddDiagnostic:
         assert result == "added_name"
 
     def test_add_diagnostic_raises_when_not_supported(self):
-        sim = MinimalSim()          # no add_diagnostic method
+        sim = MinimalSim()  # no add_diagnostic method
         pp = PostProcess("test", sim)
         with pytest.raises(AttributeError, match="add_diagnostic"):
             pp.add_diagnostic(MagicMock(), "x")
@@ -109,6 +115,7 @@ class TestPostProcessAddDiagnostic:
 # ---------------------------------------------------------------------------
 # delete_all_diagnostics / delete_diagnostic
 # ---------------------------------------------------------------------------
+
 
 class TestPostProcessDelete:
     def test_delete_all_diagnostics_delegates(self):
@@ -121,7 +128,7 @@ class TestPostProcessDelete:
     def test_delete_all_diagnostics_is_noop_when_absent(self):
         sim = MinimalSim()
         pp = PostProcess("test", sim)
-        pp.delete_all_diagnostics()    # must not raise
+        pp.delete_all_diagnostics()  # must not raise
 
     def test_delete_diagnostic_delegates(self):
         sim = MinimalSim()
@@ -133,4 +140,4 @@ class TestPostProcessDelete:
     def test_delete_diagnostic_is_noop_when_absent(self):
         sim = MinimalSim()
         pp = PostProcess("test", sim)
-        pp.delete_diagnostic("key1")   # must not raise
+        pp.delete_diagnostic("key1")  # must not raise

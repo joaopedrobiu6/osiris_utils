@@ -1,8 +1,8 @@
 import argparse
-import pytest
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 
 # Import CLI modules
 from osiris_utils.cli import export, info, plot, validate
@@ -184,9 +184,11 @@ def test_main_no_args_exits():
 
 def test_main_routes_to_subcommand():
     """main() should dispatch to the correct subcommand and return its exit code."""
-    with patch("osiris_utils.cli.info.run", return_value=0) as mock_run, \
-         patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_dir", return_value=True):
+    with (
+        patch("osiris_utils.cli.info.run", return_value=0) as mock_run,
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.is_dir", return_value=True),
+    ):
         ret = main(["info", "some_path"])
     assert ret == 0
     mock_run.assert_called_once()
@@ -194,18 +196,22 @@ def test_main_routes_to_subcommand():
 
 def test_main_returns_1_on_exception_non_verbose():
     """Exceptions in subcommands are swallowed and return 1 when not verbose."""
-    with patch("osiris_utils.cli.info.run", side_effect=RuntimeError("boom")), \
-         patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_dir", return_value=True):
+    with (
+        patch("osiris_utils.cli.info.run", side_effect=RuntimeError("boom")),
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.is_dir", return_value=True),
+    ):
         ret = main(["info", "some_path"])
     assert ret == 1
 
 
 def test_main_reraises_on_exception_verbose():
     """Exceptions in subcommands are re-raised when --verbose is set."""
-    with patch("osiris_utils.cli.info.run", side_effect=RuntimeError("boom")), \
-         patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_dir", return_value=True):
+    with (
+        patch("osiris_utils.cli.info.run", side_effect=RuntimeError("boom")),
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.is_dir", return_value=True),
+    ):
         with pytest.raises(RuntimeError, match="boom"):
             main(["-v", "info", "some_path"])
 
@@ -229,10 +235,12 @@ def test_info_deck_file(mock_simulation, capsys):
     mock_sim.species = ["electrons"]
     mock_simulation.return_value = mock_sim
 
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=True), \
-         patch("pathlib.Path.is_dir", return_value=False), \
-         patch("pathlib.Path.iterdir", return_value=iter([])):
+    with (
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.is_file", return_value=True),
+        patch("pathlib.Path.is_dir", return_value=False),
+        patch("pathlib.Path.iterdir", return_value=iter([])),
+    ):
         args = argparse.Namespace(path="input.deck", brief=False, verbose=False)
         ret = info.run(args)
     assert ret == 0
@@ -241,9 +249,11 @@ def test_info_deck_file(mock_simulation, capsys):
 
 def test_info_directory_no_deck(capsys):
     """Directory without an input deck returns 1."""
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=False), \
-         patch("pathlib.Path.is_dir", return_value=True):
+    with (
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.is_file", return_value=False),
+        patch("pathlib.Path.is_dir", return_value=True),
+    ):
         # No deck candidate exists
         with patch("pathlib.Path.__truediv__", return_value=MagicMock(exists=lambda: False)):
             args = argparse.Namespace(path="sim_dir", brief=False, verbose=False)
@@ -260,8 +270,7 @@ def test_info_file_brief(mock_grid_file, capsys):
     mock_obj.dim = 1
     mock_grid_file.return_value = mock_obj
 
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=True):
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
         args = argparse.Namespace(path="dummy.h5", brief=True)
         ret = info.run(args)
     assert ret == 0
@@ -272,8 +281,7 @@ def test_info_file_brief(mock_grid_file, capsys):
 @patch("osiris_utils.cli.info.ou.OsirisGridFile", side_effect=OSError("bad file"))
 def test_info_file_error(mock_grid_file):
     """show_file_info returns 1 when the file cannot be loaded."""
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=True):
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
         args = argparse.Namespace(path="bad.h5", brief=False)
         ret = info.run(args)
     assert ret == 1
@@ -286,8 +294,7 @@ def test_info_file_error(mock_grid_file):
 
 def test_export_path_not_found():
     with patch("pathlib.Path.exists", return_value=False):
-        args = argparse.Namespace(path="missing.h5", format="csv", output="out.csv",
-                                  timestep=None, no_coords=False)
+        args = argparse.Namespace(path="missing.h5", format="csv", output="out.csv", timestep=None, no_coords=False)
         ret = export.run(args)
     assert ret == 1
 
@@ -295,10 +302,8 @@ def test_export_path_not_found():
 @patch("osiris_utils.cli.export.ou.OsirisGridFile")
 def test_export_exception_returns_1(mock_grid_file):
     mock_grid_file.side_effect = RuntimeError("load error")
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=True):
-        args = argparse.Namespace(path="dummy.h5", format="csv", output="out.csv",
-                                  timestep=None, no_coords=False)
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
+        args = argparse.Namespace(path="dummy.h5", format="csv", output="out.csv", timestep=None, no_coords=False)
         ret = export.run(args)
     assert ret == 1
 
@@ -319,10 +324,8 @@ def test_export_json(mock_grid_file, mock_json_dump, mock_open):
     mock_obj.axis = [{"units": "x"}, {"units": "y"}]
     mock_grid_file.return_value = mock_obj
 
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=True):
-        args = argparse.Namespace(path="dummy.h5", format="json", output="out.json",
-                                  timestep=None, no_coords=False)
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
+        args = argparse.Namespace(path="dummy.h5", format="json", output="out.json", timestep=None, no_coords=False)
         ret = export.run(args)
     assert ret == 0
     assert mock_json_dump.called
@@ -339,6 +342,7 @@ def test_export_to_csv_1d(tmp_path):
     export.export_to_csv(data, mock_obj, out, no_coords=False)
     assert out.exists()
     import pandas as pd
+
     df = pd.read_csv(out)
     assert "e1" in df.columns
     assert "x" in df.columns
@@ -352,6 +356,7 @@ def test_export_to_csv_1d_no_coords(tmp_path):
 
     export.export_to_csv(data, mock_obj, out, no_coords=True)
     import pandas as pd
+
     df = pd.read_csv(out)
     assert "e1" in df.columns
     assert "x" not in df.columns
@@ -389,6 +394,7 @@ def test_export_to_json_no_coords(tmp_path):
 
     export.export_to_json(data, mock_obj, out, no_coords=True)
     import json
+
     with open(out) as f:
         obj = json.load(f)
     assert obj["name"] == "e1"
@@ -409,6 +415,7 @@ def test_export_to_json_with_coords(tmp_path):
 
     export.export_to_json(data, mock_obj, out, no_coords=False)
     import json
+
     with open(out) as f:
         obj = json.load(f)
     assert "grid" in obj
@@ -435,11 +442,10 @@ def test_validate_file_missing_axis(mock_grid_file, mock_h5, capsys):
     mock_obj.data = np.ones((5, 5))
     mock_grid_file.return_value = mock_obj
 
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=True):
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
         args = argparse.Namespace(path="dummy.h5", check_missing=False, strict=False)
         ret = validate.run(args)
-    assert ret == 0   # warnings don't fail unless strict
+    assert ret == 0  # warnings don't fail unless strict
     assert "Missing AXIS" in capsys.readouterr().out
 
 
@@ -452,8 +458,7 @@ def test_validate_strict_warnings_fail(mock_grid_file, mock_h5):
     mock_obj.data = np.ones((5, 5))
     mock_grid_file.return_value = mock_obj
 
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=True):
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
         args = argparse.Namespace(path="dummy.h5", check_missing=False, strict=True)
         ret = validate.run(args)
     assert ret == 1
@@ -468,8 +473,7 @@ def test_validate_file_nan_data(mock_grid_file, mock_h5, capsys):
     mock_obj.data = np.array([1.0, np.nan, np.inf])
     mock_grid_file.return_value = mock_obj
 
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=True):
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
         args = argparse.Namespace(path="dummy.h5", check_missing=False, strict=False)
         ret = validate.run(args)
     assert ret == 0
@@ -479,8 +483,7 @@ def test_validate_file_nan_data(mock_grid_file, mock_h5, capsys):
 @patch("h5py.File", side_effect=OSError("bad file"))
 def test_validate_file_oserror(mock_h5):
     """validate_file returns error count 1 on OSError."""
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=True):
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
         args = argparse.Namespace(path="bad.h5", check_missing=False, strict=False)
         ret = validate.run(args)
     assert ret == 1
@@ -493,27 +496,22 @@ def test_validate_file_oserror(mock_h5):
 
 def test_plot_path_not_found():
     with patch("pathlib.Path.exists", return_value=False):
-        args = argparse.Namespace(path="missing.h5", save=None, display=False,
-                                  title=None, cmap="viridis", dpi=100, log_scale=False)
+        args = argparse.Namespace(path="missing.h5", save=None, display=False, title=None, cmap="viridis", dpi=100, log_scale=False)
         ret = plot.run(args)
     assert ret == 1
 
 
 def test_plot_not_a_file():
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=False):
-        args = argparse.Namespace(path="dir/", save="out.png", display=False,
-                                  title=None, cmap="viridis", dpi=100, log_scale=False)
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=False):
+        args = argparse.Namespace(path="dir/", save="out.png", display=False, title=None, cmap="viridis", dpi=100, log_scale=False)
         ret = plot.run(args)
     assert ret == 1
 
 
 def test_plot_no_output_target():
     """Must specify --save or --display."""
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=True):
-        args = argparse.Namespace(path="dummy.h5", save=None, display=False,
-                                  title=None, cmap="viridis", dpi=100, log_scale=False)
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
+        args = argparse.Namespace(path="dummy.h5", save=None, display=False, title=None, cmap="viridis", dpi=100, log_scale=False)
         ret = plot.run(args)
     assert ret == 1
 
@@ -535,10 +533,8 @@ def test_plot_1d(mock_plt, mock_grid_file):
     mock_obj.axis = [{"units": "x"}]
     mock_grid_file.return_value = mock_obj
 
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=True):
-        args = argparse.Namespace(path="dummy.h5", save="out.png", display=False,
-                                  title="My Plot", cmap="viridis", dpi=100, log_scale=True)
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
+        args = argparse.Namespace(path="dummy.h5", save="out.png", display=False, title="My Plot", cmap="viridis", dpi=100, log_scale=True)
         ret = plot.run(args)
     assert ret == 0
 
@@ -551,10 +547,8 @@ def test_plot_unsupported_dim(mock_plt, mock_grid_file):
     mock_obj.dim = 3
     mock_grid_file.return_value = mock_obj
 
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=True):
-        args = argparse.Namespace(path="dummy.h5", save="out.png", display=False,
-                                  title=None, cmap="viridis", dpi=100, log_scale=False)
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
+        args = argparse.Namespace(path="dummy.h5", save="out.png", display=False, title=None, cmap="viridis", dpi=100, log_scale=False)
         ret = plot.run(args)
     assert ret == 1
 
@@ -563,7 +557,6 @@ def test_plot_unsupported_dim(mock_plt, mock_grid_file):
 @patch("osiris_utils.cli.plot.plt")
 def test_plot_2d_with_title_and_log_scale(mock_plt, mock_grid_file):
     """2D plot with a custom title and log_scale uses SymLogNorm."""
-    import matplotlib
     mock_fig, mock_ax = MagicMock(), MagicMock()
     mock_plt.subplots.return_value = (mock_fig, mock_ax)
     mock_plt.colorbar.return_value = MagicMock()
@@ -578,11 +571,14 @@ def test_plot_2d_with_title_and_log_scale(mock_plt, mock_grid_file):
     mock_obj.axis = [{"units": "x"}, {"units": "y"}]
     mock_grid_file.return_value = mock_obj
 
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=True), \
-         patch("matplotlib.colors.SymLogNorm", return_value=MagicMock()) as mock_norm:
-        args = argparse.Namespace(path="dummy.h5", save="out.png", display=False,
-                                  title="Custom Title", cmap="viridis", dpi=100, log_scale=True)
+    with (
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.is_file", return_value=True),
+        patch("matplotlib.colors.SymLogNorm", return_value=MagicMock()) as mock_norm,
+    ):
+        args = argparse.Namespace(
+            path="dummy.h5", save="out.png", display=False, title="Custom Title", cmap="viridis", dpi=100, log_scale=True
+        )
         ret = plot.run(args)
     assert ret == 0
     mock_norm.assert_called_once()
@@ -592,10 +588,8 @@ def test_plot_2d_with_title_and_log_scale(mock_plt, mock_grid_file):
 @patch("osiris_utils.cli.plot.plt")
 def test_plot_exception_returns_1(mock_plt, mock_grid_file):
     """Exceptions during plot creation return 1."""
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=True):
-        args = argparse.Namespace(path="dummy.h5", save="out.png", display=False,
-                                  title=None, cmap="viridis", dpi=100, log_scale=False)
+    with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_file", return_value=True):
+        args = argparse.Namespace(path="dummy.h5", save="out.png", display=False, title=None, cmap="viridis", dpi=100, log_scale=False)
         ret = plot.run(args)
     assert ret == 1
 
@@ -618,9 +612,7 @@ def test_validate_directory_with_deck(mock_simulation, tmp_path):
     ms_path = tmp_path / "MS"
     ms_path.mkdir()
 
-    ret = validate.run(argparse.Namespace(
-        path=str(tmp_path), check_missing=False, strict=False
-    ))
+    ret = validate.run(argparse.Namespace(path=str(tmp_path), check_missing=False, strict=False))
     assert ret == 0
 
 
@@ -630,9 +622,7 @@ def test_validate_simulation_load_error(mock_simulation, tmp_path):
     deck = tmp_path / "input.deck"
     deck.write_text("")
 
-    ret = validate.run(argparse.Namespace(
-        path=str(tmp_path), check_missing=False, strict=False
-    ))
+    ret = validate.run(argparse.Namespace(path=str(tmp_path), check_missing=False, strict=False))
     assert ret == 1
 
 
@@ -647,10 +637,8 @@ def test_validate_simulation_no_ms_dir(mock_simulation, tmp_path, capsys):
     deck.write_text("")
     # No MS directory created
 
-    ret = validate.run(argparse.Namespace(
-        path=str(tmp_path), check_missing=False, strict=False
-    ))
-    assert ret == 0   # warnings only
+    ret = validate.run(argparse.Namespace(path=str(tmp_path), check_missing=False, strict=False))
+    assert ret == 0  # warnings only
     assert "MS directory not found" in capsys.readouterr().out
 
 
@@ -684,9 +672,7 @@ def test_validate_deck_file_path(tmp_path):
     with patch("osiris_utils.cli.validate.ou.Simulation", side_effect=RuntimeError("fail")):
         deck = tmp_path / "input.deck"
         deck.write_text("")
-        ret = validate.run(argparse.Namespace(
-            path=str(deck), check_missing=False, strict=False
-        ))
+        ret = validate.run(argparse.Namespace(path=str(deck), check_missing=False, strict=False))
     assert ret == 1
 
 
@@ -778,9 +764,7 @@ def test_export_multi_timestep_csv(mock_grid_file, tmp_path):
         h5_files.append(p)
 
     out = tmp_path / "out.csv"
-    export.export_multi_timestep(
-        h5_files, argparse.Namespace(format="csv", output=str(out))
-    )
+    export.export_multi_timestep(h5_files, argparse.Namespace(format="csv", output=str(out)))
     assert out.exists()
 
 
@@ -800,10 +784,9 @@ def test_export_multi_timestep_json(mock_grid_file, tmp_path):
         h5_files.append(p)
 
     out = tmp_path / "out.json"
-    export.export_multi_timestep(
-        h5_files, argparse.Namespace(format="json", output=str(out))
-    )
+    export.export_multi_timestep(h5_files, argparse.Namespace(format="json", output=str(out)))
     import json
+
     with open(out) as f:
         result = json.load(f)
     assert len(result) == 2
@@ -816,9 +799,11 @@ def test_export_multi_timestep_json(mock_grid_file, tmp_path):
 
 def test_info_not_file_or_dir(capsys):
     """run() returns 1 for paths that are neither file nor directory."""
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=False), \
-         patch("pathlib.Path.is_dir", return_value=False):
+    with (
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.is_file", return_value=False),
+        patch("pathlib.Path.is_dir", return_value=False),
+    ):
         args = argparse.Namespace(path="weird_path", brief=False, verbose=False)
         ret = info.run(args)
     assert ret == 1
@@ -827,9 +812,11 @@ def test_info_not_file_or_dir(capsys):
 @patch("osiris_utils.cli.info.ou.Simulation", side_effect=RuntimeError("oops"))
 def test_info_simulation_error_verbose_reraises(mock_sim):
     """show_simulation_info re-raises when verbose=True."""
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.is_file", return_value=True), \
-         patch("pathlib.Path.is_dir", return_value=False):
+    with (
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.is_file", return_value=True),
+        patch("pathlib.Path.is_dir", return_value=False),
+    ):
         with pytest.raises(RuntimeError, match="oops"):
             args = argparse.Namespace(path="input.deck", brief=False, verbose=True)
             info.run(args)

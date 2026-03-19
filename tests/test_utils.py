@@ -198,8 +198,8 @@ def test_convert_tracks(tmp_path):
     assert result.endswith("-v2.h5")
 
     with h5py.File(out_path, "r") as f:
-        assert "1" in f   # track 1 group
-        assert "2" in f   # track 2 group
+        assert "1" in f  # track 1 group
+        assert "2" in f  # track 2 group
         assert len(f["1"][b"t"]) == 3
         assert len(f["2"][b"t"]) == 2
 
