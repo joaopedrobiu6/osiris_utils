@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Literal
 
 import h5py
@@ -13,13 +14,14 @@ __all__ = [
     "OsirisGridFile",
     "OsirisRawFile",
     "OsirisHIST",
+    "OsirisTIMINGS",
     "OsirisTrackFile",
 ]
 
 
 class OsirisData:
     """
-    Base class for handling OSIRIS simulation data files (HDF5 and HIST formats).
+    Base class for handling OSIRIS simulation data files (HDF5, HIST and TIMINGS formats).
 
     This class provides common functionality for reading and managing basic attributes
     from OSIRIS output files. It serves as the parent class for specialized data handlers.
@@ -30,6 +32,7 @@ class OsirisData:
         Path to the data file. Supported formats:
         - HDF5 files (.h5 extension)
         - HIST files (ending with _ene)
+        - TIMINGS files (starting with timings)
 
     Attributes
     ----------
@@ -60,8 +63,13 @@ class OsirisData:
             self._load_basic_attributes(self._file)
         elif self._filename.endswith("_ene"):
             self._open_hist_file(self._filename)
+        elif os.path.basename(self._filename).startswith("timings"):
+            self._open_timings_file(self._filename)
         else:
-            raise ValueError("The file should be an HDF5 file with the extension .h5, or a HIST file ending with _ene.")
+            raise ValueError(
+                "The file should be an HDF5 file with the extension .h5, a HIST file ending with \"_ene\", \
+                or a timings files starting with \"timings\"."
+            )
 
     def _load_basic_attributes(self, f: h5py.File) -> None:
         """Load common attributes from HDF5 file"""
@@ -117,6 +125,25 @@ class OsirisData:
 
     def _open_hist_file(self, filename):
         self._df = pd.read_csv(filename, sep=r"\s+", comment="!", header=0, engine="python")
+
+    def _open_timings_file(self, filename):
+        self._df = pd.read_csv(
+            filename,
+            sep=r"\s{2,}",
+            engine="python",
+            header=1,
+            skiprows=lambda i: i == 3,
+            on_bad_lines="skip",
+        )
+
+        try:
+            with open(filename) as f:
+                line = f.readlines()[0]
+            iteration = line.strip().split("=")[-1].strip()
+            self._df.attrs["iterations"] = int(iteration)
+        except Exception:
+            print("Error reading iterations.")
+            pass
 
     def _close_file(self):
         """
@@ -381,10 +408,12 @@ class OsirisRawFile(OsirisData):
     def __init__(self, filename):
         super().__init__(filename)
 
-        self._grid = np.array([
-            self._file["SIMULATION"].attrs["XMIN"],
-            self._file["SIMULATION"].attrs["XMAX"],
-        ]).T
+        self._grid = np.array(
+            [
+                self._file["SIMULATION"].attrs["XMIN"],
+                self._file["SIMULATION"].attrs["XMAX"],
+            ]
+        ).T
 
         self._quants = [byte.decode("utf-8") for byte in self._file.attrs["QUANTS"][:]]
         units_list = [byte.decode("utf-8") for byte in self._file.attrs["UNITS"][:]]
@@ -509,6 +538,36 @@ class OsirisHIST(OsirisData):
         return self._df
 
 
+class OsirisTIMINGS(OsirisData):
+    """
+    Class to read the data from an OSIRIS TIMINGS file.
+
+    Input
+    -----
+    filename: the path to the TIMINGS file
+
+    Attributes
+    ----------
+    filename: the path to the file
+        str
+    df: the data in a pandas DataFrame
+        pandas.DataFrame
+    iterations: number of iterations in the run
+        int
+    """
+
+    def __init__(self, filename):
+        super().__init__(filename)
+
+    @property
+    def df(self):
+        return self._df
+
+    @property
+    def iterations(self):
+        return self._df.attrs["iterations"]
+
+
 class OsirisTrackFile(OsirisData):
     """
     Handles structured track data from OSIRIS HDF5 simulations.
@@ -547,10 +606,12 @@ class OsirisTrackFile(OsirisData):
     def __init__(self, filename):
         super().__init__(filename)
 
-        self._grid = np.array([
-            self._file["SIMULATION"].attrs["XMIN"],
-            self._file["SIMULATION"].attrs["XMAX"],
-        ]).T
+        self._grid = np.array(
+            [
+                self._file["SIMULATION"].attrs["XMIN"],
+                self._file["SIMULATION"].attrs["XMAX"],
+            ]
+        ).T
 
         self._quants = [byte.decode("utf-8") for byte in self._file.attrs["QUANTS"][1:]]
         units_list = [byte.decode("utf-8") for byte in self._file.attrs["UNITS"][1:]]
