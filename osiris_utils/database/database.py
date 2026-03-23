@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ import tqdm as tqdm
 
 from ..ar import AnomalousResistivity, AnomalousResistivityConfig
 from ..postprocessing import Derivative_Diagnostic, Derivative_Simulation, MFT_Simulation
+from ..profiling import _start_timer, _stop_timer
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,15 @@ class DatabaseBuildConfig:
         If None, a default is constructed at runtime (no time derivative, with convection,
         pressure, and magnetic force).
     validate_output :
-        If True, NaN/inf values in output tensors are replaced with 0 and logged.
+        If True, NaN/inf values are replaced with 0 per frame and logged.
+    resume :
+        If True, skip frames already written in a previous (possibly crashed) run.
+        Requires the ``.npy`` and ``.npy.progress`` files from that run to exist.
+        Progress is tracked per-frame, so a job can be safely killed and restarted.
+    flush_every :
+        Flush the memory-mapped output to disk and save the progress file every
+        *N* completed frames. Lower values protect more data at the cost of extra
+        I/O. Default: 128. Set to 1 for maximum safety on unstable HPC jobs.
     """
 
     dtype: type = np.float32
@@ -48,6 +58,8 @@ class DatabaseBuildConfig:
     mft_axis: int = 2
     ar_config: AnomalousResistivityConfig | None = None
     validate_output: bool = True
+    resume: bool = False
+    flush_every: int = 128
 
 
 class DatabaseCreator:
@@ -107,16 +119,12 @@ class DatabaseCreator:
             try:
                 final_iter = len(self.simulation["e1"])
             except Exception as e:
-                raise ValueError(
-                    "final_iter=None but could not infer simulation time length from simulation['e1']."
-                ) from e
+                raise ValueError("final_iter=None but could not infer simulation time length from simulation['e1'].") from e
 
         self.final_iter = int(final_iter)
 
         if self.final_iter <= self.initial_iter:
-            raise ValueError(
-                f"final_iter must be > initial_iter (got {self.final_iter} <= {self.initial_iter})."
-            )
+            raise ValueError(f"final_iter must be > initial_iter (got {self.final_iter} <= {self.initial_iter}).")
 
         self.T = self.final_iter - self.initial_iter
 
@@ -137,6 +145,11 @@ class DatabaseCreator:
     ) -> None:
         """Build and save database tensors as ``.npy`` files in ``save_folder``.
 
+        Tensors are written frame-by-frame to memory-mapped files — the full
+        tensor is **never held in RAM**.  Progress is checkpointed every
+        ``flush_every`` frames so interrupted jobs can be resumed with
+        ``DatabaseBuildConfig(resume=True)``.
+
         Parameters
         ----------
         database :
@@ -146,9 +159,7 @@ class DatabaseCreator:
             File-stem names (without ``.npy``) for each tensor.
         """
         if database not in _VALID_DATABASE_TYPES:
-            raise ValueError(
-                f"Invalid database type '{database}'. Choose from: {sorted(_VALID_DATABASE_TYPES)}."
-            )
+            raise ValueError(f"Invalid database type '{database}'. Choose from: {sorted(_VALID_DATABASE_TYPES)}.")
 
         os.makedirs(self.save_folder, exist_ok=True)
 
@@ -161,23 +172,30 @@ class DatabaseCreator:
         build_eta_new = database in {"eta_new", "all"}
         build_vlasov = database in {"e_vlasov", "all"}
 
-        if build_input:
-            logger.info("Building input database '%s'...", name_input)
-            self._input_database(name=name_input)
+        _timer = _start_timer(
+            f"create_database({database}, T={self.T}, X={self.X}, "
+            f"dtype={self.build_config.dtype.__name__ if hasattr(self.build_config.dtype, '__name__') else self.build_config.dtype})"
+        )
+        try:
+            if build_input:
+                logger.info("Building input database '%s'...", name_input)
+                self._input_database(name=name_input)
 
-        if build_output:
-            logger.info("Building output (eta) database '%s'...", name_output)
-            self._ar_database(key="eta", name=name_output, desc="Creating eta database")
+            if build_output:
+                logger.info("Building output (eta) database '%s'...", name_output)
+                self._ar_database(key="eta", name=name_output, desc="Creating eta database")
 
-        if build_eta_new:
-            logger.info("Building eta_new database '%s'...", name_eta_new)
-            self._ar_database(key="eta_new", name=name_eta_new, desc="Creating eta_new database")
+            if build_eta_new:
+                logger.info("Building eta_new database '%s'...", name_eta_new)
+                self._ar_database(key="eta_new", name=name_eta_new, desc="Creating eta_new database")
 
-        if build_vlasov:
-            logger.info("Building e_vlasov database '%s'...", name_vlasov)
-            self._ar_database(key="e_vlasov_avg", name=name_vlasov, desc="Creating e_vlasov database")
+            if build_vlasov:
+                logger.info("Building e_vlasov database '%s'...", name_vlasov)
+                self._ar_database(key="e_vlasov_avg", name=name_vlasov, desc="Creating e_vlasov database")
 
-        logger.info("All requested databases saved to '%s'.", self.save_folder)
+            logger.info("All requested databases saved to '%s'.", self.save_folder)
+        finally:
+            _stop_timer(_timer)
 
     # ------------------------------------------------------------------
     # Input database
@@ -225,9 +243,7 @@ class DatabaseCreator:
         sp = self.species
         sm = sim_mft
 
-        dnT11_dx_avg = Derivative_Diagnostic(
-            sm[sp]["n"]["avg"] * sm[sp]["T11"]["avg"], "x1"
-        )
+        dnT11_dx_avg = Derivative_Diagnostic(sm[sp]["n"]["avg"] * sm[sp]["T11"]["avg"], "x1")
 
         def _sp(name: str) -> Callable[[int], np.ndarray]:
             return lambda t: sm[sp][name]["avg"][t].flatten()
@@ -237,33 +253,33 @@ class DatabaseCreator:
 
         return [
             # Fields
-            ("b2_avg",          _field("b2")),
-            ("b3_avg",          _field("b3")),
+            ("b2_avg", _field("b2")),
+            ("b3_avg", _field("b3")),
             # Species fluid velocities
-            ("vfl1_avg",        _sp("vfl1")),
-            ("vfl2_avg",        _sp("vfl2")),
-            ("vfl3_avg",        _sp("vfl3")),
+            ("vfl1_avg", _sp("vfl1")),
+            ("vfl2_avg", _sp("vfl2")),
+            ("vfl3_avg", _sp("vfl3")),
             # Density and temperature
-            ("n_avg",           _sp("n")),
-            ("T11_avg",         _sp("T11")),
-            ("T12_avg",         _sp("T12")),
+            ("n_avg", _sp("n")),
+            ("T11_avg", _sp("T11")),
+            ("T12_avg", _sp("T12")),
             # First derivatives (x1)
-            ("dvfl1_dx1_avg",   _sp("dvfl1_dx1")),
-            ("dvfl2_dx1_avg",   _sp("dvfl2_dx1")),
-            ("dvfl3_dx1_avg",   _sp("dvfl3_dx1")),
-            ("dn_dx1_avg",      _sp("dn_dx1")),
-            ("dT11_dx1_avg",    _sp("dT11_dx1")),
-            ("db2_dx1_avg",     _field("db2_dx1")),
-            ("db3_dx1_avg",     _field("db3_dx1")),
+            ("dvfl1_dx1_avg", _sp("dvfl1_dx1")),
+            ("dvfl2_dx1_avg", _sp("dvfl2_dx1")),
+            ("dvfl3_dx1_avg", _sp("dvfl3_dx1")),
+            ("dn_dx1_avg", _sp("dn_dx1")),
+            ("dT11_dx1_avg", _sp("dT11_dx1")),
+            ("db2_dx1_avg", _field("db2_dx1")),
+            ("db3_dx1_avg", _field("db3_dx1")),
             # Second derivatives (x1)
             ("d2_vfl1_dx1_avg", _sp("d2_vfl1_dx1")),
             ("d2_vfl2_dx1_avg", _sp("d2_vfl2_dx1")),
             ("d2_vfl3_dx1_avg", _sp("d2_vfl3_dx1")),
-            ("d2_b2_dx1_avg",   _field("d2_b2_dx1")),
-            ("d2_b3_dx1_avg",   _field("d2_b3_dx1")),
-            ("d2_n_dx1_avg",    _sp("d2_n_dx1")),
+            ("d2_b2_dx1_avg", _field("d2_b2_dx1")),
+            ("d2_b3_dx1_avg", _field("d2_b3_dx1")),
+            ("d2_n_dx1_avg", _sp("d2_n_dx1")),
             # Composite: d/dx1 (n_avg * T11_avg)
-            ("dnT11_dx1_avg",   lambda t: dnT11_dx_avg[t].flatten()),
+            ("dnT11_dx1_avg", lambda t: dnT11_dx_avg[t].flatten()),
         ]
 
     def _input_database(self, name: str) -> None:
@@ -331,41 +347,119 @@ class DatabaseCreator:
         desc: str,
         validate: bool = False,
     ) -> None:
-        """Build tensor of *shape* by calling ``frame_fn(t_idx)`` for each time step.
+        """Build tensor of *shape* by streaming frames to a memory-mapped file.
 
-        Saves result to ``{save_folder}/{name}.npy``.
+        The full tensor is **never held in RAM** — each frame is written directly
+        to the ``.npy`` file on disk via ``numpy.lib.format.open_memmap``.
+        This makes 60 GB tensors feasible on any node regardless of RAM.
 
-        The first frame is computed on the main thread (warm-up) to ensure any
-        lazy diagnostic initialisation happens before spawning worker threads.
+        Crash safety / resume
+        ---------------------
+        A companion ``<name>.npy.progress`` file (a boolean array of length T)
+        tracks which frames have been flushed to disk.  On the next run with
+        ``DatabaseBuildConfig(resume=True)``, already-completed frames are
+        skipped.  Progress is saved every ``flush_every`` frames.
+
+        The safety guarantee is:
+        * A frame is only marked *done* in the progress file **after** the
+          memmap has been flushed.  So on crash, at worst the last
+          ``flush_every`` frames are recomputed — no corrupt data.
         """
         if self.T <= 0:
             raise ValueError("Nothing to build: T <= 0. Did you call set_limits()?")
 
-        arr = np.empty(shape, dtype=self.build_config.dtype)
-
-        # Warm-up on main thread
-        arr[0] = frame_fn(self.initial_iter)
-
-        if self.T > 1:
-            remaining = list(enumerate(range(self.initial_iter + 1, self.final_iter), start=1))
-            with ThreadPoolExecutor(max_workers=self.build_config.max_workers) as ex:
-                futures = {ex.submit(frame_fn, t_idx): out_i for out_i, t_idx in remaining}
-                for fut in tqdm.tqdm(as_completed(futures), total=len(futures), initial=1, desc=desc):
-                    out_i = futures[fut]
-                    try:
-                        arr[out_i] = fut.result()
-                    except Exception as e:
-                        raise RuntimeError(
-                            f"Failed building '{name}' at output index {out_i}."
-                        ) from e
-
-        if validate:
-            arr = self._validate_and_clean_data(arr)
-
         save_path = os.path.join(self.save_folder, f"{name}.npy")
-        np.save(save_path, arr)
-        del arr
-        logger.info("Saved '%s' (%s) → %s", name, "×".join(str(s) for s in shape), save_path)
+        progress_path = f"{save_path}.progress"
+        dtype = self.build_config.dtype
+
+        # ── Open / create the memory-mapped file ──────────────────────────
+        if self.build_config.resume and os.path.exists(save_path) and os.path.exists(progress_path):
+            done_mask = np.load(progress_path)
+            if done_mask.shape != (self.T,):
+                logger.warning(
+                    "Progress file shape %s != (%d,); restarting '%s' from scratch.",
+                    done_mask.shape,
+                    self.T,
+                    name,
+                )
+                done_mask = np.zeros(self.T, dtype=bool)
+                arr = np.lib.format.open_memmap(save_path, mode="w+", dtype=dtype, shape=shape)
+            else:
+                arr = np.lib.format.open_memmap(save_path, mode="r+", dtype=dtype, shape=shape)
+                logger.info(
+                    "Resuming '%s': %d / %d frames already done.",
+                    name,
+                    int(done_mask.sum()),
+                    self.T,
+                )
+        else:
+            done_mask = np.zeros(self.T, dtype=bool)
+            arr = np.lib.format.open_memmap(save_path, mode="w+", dtype=dtype, shape=shape)
+
+        work_items = [(out_i, t_idx) for out_i, t_idx in enumerate(range(self.initial_iter, self.final_iter)) if not done_mask[out_i]]
+
+        if not work_items:
+            logger.info("'%s' already complete — skipping.", name)
+            del arr
+            return
+
+        # ── Thread-safe flush / progress helpers ──────────────────────────
+        _lock = threading.Lock()
+        _n_written = [0]
+
+        def _write_frame(out_i: int, t_idx: int) -> None:
+            frame = frame_fn(t_idx)
+            if validate:
+                frame = _clean_frame(frame, name, out_i)
+            # Write to mmap (different out_i → different disk pages → thread-safe)
+            arr[out_i] = frame.astype(dtype, copy=False)
+            with _lock:
+                done_mask[out_i] = True
+                _n_written[0] += 1
+                if _n_written[0] % self.build_config.flush_every == 0:
+                    # Flush first, then save progress — so progress only reflects
+                    # data that is confirmed on disk.
+                    arr.flush()
+                    np.save(progress_path, done_mask.copy())
+
+        # ── Warm-up: first frame on main thread ───────────────────────────
+        # Catches lazy diagnostic initialisation / shape mismatches before
+        # spawning worker threads.
+        _write_frame(*work_items[0])
+        remaining = work_items[1:]
+
+        # ── Parallel frame building ────────────────────────────────────────
+        if remaining:
+            with ThreadPoolExecutor(max_workers=self.build_config.max_workers) as ex:
+                futures = {ex.submit(_write_frame, out_i, t_idx): (out_i, t_idx) for out_i, t_idx in remaining}
+                with tqdm.tqdm(total=len(work_items), initial=1, desc=desc) as pbar:
+                    for fut in as_completed(futures):
+                        out_i, t_idx = futures[fut]
+                        try:
+                            fut.result()
+                        except Exception as e:
+                            # Emergency flush before propagating — preserve progress
+                            with _lock:
+                                arr.flush()
+                                np.save(progress_path, done_mask.copy())
+                            raise RuntimeError(f"Failed building '{name}' at output index {out_i} (simulation t_idx={t_idx}).") from e
+                        pbar.update(1)
+
+        # ── Final flush and cleanup ────────────────────────────────────────
+        arr.flush()
+        del arr  # close memmap handle (does not delete the file)
+
+        if os.path.exists(progress_path):
+            os.remove(progress_path)
+
+        size_gb = (shape[0] * shape[1] * shape[2] * np.dtype(dtype).itemsize) / 1e9
+        logger.info(
+            "Saved '%s' (%.2f GB, %s) → %s",
+            name,
+            size_gb,
+            "x".join(str(s) for s in shape),
+            save_path,
+        )
 
     # ------------------------------------------------------------------
     # Helpers
@@ -394,6 +488,8 @@ class DatabaseCreator:
         except Exception:
             container.add_diagnostic(diagnostic, name)
 
+    # _validate_and_clean_data kept for backwards compatibility.
+    # New code uses the module-level _clean_frame() which works per-frame.
     @staticmethod
     def _validate_and_clean_data(data: np.ndarray) -> np.ndarray:
         """Replace NaN/inf with 0 in-place and log a warning if any are found."""
@@ -404,3 +500,25 @@ class DatabaseCreator:
             logger.warning("Found %d NaN and %d inf values — replacing with zeros.", nan_count, inf_count)
             data[mask] = 0.0
         return data
+
+
+def _clean_frame(frame: np.ndarray, name: str, out_i: int) -> np.ndarray:
+    """Replace NaN/inf with 0 in a single frame and log if any are found.
+
+    Returns the original array if no bad values are found (no copy).
+    Returns a cleaned copy otherwise.
+    """
+    mask = ~np.isfinite(frame)
+    if np.any(mask):
+        nan_count = int(np.count_nonzero(np.isnan(frame)))
+        inf_count = int(np.count_nonzero(np.isinf(frame)))
+        logger.warning(
+            "'%s' frame %d: replacing %d NaN + %d inf with zeros.",
+            name,
+            out_i,
+            nan_count,
+            inf_count,
+        )
+        frame = frame.copy()
+        frame[mask] = 0.0
+    return frame
