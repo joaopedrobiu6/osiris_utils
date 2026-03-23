@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import concurrent.futures
 import math
+import multiprocessing
+import os
 from collections import OrderedDict
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
@@ -9,6 +12,90 @@ import numpy as np
 
 from ..data.diagnostic import Diagnostic
 from .postprocess import PostProcess
+
+
+def _spatial_deriv_worker(args: tuple) -> np.ndarray:
+    """Top-level ProcessPoolExecutor worker for chunked spatial derivatives.
+
+    Must live at module level to be picklable.  Each chunk is an independent
+    slice of the time axis, so spatial derivatives can be computed without any
+    cross-chunk communication.
+
+    Handles all spatial-derivative flavours: explicit stencil, order-2 and
+    order-4 (periodic or non-periodic).
+
+    HPC note: launched via ``forkserver`` context (not ``fork``) to avoid
+    fork+MPI deadlocks on GPFS/Lustre-connected nodes.
+    """
+    data_chunk, h, ax, deriv_order, stencil, periodic, order = args
+    from osiris_utils.postprocessing.derivative import Derivative_Diagnostic  # noqa: PLC0415
+
+    d = object.__new__(Derivative_Diagnostic)
+    d._periodic = periodic
+    d._order = int(order)
+    if stencil is not None:
+        return d._fd_apply_along_axis(data_chunk, h=h, axis=ax, deriv_order=deriv_order, stencil=stencil)
+    if periodic:
+        return d._periodic_first_derivative(data_chunk, h=h, axis=ax, order=order)
+    if order == 4:
+        return d._compute_fourth_order_spatial(data_chunk, h, ax)
+    return np.gradient(data_chunk, h, axis=ax, edge_order=2)
+
+
+# ---------------------------------------------------------------------------
+# Optional Numba JIT acceleration for the FD stencil hot paths.
+#
+# HPC notes
+# ---------
+# * cache=True  — compiled kernels are stored on disk (per dtype/shape
+#   signature) so the JIT cost is paid only on the very first run.
+#   Point NUMBA_CACHE_DIR at a fast local scratch directory on HPC nodes:
+#       export NUMBA_CACHE_DIR=/tmp/$SLURM_JOB_ID/numba_cache
+# * parallel=True — uses OpenMP/TBB threading controlled by NUMBA_NUM_THREADS
+#   (defaults to OMP_NUM_THREADS).  Set it in your job script:
+#       export NUMBA_NUM_THREADS=$SLURM_CPUS_PER_TASK
+# * No MPI dependency — each rank compiles and caches independently.
+# * If Numba is not installed, the code falls back to the pure-NumPy path
+#   transparently; _NUMBA_AVAILABLE guards every call site.
+# ---------------------------------------------------------------------------
+try:
+    import numba as _numba
+
+    _NUMBA_AVAILABLE = True
+
+    @_numba.njit(parallel=True, cache=True)
+    def _nb_stencil_interior(data_2d, out_2d, c, s0, start, stop):
+        """Fill out_2d[start:stop, :] via the FD stencil sum.
+
+        data_2d / out_2d are C-contiguous float64 views shaped (n_ax, n_rest),
+        where axis-0 is the derivative axis and n_rest collapses all others.
+        """
+        n_rest = data_2d.shape[1]
+        for i in _numba.prange(start, stop):
+            for j in range(n_rest):
+                acc = 0.0
+                for k in range(len(c)):
+                    acc += c[k] * data_2d[i + s0[k], j]
+                out_2d[i, j] = acc
+
+    @_numba.njit(parallel=True, cache=True)
+    def _nb_stencil_periodic(p_2d, out_2d, c, s0, n_ax, smax):
+        """Fill out_2d via the periodic FD stencil sum.
+
+        p_2d is the wrap-padded array shaped (n_ax + 2*smax, n_rest).
+        out_2d is shaped (n_ax, n_rest).
+        """
+        n_rest = out_2d.shape[1]
+        for i in _numba.prange(n_ax):
+            for j in range(n_rest):
+                acc = 0.0
+                for k in range(len(c)):
+                    acc += c[k] * p_2d[smax + i + s0[k], j]
+                out_2d[i, j] = acc
+
+except ImportError:
+    _NUMBA_AVAILABLE = False
+
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -417,16 +504,31 @@ class Derivative_Diagnostic(Diagnostic):
         c_unit = self._fd_unit_coeffs(stencil, deriv_order)
         c = c_unit / (float(h) ** deriv_order)
 
-        tgt = [slice(None)] * data.ndim
-        tgt[axis] = slice(start, stop)
-        interior_view = data[tuple(tgt)]
-
-        acc = np.zeros_like(interior_view, dtype=float)
-        for cj, sj in zip(c, s0, strict=False):
-            src = [slice(None)] * data.ndim
-            src[axis] = slice(start + sj, stop + sj)
-            acc += cj * data[tuple(src)]
-        out[tuple(tgt)] = acc
+        if _NUMBA_AVAILABLE:
+            # Move derivative axis to front, flatten remaining dims → 2D, JIT.
+            data_m = np.ascontiguousarray(np.moveaxis(data, axis, 0))
+            n_ax_d = data_m.shape[0]
+            data_2d = data_m.reshape(n_ax_d, -1).astype(np.float64)
+            out_2d = np.zeros_like(data_2d)
+            _nb_stencil_interior(
+                data_2d,
+                out_2d,
+                c.astype(np.float64),
+                s0.astype(np.int64),
+                start,
+                stop,
+            )
+            out = np.ascontiguousarray(np.moveaxis(out_2d.reshape(data_m.shape), 0, axis))
+        else:
+            tgt = [slice(None)] * data.ndim
+            tgt[axis] = slice(start, stop)
+            interior_view = data[tuple(tgt)]
+            acc = np.zeros_like(interior_view, dtype=float)
+            for cj, sj in zip(c, s0, strict=False):
+                src = [slice(None)] * data.ndim
+                src[axis] = slice(start + sj, stop + sj)
+                acc += cj * data[tuple(src)]
+            out[tuple(tgt)] = acc
 
         return out, (start, stop)
 
@@ -466,9 +568,37 @@ class Derivative_Diagnostic(Diagnostic):
         c = c_unit / (float(h) ** deriv_order)
 
         if self._periodic:
-            out = np.zeros_like(data, dtype=float)
-            for cj, sj in zip(c, stencil, strict=False):
-                out += cj * np.roll(data, shift=-int(sj), axis=axis)
+            smax = max(abs(int(s)) for s in stencil)
+            pad_w = [(0, 0)] * data.ndim
+            pad_w[axis] = (smax, smax)
+            p = np.pad(data, pad_w, mode="wrap")
+            n_ax = data.shape[axis]
+
+            if _NUMBA_AVAILABLE:
+                # Move derivative axis to front for both padded and unpadded shapes.
+                data_m_shape = np.moveaxis(data, axis, 0).shape  # (n_ax, *other_dims)
+                p_m = np.ascontiguousarray(np.moveaxis(p, axis, 0))
+                n_rest = p_m.size // p_m.shape[0]
+                p_2d = p_m.reshape(p_m.shape[0], n_rest).astype(np.float64)
+                out_2d = np.zeros((n_ax, n_rest), dtype=np.float64)
+                _nb_stencil_periodic(
+                    p_2d,
+                    out_2d,
+                    c.astype(np.float64),
+                    np.asarray(stencil, dtype=np.int64),
+                    n_ax,
+                    smax,
+                )
+                out = np.ascontiguousarray(np.moveaxis(out_2d.reshape(data_m_shape), 0, axis))
+            else:
+                # pad once, read shifted views as zero-copy slices, accumulate in-place.
+                out = np.zeros(data.shape, dtype=float)
+                tmp = np.empty(data.shape, dtype=float)
+                for cj, sj in zip(c, stencil, strict=False):
+                    sl = [slice(None)] * p.ndim
+                    sl[axis] = slice(smax + int(sj), smax + int(sj) + n_ax)
+                    np.multiply(p[tuple(sl)], cj, out=tmp)
+                    out += tmp
             return out
 
         n = data.shape[axis]
@@ -503,16 +633,37 @@ class Derivative_Diagnostic(Diagnostic):
 
     @staticmethod
     def _periodic_first_derivative(data: np.ndarray, h: float, axis: int, order: int) -> np.ndarray:
-        """Periodic first derivative using centered finite differences."""
+        """Periodic first derivative using centered finite differences.
+
+        Uses ``np.pad(mode='wrap')`` + contiguous slice views instead of multiple
+        ``np.roll`` calls. Each ``np.roll`` allocates a full copy of the array;
+        the pad approach allocates one slightly-larger array and reads shifts as
+        zero-copy views, cutting peak intermediate allocations from O(order * N)
+        to O(N).
+        """
+        n = data.shape[axis]
+        pad_w = [(0, 0)] * data.ndim
+
+        def sl(p: np.ndarray, center: int, off: int) -> tuple:
+            s = [slice(None)] * p.ndim
+            s[axis] = slice(center + off, center + off + n)
+            return tuple(s)
+
         if order == 2:
-            return (np.roll(data, shift=-1, axis=axis) - np.roll(data, shift=1, axis=axis)) / (2 * h)
+            pad_w[axis] = (1, 1)
+            p = np.pad(data, pad_w, mode="wrap")
+            # (f[i+1] - f[i-1]) / (2h) — 1 temp allocation
+            return (p[sl(p, 1, 1)] - p[sl(p, 1, -1)]) / (2 * h)
+
         if order == 4:
-            return (
-                -np.roll(data, shift=-2, axis=axis)
-                + 8 * np.roll(data, shift=-1, axis=axis)
-                - 8 * np.roll(data, shift=1, axis=axis)
-                + np.roll(data, shift=2, axis=axis)
-            ) / (12 * h)
+            pad_w[axis] = (2, 2)
+            p = np.pad(data, pad_w, mode="wrap")
+            # (-f[i+2] + 8*f[i+1] - 8*f[i-1] + f[i-2]) / (12h) — 2 temp allocations
+            out = p[sl(p, 2, -2)] - p[sl(p, 2, 2)]  # f[i-2] - f[i+2]
+            out += 8.0 * (p[sl(p, 2, 1)] - p[sl(p, 2, -1)])  # + 8*(f[i+1] - f[i-1])
+            out /= 12.0 * h
+            return out
+
         raise ValueError("Only order 2 and 4 supported.")
 
     @staticmethod
@@ -592,8 +743,29 @@ class Derivative_Diagnostic(Diagnostic):
 
         return result
 
-    def load_all(self) -> np.ndarray:
-        """Load all data and compute the derivative."""
+    def load_all(self, n_workers: int | None = None) -> np.ndarray:
+        """Load all data and compute the derivative.
+
+        Parameters
+        ----------
+        n_workers : int or None
+            Number of ProcessPoolExecutor workers for **spatial** derivatives
+            (``deriv_type`` in ``{"x1", "x2", "x3"}``).  Spatial derivatives
+            are independent across the time axis, so the data is split into
+            ``n_workers`` chunks along axis 0 and processed in parallel.
+
+            * ``None`` (default) — single-process (safe everywhere, uses
+              NumPy's internal threading via MKL/OpenBLAS).
+            * ``> 1`` — activates chunked ProcessPoolExecutor.  Uses the
+              ``forkserver`` multiprocessing context, which is **MPI-safe** on
+              HPC nodes (unlike ``fork``, which can deadlock with MPI).  Set
+              ``NUMBA_NUM_THREADS`` / ``OMP_NUM_THREADS`` to 1 per worker when
+              also using Numba to avoid thread over-subscription.
+
+            Time and mixed derivatives (``"t"``, ``"xx"``, ``"xt"``,
+            ``"tx"``) always run single-process because the stencil spans
+            neighbouring time steps.
+        """
         if self._data is not None:
             print("Using cached derivative")
             return self._data
@@ -610,6 +782,33 @@ class Derivative_Diagnostic(Diagnostic):
             dx0 = self._diag._dx
             return float(dx0[0] if isinstance(dx0, (list, tuple, np.ndarray)) else dx0)
 
+        def _parallel_spatial(data: np.ndarray, h: float, ax: int) -> np.ndarray:
+            """Chunk data along time axis and apply spatial derivative in parallel.
+
+            Chunking along axis 0 (time) is always safe for spatial derivatives
+            because each time-slice is independent.
+            """
+            n_w = n_workers if n_workers is not None else 1
+            n_w = max(1, min(n_w, data.shape[0]))
+            if n_w == 1:
+                # Dispatch to the correct single-process variant.
+                if self._stencil is not None:
+                    return self._fd_apply_along_axis(
+                        data, h=h, axis=ax,
+                        deriv_order=self._deriv_order, stencil=self._stencil,
+                    )
+                if self._periodic:
+                    return self._periodic_first_derivative(data, h=h, axis=ax, order=self._order)
+                if self._order == 4:
+                    return self._compute_fourth_order_spatial(data, h, ax)
+                return np.gradient(data, h, axis=ax, edge_order=2)
+            chunks = np.array_split(data, n_w, axis=0)
+            worker_args = [(chunk, h, ax, self._deriv_order, self._stencil, self._periodic, self._order) for chunk in chunks]
+            ctx = multiprocessing.get_context("forkserver")  # MPI-safe on HPC
+            with concurrent.futures.ProcessPoolExecutor(max_workers=n_w, mp_context=ctx) as executor:
+                result_chunks = list(executor.map(_spatial_deriv_worker, worker_args))
+            return np.concatenate(result_chunks, axis=0)
+
         if self._stencil is not None:
             self._validate_stencil(self._stencil, self._deriv_order)
 
@@ -621,7 +820,7 @@ class Derivative_Diagnostic(Diagnostic):
                 axis_map = {"x1": 1, "x2": 2, "x3": 3}
                 ax = axis_map[self._deriv_type]
                 dx = dx_for_axis_data(ax)
-                result = self._fd_apply_along_axis(self._data, h=dx, axis=ax, deriv_order=self._deriv_order, stencil=self._stencil)
+                result = _parallel_spatial(self._data, dx, ax)
 
             else:
                 raise ValueError("Explicit stencil is supported for deriv_type in {'t','x1','x2','x3'} in load_all().")
@@ -639,25 +838,13 @@ class Derivative_Diagnostic(Diagnostic):
                     result = np.gradient(self._data, dt, axis=0, edge_order=2)
 
             elif self._deriv_type == "x1":
-                dx = dx_for_axis_data(1)
-                if self._periodic:
-                    result = self._periodic_first_derivative(self._data, h=dx, axis=1, order=2)
-                else:
-                    result = np.gradient(self._data, dx, axis=1, edge_order=2)
+                result = _parallel_spatial(self._data, dx_for_axis_data(1), 1)
 
             elif self._deriv_type == "x2":
-                dx = dx_for_axis_data(2)
-                if self._periodic:
-                    result = self._periodic_first_derivative(self._data, h=dx, axis=2, order=2)
-                else:
-                    result = np.gradient(self._data, dx, axis=2, edge_order=2)
+                result = _parallel_spatial(self._data, dx_for_axis_data(2), 2)
 
             elif self._deriv_type == "x3":
-                dx = dx_for_axis_data(3)
-                if self._periodic:
-                    result = self._periodic_first_derivative(self._data, h=dx, axis=3, order=2)
-                else:
-                    result = np.gradient(self._data, dx, axis=3, edge_order=2)
+                result = _parallel_spatial(self._data, dx_for_axis_data(3), 3)
 
             elif self._deriv_type == "xx":
                 if not isinstance(self._op_axis, (tuple, list)) or len(self._op_axis) != 2:
@@ -709,11 +896,7 @@ class Derivative_Diagnostic(Diagnostic):
             if self._deriv_type in ("x1", "x2", "x3"):
                 axis_map = {"x1": 1, "x2": 2, "x3": 3}
                 ax = axis_map[self._deriv_type]
-                dx = dx_for_axis_data(ax)
-                if self._periodic:
-                    result = self._periodic_first_derivative(self._data, h=dx, axis=ax, order=4)
-                else:
-                    result = self._compute_fourth_order_spatial(self._data, dx, ax)
+                result = _parallel_spatial(self._data, dx_for_axis_data(ax), ax)
             else:
                 raise ValueError("Order 4 is only implemented for spatial derivatives 'x1', 'x2' and 'x3'.")
         else:

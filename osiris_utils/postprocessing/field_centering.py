@@ -103,6 +103,9 @@ class FieldCentering_Diagnostic(Diagnostic):
         self._all_loaded = False
         self._data = None
 
+        # Pre-compute centering axes once — avoids repeated string matching on every _frame call
+        self._center_axes_cached = self._needs_center_axes_osiris()
+
     def _needs_center_axes_osiris(self) -> tuple[int, ...]:
         """
         Return OSIRIS spatial axes (1..3) along which this field must be averaged
@@ -182,7 +185,7 @@ class FieldCentering_Diagnostic(Diagnostic):
         self._diag.load_all()
         data = self._diag.data  # shape: (t, x1[,x2[,x3]])
 
-        axes_to_center = self._needs_center_axes_osiris()
+        axes_to_center = self._center_axes_cached
 
         # Map OSIRIS spatial axes (1..3) to numpy axes in the loaded array:
         # loaded includes time at axis 0, so x1->1, x2->2, x3->3
@@ -198,7 +201,7 @@ class FieldCentering_Diagnostic(Diagnostic):
     # ---- lazy path ----
 
     def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
-        axes_to_center = self._needs_center_axes_osiris()
+        axes_to_center = self._center_axes_cached
 
         # Ensure slicing won't produce wrong values without halos
         self._check_slice_safe(data_slice, axes_to_center)

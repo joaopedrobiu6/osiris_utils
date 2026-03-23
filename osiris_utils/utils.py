@@ -7,7 +7,11 @@ from typing import cast
 import h5py
 import numpy as np
 import pandas as pd
-import scipy
+
+try:
+    from scipy.integrate import cumulative_simpson as _cumulative_integrate
+except ImportError:
+    from scipy.integrate import cumulative_trapezoid as _cumulative_integrate
 
 __all__ = [
     "courant2D",
@@ -100,7 +104,7 @@ def transverse_average(data: np.ndarray) -> np.ndarray:
     return cast("np.ndarray", np.mean(data, axis=1))
 
 
-def integrate(array: np.ndarray, dx: float, axis: int = None) -> np.ndarray:
+def integrate(array: np.ndarray, dx: float, axis: int = None, start_side: str = "left") -> np.ndarray:
     """
     Integrate a N-D array using the cumulative Simpson's rule, from right to left
     along a given axis
@@ -119,10 +123,15 @@ def integrate(array: np.ndarray, dx: float, axis: int = None) -> np.ndarray:
         if len(array.shape) != 1:
             raise ValueError("The input array must be 1D when axis is None.")
         axis = 0
-    flip_array = np.flip(array, axis=axis)
-    # int = -scipy.integrate.cumulative_trapezoid(flip_array, dx = dx, initial = flip_array[0])
-    int = -scipy.integrate.cumulative_simpson(flip_array, dx=dx, initial=0, axis=axis)
-    return cast("np.ndarray", np.flip(int, axis=axis))
+    if start_side not in {"left", "right"}:
+        raise ValueError("start_side must be 'left' or 'right'")
+    if start_side == "left":
+        int = _cumulative_integrate(array, dx=dx, initial=0, axis=axis)
+        return cast("np.ndarray", int)
+    else:
+        flip_array = np.flip(array, axis=axis)
+        int = -_cumulative_integrate(flip_array, dx=dx, initial=0, axis=axis)
+        return cast("np.ndarray", np.flip(int, axis=axis))
 
 
 def save_data(data: np.ndarray, savename: str, option: str = "numpy") -> None:

@@ -11,6 +11,12 @@ from .species import Species
 
 __all__ = ["InputDeckIO", "deval"]
 
+# Pre-compiled regex patterns used in _parse_input_deck
+_RE_STRIP_WHITESPACE = re.compile(r'"[^"]*"|(\s+)')
+_RE_SECTION_NAMES = re.compile(r"(?:^|\})(.*?)(?:\{)")
+_RE_SECTION_INFOS = re.compile(r"(?:\{)(.*?)(?:\})")
+_RE_SPLIT_COMMA = re.compile(r",(?![^()]*\))\s*")
+
 
 def deval(x):
     """
@@ -69,13 +75,13 @@ class InputDeckIO:
         lines = "".join(lines)
 
         # remove tabs/spaces/paragraphs (except spaces inside "")
-        lines = re.sub(r'"[^"]*"|(\s+)', lambda x: "" if x.group(1) else x.group(0), lines)
+        lines = _RE_STRIP_WHITESPACE.sub(lambda x: "" if x.group(1) else x.group(0), lines)
 
         # split sections
         # get name before brackets
-        section_names = re.findall(r"(?:^|\})(.*?)(?:\{)", lines)
+        section_names = _RE_SECTION_NAMES.findall(lines)
         # get content inside brackets
-        section_infos = re.findall(r"(?:\{)(.*?)(?:\})", lines)
+        section_infos = _RE_SECTION_INFOS.findall(lines)
 
         if len(section_names) != len(section_infos):
             raise RuntimeError(
@@ -92,7 +98,7 @@ class InputDeckIO:
                 print(f"Reading {section}")
 
             # split section contents at commas (unless comma inside brackets e.g. pmax(1:2, 1))
-            info = re.split(r",(?![^()]*\))\s*", info)
+            info = _RE_SPLIT_COMMA.split(info)
             info = list(filter(None, info))
 
             # save pairs of (param, values) to dict

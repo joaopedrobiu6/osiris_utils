@@ -52,6 +52,7 @@ from .utils import (
     time_estimation,
     transverse_average,
 )
+from .profiling import disable_profiling, enable_profiling, profile_block
 
 __all__ = [
     # Data Singles
@@ -93,4 +94,8 @@ __all__ = [
     "read_data",
     "convert_tracks",
     "create_file_tags",
+    # Profiling
+    "enable_profiling",
+    "disable_profiling",
+    "profile_block",
 ]

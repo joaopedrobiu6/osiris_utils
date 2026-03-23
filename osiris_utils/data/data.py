@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Literal
 
 import h5py
@@ -15,6 +16,42 @@ __all__ = [
     "OsirisHIST",
     "OsirisTrackFile",
 ]
+
+
+def _hdf5_chunk_cache_bytes() -> int:
+    """Return an HPC-tuned HDF5 chunk cache size in bytes.
+
+    Resolution order
+    ----------------
+    1. ``OSIRIS_HDF5_CACHE_MB`` environment variable — set this in your SLURM
+       job script for full control::
+
+           export OSIRIS_HDF5_CACHE_MB=256
+
+    2. 10 % of available RAM reported by ``psutil`` (capped at 512 MB,
+       floored at 64 MB). Adapts automatically to per-node memory limits on
+       HPC allocations.
+
+    3. 64 MB hard fallback (``psutil`` not installed).
+
+    Notes
+    -----
+    The cache is per open file handle, so setting a large value when loading
+    many files in parallel (``load_all``) multiplies accordingly. Keep
+    ``OSIRIS_HDF5_CACHE_MB`` ≤ (node RAM) / (n_workers * 2) to avoid OOM.
+    """
+    env = os.environ.get("OSIRIS_HDF5_CACHE_MB")
+    if env is not None:
+        try:
+            return max(1, int(env)) * 1024 * 1024
+        except ValueError:
+            pass  # malformed value — fall through
+    try:
+        import psutil
+        available_mb = psutil.virtual_memory().available // (1024 * 1024)
+        return min(512, max(64, available_mb // 10)) * 1024 * 1024
+    except ImportError:
+        return 64 * 1024 * 1024  # 64 MB safe fallback
 
 
 class OsirisData:
@@ -248,8 +285,17 @@ class OsirisGridFile(OsirisData):
             # data slice should be transposed to match data storage order [x, y, z] to [z, y, x]
             data_slice = data_slice[::-1] if data_slice is not None and len(dset.shape) > 1 else data_slice
 
-            data = np.array(dset[:]) if data_slice is None else np.array(dset[data_slice])
-            self._data = np.ascontiguousarray(data.T)
+            if data_slice is None and len(dset.shape) > 1:
+                # Read directly into a pre-allocated transposed buffer to avoid an intermediate copy.
+                # buf.T is Fortran-contiguous with the HDF5 storage shape; h5py writes into it
+                # so buf ends up C-contiguous with the transposed (x1, x2, ...) shape.
+                buf = np.empty(dset.shape[::-1], dtype=dset.dtype)
+                dset.read_direct(buf.T)
+                self._data = buf
+            elif data_slice is None:
+                self._data = dset[()]
+            else:
+                self._data = np.ascontiguousarray(dset[data_slice].T)
         else:
             self._data = None
 
