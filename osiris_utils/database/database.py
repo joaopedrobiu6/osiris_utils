@@ -274,7 +274,6 @@ class DatabaseCreator:
         typically < 200 MB, safe on any MN5/Deucalion node.
         """
         sp = self.species
-        n_workers = self.build_config.max_workers
 
         # Collect (human-readable label, Diagnostic) pairs
         targets: list[tuple[str, Any]] = []
@@ -292,7 +291,10 @@ class DatabaseCreator:
         )
         for label, diag in targets:
             logger.debug("  loading %s", label)
-            diag.load_all(n_workers=n_workers)
+            # MFT_Diagnostic_Average.load_all() has no keyword arguments;
+            # call without n_workers to stay compatible with both the base
+            # Diagnostic and MFT subclasses.
+            diag.load_all()
         _stop_timer(timer)
         logger.info("Pre-load complete — frame-building loop is now HDF5-free.")
 
