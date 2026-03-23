@@ -44,6 +44,7 @@ from .postprocessing.pressure_correction import (
     PressureCorrection_Diagnostic,
     PressureCorrection_Simulation,
 )
+from .profiling import disable_profiling, enable_profiling, profile_block
 from .utils import (
     convert_tracks,
     courant2D,
@@ -55,7 +56,6 @@ from .utils import (
     time_estimation,
     transverse_average,
 )
-from .profiling import disable_profiling, enable_profiling, profile_block
 
 __all__ = [
     # Anomalous Resistivity

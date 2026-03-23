@@ -3,7 +3,6 @@ from __future__ import annotations
 import concurrent.futures
 import math
 import multiprocessing
-import os
 from collections import OrderedDict
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
@@ -794,8 +793,11 @@ class Derivative_Diagnostic(Diagnostic):
                 # Dispatch to the correct single-process variant.
                 if self._stencil is not None:
                     return self._fd_apply_along_axis(
-                        data, h=h, axis=ax,
-                        deriv_order=self._deriv_order, stencil=self._stencil,
+                        data,
+                        h=h,
+                        axis=ax,
+                        deriv_order=self._deriv_order,
+                        stencil=self._stencil,
                     )
                 if self._periodic:
                     return self._periodic_first_derivative(data, h=h, axis=ax, order=self._order)
