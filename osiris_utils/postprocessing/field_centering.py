@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 from ..data.diagnostic import OSIRIS_FLD, Diagnostic
-from ..data.simulation import Simulation
 from .postprocess import PostProcess
+
+if TYPE_CHECKING:
+    from ..data.simulation import Simulation
 
 __all__ = ["FieldCentering_Simulation", "FieldCentering_Diagnostic"]
 

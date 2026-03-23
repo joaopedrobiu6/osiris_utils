@@ -1,20 +1,22 @@
 from __future__ import annotations
 
-import glob
 import logging
 import operator
-import os
 import warnings
-from collections.abc import Callable, Iterator
-from typing import Any, Literal
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
 
 import h5py
 import numpy as np
 import tqdm
 
-from ..decks.decks import InputDeckIO
-from ..decks.species import Species
 from .data import OsirisGridFile
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+    from ..decks.decks import InputDeckIO
+    from ..decks.species import Species
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)8s │ %(message)s")
 logger = logging.getLogger(__name__)
@@ -229,7 +231,7 @@ class Diagnostic:
 
         if simulation_folder:
             self._simulation_folder = simulation_folder
-            if not os.path.isdir(simulation_folder):
+            if not Path(simulation_folder).is_dir():
                 raise FileNotFoundError(f"Simulation folder {simulation_folder} not found.")
         else:
             self._simulation_folder = None
@@ -293,7 +295,7 @@ class Diagnostic:
             The glob pattern to search for HDF5 files.
 
         """
-        self._file_list = sorted(glob.glob(pattern))
+        self._file_list = sorted(str(p) for p in Path(pattern).parent.glob(Path(pattern).name))
         if not self._file_list:
             raise FileNotFoundError(f"No HDF5 files match {pattern}")
         self._file_template = self._file_list[0][:-9]  # keep old “template” idea
@@ -313,7 +315,7 @@ class Diagnostic:
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/UDIST/{species}/{moment}/"
-        self._scan_files(os.path.join(self._path, "*.h5"))
+        self._scan_files(str(Path(self._path) / "*.h5"))
         self._load_attributes(self._file_template, self._input_deck)
 
     def _get_field(self, field: str) -> None:
@@ -328,7 +330,7 @@ class Diagnostic:
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/FLD/{field}/"
-        self._scan_files(os.path.join(self._path, "*.h5"))
+        self._scan_files(str(Path(self._path) / "*.h5"))
         self._load_attributes(self._file_template, self._input_deck)
 
     def _get_density(self, species: str, quantity: str) -> None:
@@ -345,7 +347,7 @@ class Diagnostic:
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/DENSITY/{species}/{quantity}/"
-        self._scan_files(os.path.join(self._path, "*.h5"))
+        self._scan_files(str(Path(self._path) / "*.h5"))
         self._load_attributes(self._file_template, self._input_deck)
 
     def _get_phase_space(self, species: str, type: str) -> None:
@@ -362,7 +364,7 @@ class Diagnostic:
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/PHA/{type}/{species}/"
-        self._scan_files(os.path.join(self._path, "*.h5"))
+        self._scan_files(str(Path(self._path) / "*.h5"))
         self._load_attributes(self._file_template, self._input_deck)
 
     def _load_attributes(self, file_template: str, input_deck: dict | None) -> None:  # this will be replaced by reading the input deck
@@ -397,9 +399,9 @@ class Diagnostic:
             # Try files 000001, 000002, etc. until one is found
             found_file = False
             for file_num in range(1, self._maxiter + 1):
-                path_file = os.path.join(file_template + f"{file_num:06d}.h5")
-                if os.path.exists(path_file):
-                    dump = OsirisGridFile(path_file, load_data=False)
+                path_file = Path(file_template + f"{file_num:06d}.h5")
+                if path_file.exists():
+                    dump = OsirisGridFile(str(path_file), load_data=False)
                     self._dx = dump.dx
                     self._nx = dump.nx
                     self._x = dump.x
@@ -828,8 +830,8 @@ class Diagnostic:
         else:
             self._default_save = "DIR_" + self._name
 
-        if not os.path.exists(self._save_path):
-            os.makedirs(self._save_path)
+        if not Path(self._save_path).exists():
+            Path(self._save_path).mkdir(parents=True)
             if verbose:
                 logger.info(f"Created folder {self._save_path}")
 
@@ -892,10 +894,10 @@ class Diagnostic:
 
         if self._name is None:
             raise ValueError("Diagnostic name is not set. Cannot save to HDF5.")
-        if not os.path.exists(path):
+        if not Path(path).exists():
             logger.info(f"Creating folder {path}...")
-            os.makedirs(path)
-        if not os.path.isdir(path):
+            Path(path).mkdir(parents=True)
+        if not Path(path).is_dir():
             raise ValueError(f"{path} is not a directory.")
 
         if all is False:

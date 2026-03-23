@@ -3,6 +3,8 @@ import pytest
 
 import osiris_utils.postprocessing.field_centering as fc
 
+rng = np.random.default_rng()
+
 
 # Reuse a simplified MockDiagnostic
 class MockDiagnostic:
@@ -65,7 +67,7 @@ def test_field_centering_2d():
     # if name in {"b3", ...}: return (1, 2)
 
     shape = (1, 4, 4)
-    data = np.random.rand(*shape)
+    data = rng.random(shape)
     mock_b3 = MockDiagnostic(data, "b3", dim=2)
 
     centered = fc.FieldCentering_Diagnostic(mock_b3)
@@ -102,7 +104,7 @@ def test_field_centering_no_op():
     # Code: if dim==1 and name in {e1...} -> (1,).
     # if name == e2? -> returns ()
 
-    data = np.random.rand(1, 10)
+    data = rng.random((1, 10))
     mock_e2 = MockDiagnostic(data, "e2", dim=1)
 
     # But wait, constructor checks `if diagnostic._name not in OSIRIS_FLD`.

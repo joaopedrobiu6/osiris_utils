@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import copy
 import re
+from pathlib import Path
 
 import numpy as np
 
@@ -58,7 +59,7 @@ class InputDeckIO:
         if verbose:
             print(f"\nParsing input deck : {self._filename}")
 
-        with open(self._filename, encoding="utf-8") as f:
+        with Path(self._filename).open(encoding="utf-8") as f:
             lines = f.readlines()
 
         # remove comments
@@ -307,7 +308,7 @@ class InputDeckIO:
         filename : str
             The path to the output file.
         """
-        with open(filename, "w", encoding="utf-8") as f:
+        with Path(filename).open("w", encoding="utf-8") as f:
             for section, section_dict in self._sections:
                 f.write(f"{section}\n{{\n")
                 for k, v in section_dict.items():

@@ -451,7 +451,8 @@ class OsirisRawFile(OsirisData):
         elif type == "random":
             if len(filtered_tags) < n_tags:
                 raise ValueError("Not enough tags to sample from.")
-            random_indices = np.random.choice(len(filtered_tags), size=n_tags, replace=False)
+            rng = np.random.default_rng()
+            random_indices = rng.choice(len(filtered_tags), size=n_tags, replace=False)
             tags = filtered_tags[random_indices]
         else:
             raise TypeError("Invalid type", type)

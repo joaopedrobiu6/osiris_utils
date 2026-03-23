@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-import numpy as np
+from typing import TYPE_CHECKING
 
 from ..data.diagnostic import Diagnostic
-from ..data.simulation import Simulation
 from .postprocess import PostProcess
+
+if TYPE_CHECKING:
+    import numpy as np
+
+    from ..data.simulation import Simulation
 
 __all__ = [
     "MFT_Simulation",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import cast
 
 import h5py
@@ -38,7 +39,7 @@ def courant2D(dx: float, dy: float) -> float:
         The limit for dt.
     """
     dt = 1 / (np.sqrt(1 / dx**2 + 1 / dy**2))
-    return cast(float, dt)
+    return cast("float", dt)
 
 
 def time_estimation(n_cells: int, ppc: int, t_steps: int, n_cpu: int, push_time: float = 1e-7, hours: bool = False) -> float:
@@ -96,7 +97,7 @@ def transverse_average(data: np.ndarray) -> np.ndarray:
 
     if len(data.shape) != 2:
         raise ValueError("The input data must be a 2D array.")
-    return cast(np.ndarray, np.mean(data, axis=1))
+    return cast("np.ndarray", np.mean(data, axis=1))
 
 
 def integrate(array: np.ndarray, dx: float, axis: int = None) -> np.ndarray:
@@ -121,7 +122,7 @@ def integrate(array: np.ndarray, dx: float, axis: int = None) -> np.ndarray:
     flip_array = np.flip(array, axis=axis)
     # int = -scipy.integrate.cumulative_trapezoid(flip_array, dx = dx, initial = flip_array[0])
     int = -scipy.integrate.cumulative_simpson(flip_array, dx=dx, initial=0, axis=axis)
-    return cast(np.ndarray, np.flip(int, axis=axis))
+    return cast("np.ndarray", np.flip(int, axis=axis))
 
 
 def save_data(data: np.ndarray, savename: str, option: str = "numpy") -> None:
@@ -160,7 +161,7 @@ def read_data(filename: str, option: str = "numpy") -> np.ndarray:
         Dim: 2D.
         The data.
     """
-    return np.loadtxt(filename) if option == "numpy" else pd.read_csv(filename).values
+    return np.loadtxt(filename) if option == "numpy" else pd.read_csv(filename).to_numpy()
 
 
 def convert_tracks(filename_in: str) -> str:
@@ -285,7 +286,7 @@ def create_file_tags(filename: str, tags_array: np.ndarray) -> str:
     tags_array = tags_array[np.lexsort((tags_array[:, 1], tags_array[:, 0]))]
     num_tags = tags_array.shape[0]
 
-    with open(filename, "w") as file:
+    with Path(filename).open("w") as file:
         file.write("! particle tag list\n")
         file.write(f"! generated on {datetime.now().strftime('%a %b %d %H:%M:%S %Y')}\n")
         file.write("! number of tags\n")

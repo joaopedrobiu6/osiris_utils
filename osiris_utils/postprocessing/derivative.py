@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import math
 from collections import OrderedDict
-from collections.abc import Iterable
 from functools import lru_cache
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from ..data.diagnostic import Diagnostic
 from .postprocess import PostProcess
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 __all__ = ["Derivative_Diagnostic", "Derivative_Simulation", "Derivative_Species_Handler"]
 
@@ -319,7 +321,7 @@ class Derivative_Diagnostic(Diagnostic):
 
     @staticmethod
     @lru_cache(maxsize=128)
-    def _edge_plan(n: int, axis: int, stencil: tuple[int, ...], deriv_order: int):
+    def _edge_plan(n: int, axis: int, stencil: tuple[int, ...], deriv_order: int):  # noqa: ARG004
         """Precompute which indices need shifted stencils and what those shifted stencils are.
 
         Parameters
