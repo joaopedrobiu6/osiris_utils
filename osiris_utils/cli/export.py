@@ -174,7 +174,7 @@ def export_to_json(data: np.ndarray, data_obj, output_path: Path, no_coords: boo
         output["grid"] = {f"x{i + 1}": coord.tolist() for i, coord in enumerate(data_obj.x)}
         output["axis_info"] = data_obj.axis
 
-    with open(output_path, "w") as f:
+    with output_path.open("w") as f:
         json.dump(output, f, indent=2)
 
 
@@ -195,5 +195,6 @@ def export_multi_timestep(h5_files: list, args: argparse.Namespace) -> None:
         for f in h5_files:
             data_obj = ou.OsirisGridFile(str(f))
             all_data.append({"time": data_obj.time, "iteration": data_obj.iter, "data": data_obj.data.tolist()})
-        with open(args.output, "w") as outf:
+        output_path = Path(args.output)
+        with output_path.open("w") as outf:
             json.dump(all_data, outf, indent=2)

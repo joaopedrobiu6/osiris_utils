@@ -12,7 +12,8 @@ class MockDiagnostic:
         self.grid = np.array([[0, 1], [0, 1], [0, 1]])
         self.x = [np.linspace(0, 1, 10) for _ in range(3)]
         # Shape: (timesteps, x, y, z) -> (2, 10, 10, 10)
-        self._data = np.random.rand(2, 10, 10, 10)
+        rng = np.random.default_rng()
+        self._data = rng.random((2, 10, 10, 10))
         self.name = "test_data"
         self.units = "a.u."
         self.axis = [

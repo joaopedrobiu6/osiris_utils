@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+from pathlib import Path
 from typing import Any
 
 from ..data.diagnostic import Diagnostic
@@ -38,7 +38,7 @@ class Simulation:
     """
 
     def __init__(self, input_deck_path: str) -> None:
-        folder_path = os.path.dirname(input_deck_path)
+        folder_path = str(Path(input_deck_path).parent)
         self._input_deck_path = input_deck_path
         self._input_deck = InputDeckIO(self._input_deck_path, verbose=False)
 
