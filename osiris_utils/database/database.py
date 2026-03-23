@@ -24,6 +24,12 @@ _VALID_DATABASE_TYPES = {"both", "input", "output", "eta_new", "e_vlasov", "all"
 # Feature spec type: (label, frame_getter(t_idx) -> 1-D array)
 FeatureSpec = tuple[str, Callable[[int], np.ndarray]]
 
+# Base simulation fields used by the 22-feature input tensor (no species prefix).
+# These are the leaf HDF5-backed diagnostics whose MFT averages are pre-loaded
+# when DatabaseBuildConfig.preload=True.
+_PRELOAD_FIELDS: tuple[str, ...] = ("b2", "b3")
+_PRELOAD_SPECIES_FIELDS: tuple[str, ...] = ("n", "T11", "T12", "vfl1", "vfl2", "vfl3")
+
 
 @dataclass(frozen=True)
 class DatabaseBuildConfig:
@@ -51,6 +57,20 @@ class DatabaseBuildConfig:
         Flush the memory-mapped output to disk and save the progress file every
         *N* completed frames. Lower values protect more data at the cost of extra
         I/O. Default: 128. Set to 1 for maximum safety on unstable HPC jobs.
+    preload : bool
+        If ``True``, pre-load all 1-D MFT averages for every input feature into
+        RAM **before** the frame-building loop begins.
+
+        For a **2-D OSIRIS simulation**, each ``["avg"][t]`` call would otherwise
+        read a full 2-D HDF5 field (~19 MB) from Lustre, average it, and discard
+        the raw data — repeated for every feature × every timestep (~8 800 Lustre
+        reads for 22 features × 400 frames).  With ``preload=True`` those reads
+        happen once (in parallel), the 1-D results are cached in RAM (~100 MB
+        total), and the frame-building loop becomes pure NumPy.
+
+        RAM cost: ``n_features × T_total × nx1 × sizeof(dtype)`` — typically
+        < 200 MB even for long runs.  Safe to enable on any MN5 / Deucalion node.
+        Default: ``False`` (opt-in to avoid surprises on tiny test runs).
     """
 
     dtype: type = np.float32
@@ -60,6 +80,7 @@ class DatabaseBuildConfig:
     validate_output: bool = True
     resume: bool = False
     flush_every: int = 128
+    preload: bool = False
 
 
 class DatabaseCreator:
@@ -234,6 +255,47 @@ class DatabaseCreator:
 
         return MFT_Simulation(self.simulation, mft_axis=self.build_config.mft_axis)
 
+    def _preload_mft_averages(self, sim_mft: MFT_Simulation) -> None:
+        """Pre-load all 1-D MFT averages into RAM before the frame-building loop.
+
+        For a 2-D simulation each ``["avg"][t]`` call reads a full 2-D HDF5
+        field from Lustre and averages it on the fly.  This method performs those
+        reads once (in parallel, reusing ``max_workers``), caches the 1-D results
+        inside each ``Diagnostic._data``, and returns.  After this call, every
+        ``["avg"][t]`` in the frame-building loop is a pure array slice — zero
+        HDF5 activity.
+
+        Fields pre-loaded
+        -----------------
+        * Simulation fields : ``b2``, ``b3``
+        * Species fields    : ``n``, ``T11``, ``T12``, ``vfl1``, ``vfl2``, ``vfl3``
+
+        RAM cost is at most ``n_fields x T_total x nx1 x 4`` bytes (float32) —
+        typically < 200 MB, safe on any MN5/Deucalion node.
+        """
+        sp = self.species
+        n_workers = self.build_config.max_workers
+
+        # Collect (human-readable label, Diagnostic) pairs
+        targets: list[tuple[str, Any]] = []
+        for field in _PRELOAD_FIELDS:
+            targets.append((field, sim_mft[field]["avg"]))
+        for field in _PRELOAD_SPECIES_FIELDS:
+            targets.append((f"{sp}.{field}", sim_mft[sp][field]["avg"]))
+
+        timer = _start_timer(f"preload {len(targets)} MFT averages (T={self.T}, X={self.X})")
+        logger.info(
+            "Pre-loading %d MFT-average diagnostics into RAM (T=%d, X=%d)…",
+            len(targets),
+            self.T,
+            self.X,
+        )
+        for label, diag in targets:
+            logger.debug("  loading %s", label)
+            diag.load_all(n_workers=n_workers)
+        _stop_timer(timer)
+        logger.info("Pre-load complete — frame-building loop is now HDF5-free.")
+
     def _input_feature_specs(self, sim_mft: MFT_Simulation) -> list[FeatureSpec]:
         """Return an ordered list of (label, frame_getter) pairs for the input tensor.
 
@@ -284,6 +346,8 @@ class DatabaseCreator:
 
     def _input_database(self, name: str) -> None:
         sim_mft = self._setup_input_diagnostics()
+        if self.build_config.preload:
+            self._preload_mft_averages(sim_mft)
         specs = self._input_feature_specs(sim_mft)
         F_in = len(specs)
         labels, getters = zip(*specs, strict=True)
