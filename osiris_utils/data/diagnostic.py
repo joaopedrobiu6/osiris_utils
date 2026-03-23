@@ -1,20 +1,24 @@
 from __future__ import annotations
 
-import glob
 import logging
 import operator
-import os
+import threading
 import warnings
-from collections.abc import Callable, Iterator
-from typing import Any, Literal
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
 
 import h5py
 import numpy as np
 import tqdm
 
-from ..decks.decks import InputDeckIO
-from ..decks.species import Species
+from ..profiling import _start_timer, _stop_timer
 from .data import OsirisGridFile
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+    from ..decks.decks import InputDeckIO
+    from ..decks.species import Species
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)8s │ %(message)s")
 logger = logging.getLogger(__name__)
@@ -110,6 +114,31 @@ _ATTRS_TO_CLONE = [
 ]
 
 __all__ = ["Diagnostic", "which_quantities"]
+
+# Maximum I/O workers for ThreadPoolExecutor.
+# Capped well below cpu_count to avoid overwhelming parallel filesystems (Lustre/GPFS on HPC).
+# Concurrent HDF5 reads benefit from ~16-32 threads; beyond that, filesystem contention dominates.
+_MAX_IO_WORKERS = 32
+
+
+def _load_frame_worker(args: tuple) -> tuple[int, np.ndarray]:
+    """Standalone picklable worker for ProcessPoolExecutor.
+
+    Opens a fresh HDF5 handle per call — required because h5py file objects cannot
+    be shared across process boundaries. Use this when each frame involves significant
+    CPU computation in addition to I/O (e.g. custom post-processing chains).
+
+    Parameters
+    ----------
+    args : tuple
+        (index, filepath, quantity, species_rqm, data_slice)
+    """
+    i, filepath, quantity, species_rqm, data_slice = args
+    data_obj = OsirisGridFile(filepath, data_slice=data_slice)
+    arr = data_obj.data
+    if quantity in OSIRIS_DENSITY:
+        arr = np.sign(species_rqm) * arr
+    return i, arr
 
 
 def which_quantities():
@@ -229,7 +258,7 @@ class Diagnostic:
 
         if simulation_folder:
             self._simulation_folder = simulation_folder
-            if not os.path.isdir(simulation_folder):
+            if not Path(simulation_folder).is_dir():
                 raise FileNotFoundError(f"Simulation folder {simulation_folder} not found.")
         else:
             self._simulation_folder = None
@@ -241,6 +270,7 @@ class Diagnostic:
 
         self._all_loaded: bool = False  # if the data is already loaded into memory
         self._quantity: str | None = None
+        self._load_lock = threading.Lock()  # guards _data and _all_loaded across threads
 
     #########################################
     #
@@ -293,7 +323,7 @@ class Diagnostic:
             The glob pattern to search for HDF5 files.
 
         """
-        self._file_list = sorted(glob.glob(pattern))
+        self._file_list = sorted(str(p) for p in Path(pattern).parent.glob(Path(pattern).name))
         if not self._file_list:
             raise FileNotFoundError(f"No HDF5 files match {pattern}")
         self._file_template = self._file_list[0][:-9]  # keep old “template” idea
@@ -313,7 +343,7 @@ class Diagnostic:
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/UDIST/{species}/{moment}/"
-        self._scan_files(os.path.join(self._path, "*.h5"))
+        self._scan_files(str(Path(self._path) / "*.h5"))
         self._load_attributes(self._file_template, self._input_deck)
 
     def _get_field(self, field: str) -> None:
@@ -328,7 +358,7 @@ class Diagnostic:
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/FLD/{field}/"
-        self._scan_files(os.path.join(self._path, "*.h5"))
+        self._scan_files(str(Path(self._path) / "*.h5"))
         self._load_attributes(self._file_template, self._input_deck)
 
     def _get_density(self, species: str, quantity: str) -> None:
@@ -345,7 +375,7 @@ class Diagnostic:
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/DENSITY/{species}/{quantity}/"
-        self._scan_files(os.path.join(self._path, "*.h5"))
+        self._scan_files(str(Path(self._path) / "*.h5"))
         self._load_attributes(self._file_template, self._input_deck)
 
     def _get_phase_space(self, species: str, type: str) -> None:
@@ -362,7 +392,7 @@ class Diagnostic:
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
         self._path = f"{self._simulation_folder}/MS/PHA/{type}/{species}/"
-        self._scan_files(os.path.join(self._path, "*.h5"))
+        self._scan_files(str(Path(self._path) / "*.h5"))
         self._load_attributes(self._file_template, self._input_deck)
 
     def _load_attributes(self, file_template: str, input_deck: dict | None) -> None:  # this will be replaced by reading the input deck
@@ -397,9 +427,9 @@ class Diagnostic:
             # Try files 000001, 000002, etc. until one is found
             found_file = False
             for file_num in range(1, self._maxiter + 1):
-                path_file = os.path.join(file_template + f"{file_num:06d}.h5")
-                if os.path.exists(path_file):
-                    dump = OsirisGridFile(path_file, load_data=False)
+                path_file = Path(file_template + f"{file_num:06d}.h5")
+                if path_file.exists():
+                    dump = OsirisGridFile(str(path_file), load_data=False)
                     self._dx = dump.dx
                     self._nx = dump.nx
                     self._x = dump.x
@@ -427,24 +457,51 @@ class Diagnostic:
     #
     ##########################################
 
-    def load_all(self, n_workers: int | None = None, use_parallel: bool | None = None) -> np.ndarray:
+    def load_all(
+        self,
+        n_workers: int | None = None,
+        use_parallel: bool | None = None,
+        executor_type: Literal["thread", "process"] = "thread",
+    ) -> np.ndarray:
         """Load all data into memory (all iterations), in a pre-allocated array.
 
         Parameters
         ----------
         n_workers : int, optional
-            Number of parallel workers for loading data. If None, uses CPU count.
-            Only used if use_parallel=True.
+            Number of parallel workers. If None, an HPC-safe default is chosen:
+            - "thread": min(_MAX_IO_WORKERS, cpu_count, size-1)
+            - "process": min(cpu_count, size-1)
         use_parallel : bool, optional
             If True, force parallel loading. If False, force sequential.
             If None (default), automatically choose based on data size.
+        executor_type : {"thread", "process"}, optional
+            Executor backend for parallel loading (default "thread").
+
+            - "thread" — ``ThreadPoolExecutor``. Correct for I/O-bound HDF5 reads:
+              h5py releases the GIL during reads, so threads genuinely run concurrently.
+              I/O workers are capped at ``_MAX_IO_WORKERS`` (default 32) to prevent
+              overwhelming parallel filesystems (Lustre/GPFS on HPC clusters such as
+              Marenostrum 5 or Deucalion).
+
+            - "process" — ``ProcessPoolExecutor``. Bypasses the GIL entirely; useful
+              when each frame involves heavy CPU computation beyond raw I/O. Each worker
+              opens its own HDF5 handle via the picklable ``_load_frame_worker`` helper.
+              Requires ``self._file_list`` to be populated (i.e. only valid on the base
+              ``Diagnostic``, not on post-processing wrappers that override ``_frame``).
 
         Returns
         -------
         data : np.ndarray
             The data for all iterations. Also stored in self._data.
 
+        Notes
+        -----
+        On HPC systems using vendor-tuned BLAS/FFTW (MKL on Marenostrum 5, AOCL on
+        Deucalion), post-processing numpy operations (FFT, gradient) are already
+        internally multi-threaded. Prefer ``executor_type="thread"`` for the I/O phase
+        and rely on ``OMP_NUM_THREADS`` / ``MKL_NUM_THREADS`` for the compute phase.
         """
+        # Fast path — reading a bool is atomic in CPython; no lock needed here.
         if getattr(self, "_all_loaded", False) and self._data is not None:
             logger.debug("Data already loaded into memory.")
             return self._data
@@ -452,6 +509,8 @@ class Diagnostic:
         size = getattr(self, "_maxiter", None)
         if size is None:
             raise RuntimeError("Cannot determine iteration count (no _maxiter).")
+
+        _timer = _start_timer(f"load_all({getattr(self, '_quantity', type(self).__name__)}, n={size})")
 
         try:
             first = self[0]
@@ -474,26 +533,48 @@ class Diagnostic:
             import concurrent.futures
             import os
 
-            if n_workers is None:
-                n_workers = min(os.cpu_count() or 4, size - 1)
+            cpu = os.cpu_count() or 4
 
-            def load_single(i):
-                """Helper to load a single timestep"""
-                try:
-                    return i, self[i]
-                except Exception as e:
-                    raise RuntimeError(f"Error loading timestep {i}") from e
+            if executor_type == "process":
+                # ProcessPoolExecutor: each worker opens its own HDF5 handle.
+                # Requires _file_list (base Diagnostic only).
+                if not hasattr(self, "_file_list") or self._file_list is None:
+                    raise RuntimeError(
+                        "executor_type='process' requires _file_list to be populated. "
+                        "Post-processing diagnostics (FFT, Derivative, ...) override _frame "
+                        "and cannot be pickled for multiprocessing — use executor_type='thread'."
+                    )
+                if n_workers is None:
+                    n_workers = min(cpu, size - 1)
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as executor:
-                # Submit all loading tasks
-                futures = {executor.submit(load_single, i): i for i in range(1, size)}
+                species_rqm = getattr(self._species, "rqm", 1.0) if hasattr(self, "_species") and self._species is not None else 1.0
+                worker_args = [(i, self._file_list[i], self._quantity, species_rqm, None) for i in range(1, size)]
+                with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
+                    futures = {executor.submit(_load_frame_worker, args): args[0] for args in worker_args}
+                    with tqdm.tqdm(total=size - 1, desc="Loading data (parallel, process)") as pbar:
+                        for future in concurrent.futures.as_completed(futures):
+                            i, result = future.result()
+                            data[i] = result
+                            pbar.update(1)
+            else:
+                # ThreadPoolExecutor: h5py releases the GIL during reads, threads run concurrently.
+                # Cap at _MAX_IO_WORKERS to avoid overloading parallel filesystems (Lustre/GPFS).
+                if n_workers is None:
+                    n_workers = min(_MAX_IO_WORKERS, cpu, size - 1)
 
-                # Collect results with progress bar
-                with tqdm.tqdm(total=size - 1, desc="Loading data (parallel)") as pbar:
-                    for future in concurrent.futures.as_completed(futures):
-                        i, result = future.result()
-                        data[i] = result
-                        pbar.update(1)
+                def load_single(i):
+                    try:
+                        return i, self[i]
+                    except Exception as e:
+                        raise RuntimeError(f"Error loading timestep {i}") from e
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as executor:
+                    futures = {executor.submit(load_single, i): i for i in range(1, size)}
+                    with tqdm.tqdm(total=size - 1, desc="Loading data (parallel)") as pbar:
+                        for future in concurrent.futures.as_completed(futures):
+                            i, result = future.result()
+                            data[i] = result
+                            pbar.update(1)
         else:
             # Sequential loading (fallback or for small files)
             for i in tqdm.trange(1, size, desc="Loading data"):
@@ -502,18 +583,25 @@ class Diagnostic:
                 except Exception as e:
                     raise RuntimeError(f"Error loading timestep {i}") from e
 
-        self._data = data
-        self._all_loaded = True
+        # Assign under lock. If two threads both loaded (unlikely but possible), one
+        # result is discarded — safe because both read the same files and produce the
+        # same array. Locking here prevents a torn write being observed by other threads.
+        with self._load_lock:
+            if not self._all_loaded:
+                self._data = data
+                self._all_loaded = True
+        _stop_timer(_timer)
         return self._data
 
     def unload(self) -> None:
         """Unload data from memory. This is useful to free memory when the data is not needed anymore."""
-        logger.info("Unloading data from memory.")
-        if self._all_loaded is False:
-            logger.warning("Data is not loaded.")
-            return
-        self._data = None
-        self._all_loaded = False
+        with self._load_lock:
+            logger.info("Unloading data from memory.")
+            if self._all_loaded is False:
+                logger.warning("Data is not loaded.")
+                return
+            self._data = None
+            self._all_loaded = False
 
     def _data_generator(self, index: int, data_slice: tuple | None = None) -> Iterator[np.ndarray]:
         """Data generator for a given index or slice.
@@ -828,8 +916,8 @@ class Diagnostic:
         else:
             self._default_save = "DIR_" + self._name
 
-        if not os.path.exists(self._save_path):
-            os.makedirs(self._save_path)
+        if not Path(self._save_path).exists():
+            Path(self._save_path).mkdir(parents=True)
             if verbose:
                 logger.info(f"Created folder {self._save_path}")
 
@@ -892,10 +980,10 @@ class Diagnostic:
 
         if self._name is None:
             raise ValueError("Diagnostic name is not set. Cannot save to HDF5.")
-        if not os.path.exists(path):
+        if not Path(path).exists():
             logger.info(f"Creating folder {path}...")
-            os.makedirs(path)
-        if not os.path.isdir(path):
+            Path(path).mkdir(parents=True)
+        if not Path(path).is_dir():
             raise ValueError(f"{path} is not a directory.")
 
         if all is False:
@@ -1105,7 +1193,8 @@ class Diagnostic:
 
     @data.setter
     def data(self, value: np.ndarray) -> None:
-        self._data = value
+        with self._load_lock:
+            self._data = value
 
     @quantity.setter
     def quantity(self, key: str) -> None:

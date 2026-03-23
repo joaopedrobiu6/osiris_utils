@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from typing import Any
-
-import numpy as np
+from typing import TYPE_CHECKING, Any
 
 from ..data.diagnostic import Diagnostic
-from ..data.simulation import Simulation
 from .postprocess import PostProcess
 from .pressure_correction import PressureCorrection_Simulation
+
+if TYPE_CHECKING:
+    import numpy as np
+
+    from ..data.simulation import Simulation
 
 OSIRIS_H = ["q1", "q2", "q3"]
 

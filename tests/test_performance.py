@@ -22,7 +22,8 @@ def create_test_h5_file(filepath, data_shape=(100, 100), iteration=0):
         f.attrs.create("LABEL", [b"test"])
 
         # Data
-        data = np.random.rand(*data_shape).astype(np.float32)
+        rng = np.random.default_rng()
+        data = rng.random(data_shape).astype(np.float32)
         f.create_dataset("test", data=data.T)
 
         # AXIS group

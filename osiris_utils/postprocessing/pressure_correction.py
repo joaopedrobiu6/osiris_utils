@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
-
-import numpy as np
+from typing import TYPE_CHECKING, Any
 
 from ..data.diagnostic import Diagnostic
-from ..data.simulation import Simulation
 from .postprocess import PostProcess
+
+if TYPE_CHECKING:
+    import numpy as np
+
+    from ..data.simulation import Simulation
 
 OSIRIS_P = ["P11", "P12", "P13", "P22", "P23", "P33"]
 
