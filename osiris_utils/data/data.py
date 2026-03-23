@@ -312,12 +312,12 @@ class OsirisGridFile(OsirisData):
             data_slice = data_slice[::-1] if data_slice is not None and len(dset.shape) > 1 else data_slice
 
             if data_slice is None and len(dset.shape) > 1:
-                # Read directly into a pre-allocated transposed buffer to avoid an intermediate copy.
-                # buf.T is Fortran-contiguous with the HDF5 storage shape; h5py writes into it
-                # so buf ends up C-contiguous with the transposed (x1, x2, ...) shape.
-                buf = np.empty(dset.shape[::-1], dtype=dset.dtype)
-                dset.read_direct(buf.T)
-                self._data = buf
+                # HDF5 stores data in (nx_last, ..., nx1) C-order (OSIRIS convention).
+                # Read into a plain C-contiguous buffer, then transpose to (nx1, ..., nx_last).
+                # np.ascontiguousarray makes the transposed result C-contiguous in one copy —
+                # the same total allocation as before; the buf.T trick is avoided because
+                # h5py requires a C-contiguous writable target for read_direct.
+                self._data = np.ascontiguousarray(dset[()].T)
             elif data_slice is None:
                 self._data = dset[()]
             else:
