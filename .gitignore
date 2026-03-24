@@ -9,3 +9,4 @@ osiris_utils/.DS_Store
 *.nbi
 *.json
 *.log
+*/__pycache__/
