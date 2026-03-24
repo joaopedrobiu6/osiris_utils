@@ -11,24 +11,25 @@ Usage
         --t0 800 --t1 1200 \\
         [--species electrons] \\
         [--workers 16] \\
-        [--no-preload] \\
         [--profile]
 
 Key optimisations vs. the naive version
 ----------------------------------------
-* ``preload=True``  — all 1-D MFT averages are loaded into RAM once (in
-  parallel) before the frame loop starts.  For a 2-D simulation this
-  eliminates ~8 800 Lustre reads per 400-frame job and reduces per-frame
-  work to pure NumPy.
-* ``resume=True``   — a .progress checkpoint file lets the job pick up where
-  it left off after a SLURM time-limit kill.
-* ``max_workers``   — explicit thread count (match --cpus-per-task in the
-  job script so SLURM accounting is honest).
+* ``resume=True``    — a .progress checkpoint file lets the job pick up where
+  it left off after a SLURM time-limit kill, no frames wasted.
+* ``max_workers``    — explicit thread count (match --cpus-per-task in the
+  SLURM script so accounting is honest and h5py GIL-release parallelism is used).
 * ``flush_every=50`` — checkpoint every 50 frames; low overhead for 400-frame
   jobs, protects against job preemption.
 * ``OSIRIS_HDF5_CACHE_MB`` — env-var respected by OsirisGridFile._open_file_hdf5
-  to size the per-file HDF5 chunk cache.  Set to 256 in the job script for a
-  ~6× improvement in sequential read throughput on Lustre.
+  to size the per-file HDF5 chunk cache.  Set to 256 in the job script.
+
+Note on preload
+---------------
+``DatabaseBuildConfig(preload=True)`` exists but is **only safe for 1-D
+simulations**.  For 2-D simulations it attempts to load the full raw 2-D field
+for every timestep (~472 GiB for this simulation) and will OOM.  It is left
+``False`` (the default) here.
 """
 
 from __future__ import annotations
@@ -46,26 +47,21 @@ def parse_args() -> argparse.Namespace:
         description="Create one database slice [t0, t1) from an OSIRIS simulation.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--sim-in", required=True, help="Path to OSIRIS input deck (.in)")
-    p.add_argument("--outdir", required=True, help="Output folder for .npy tensors")
-    p.add_argument("--t0", type=int, required=True, help="Start dump index (inclusive)")
-    p.add_argument("--t1", type=int, required=True, help="End dump index (exclusive)")
+    p.add_argument("--sim-in",  required=True,  help="Path to OSIRIS input deck (.in)")
+    p.add_argument("--outdir",  required=True,  help="Output folder for .npy tensors")
+    p.add_argument("--t0",      type=int, required=True, help="Start dump index (inclusive)")
+    p.add_argument("--t1",      type=int, required=True, help="End dump index (exclusive)")
     p.add_argument("--species", default="electrons", help="Species name in the simulation")
     p.add_argument(
-        "--workers",
-        type=int,
-        default=16,
-        help=("ThreadPoolExecutor workers for parallel pre-loading and frame building. Match --cpus-per-task in your SLURM script."),
+        "--workers", type=int, default=16,
+        help=(
+            "ThreadPoolExecutor workers for parallel frame building. "
+            "Match --cpus-per-task in your SLURM script."
+        ),
     )
     p.add_argument(
-        "--no-preload",
-        action="store_true",
-        help="Disable MFT-average pre-loading (useful for debugging or tiny test slices).",
-    )
-    p.add_argument(
-        "--profile",
-        action="store_true",
-        help="Enable osiris_utils profiling output (logs timing to stderr).",
+        "--profile", action="store_true",
+        help="Enable osiris_utils profiling output (timing logged to stderr).",
     )
     return p.parse_args()
 
@@ -91,14 +87,15 @@ def main() -> None:
 
     # ── Unique output file names prevent collisions across array tasks ────────
     tag = f"{args.t0:04d}_{args.t1:04d}"
-    name_input = f"input_tensor_{tag}"
+    name_input  = f"input_tensor_{tag}"
     name_output = f"eta_tensor_{tag}"
 
     print(f"Slice [{args.t0}, {args.t1})  →  {args.outdir}/{name_input}.npy")
-    print(f"  workers={args.workers}  preload={not args.no_preload}  resume=True")
+    print(f"  workers={args.workers}  resume=True  flush_every=50")
 
     # ── Build ─────────────────────────────────────────────────────────────────
     sim = ou.Simulation(args.sim_in)
+
     ar_config = ou.AnomalousResistivityConfig(
         species="electrons",
         mft_axis=2,
@@ -110,16 +107,14 @@ def main() -> None:
     )
 
     cfg = ou.DatabaseBuildConfig(
-        # Parallel workers: pre-load phase and frame-building loop.
+        # Parallel workers — h5py releases the GIL so threads truly overlap I/O.
         max_workers=args.workers,
-        # Pre-load 1-D MFT averages into RAM before the frame loop.
-        # Eliminates ~8 800 Lustre reads for a 22-feature × 400-frame job.
-        preload=not args.no_preload,
         ar_config=ar_config,
         # Resume an interrupted build — safe to re-run after SLURM timeout.
         resume=True,
         # Checkpoint every 50 frames (low overhead for 400-frame slices).
         flush_every=50,
+        # preload=False (default) — 2-D simulation; preloading would OOM.
     )
 
     db = ou.DatabaseCreator(

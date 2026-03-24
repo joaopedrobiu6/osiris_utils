@@ -6,5 +6,6 @@ osiris_utils/__pycache__/
 dist/
 osiris_utils/.DS_Store
 *.nbc
+*.nbi
 *.json
 *.log
