@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["DatabaseBuildConfig", "DatabaseCreator"]
 
-_VALID_DATABASE_TYPES = {"both", "input", "output", "eta_new", "e_vlasov", "all"}
+_VALID_DATABASE_TYPES = {"both", "input", "output", "eta_new", "e_vlasov", "all", "vnT"}
 
 # Feature spec type: (label, frame_getter(t_idx) -> 1-D array)
 FeatureSpec = tuple[str, Callable[[int], np.ndarray]]
@@ -80,6 +80,7 @@ class DatabaseCreator:
     ``"e_vlasov"``  — mean-field Vlasov electric field tensor.
     ``"both"``      — input + output (eta).
     ``"all"``       — all four tensors above.
+    ``"vnT"``       — 25-feature tensor: vfl1, n, T11, n*vfl1, n*T11 and their x1-derivatives up to 4th order, all MFT-averaged.
     """
 
     def __init__(
@@ -142,6 +143,7 @@ class DatabaseCreator:
         name_output: str = "eta_tensor",
         name_eta_new: str = "eta_new_tensor",
         name_vlasov: str = "e_vlasov_tensor",
+        name_vnT: str = "vnT_tensor",
     ) -> None:
         """Build and save database tensors as ``.npy`` files in ``save_folder``.
 
@@ -154,8 +156,8 @@ class DatabaseCreator:
         ----------
         database :
             Which tensors to build. One of: ``"input"``, ``"output"``, ``"eta_new"``,
-            ``"e_vlasov"``, ``"both"`` (input + output), ``"all"`` (all four).
-        name_input, name_output, name_eta_new, name_vlasov :
+            ``"e_vlasov"``, ``"vnT"``, ``"both"`` (input + output), ``"all"`` (all).
+        name_input, name_output, name_eta_new, name_vlasov, name_vnT :
             File-stem names (without ``.npy``) for each tensor.
         """
         if database not in _VALID_DATABASE_TYPES:
@@ -171,6 +173,7 @@ class DatabaseCreator:
         build_output = database in {"output", "both", "all"}
         build_eta_new = database in {"eta_new", "all"}
         build_vlasov = database in {"e_vlasov", "all"}
+        build_vnT = database in {"vnT", "all"}
 
         _timer = _start_timer(
             f"create_database({database}, T={self.T}, X={self.X}, "
@@ -192,6 +195,10 @@ class DatabaseCreator:
             if build_vlasov:
                 logger.info("Building e_vlasov database '%s'...", name_vlasov)
                 self._ar_database(key="e_vlasov_avg", name=name_vlasov, desc="Creating e_vlasov database")
+
+            if build_vnT:
+                logger.info("Building vnT database '%s'...", name_vnT)
+                self._vnT_database(name=name_vnT)
 
             logger.info("All requested databases saved to '%s'.", self.save_folder)
         finally:
@@ -338,6 +345,72 @@ class DatabaseCreator:
             frame_fn=get_frame,
             desc=desc,
             validate=self.build_config.validate_output,
+        )
+
+    # ------------------------------------------------------------------
+    # vnT database (vfl1, n, T11, n*vfl1, n*T11 + x1-derivatives 1–4)
+    # ------------------------------------------------------------------
+
+    def _setup_vnT_diagnostics(self) -> MFT_Simulation:
+        """Register all diagnostics needed for the vnT tensor."""
+        d_dx1 = Derivative_Simulation(self.simulation, deriv_type="x1", stencil=[-2, -1, 0, 1, 2], deriv_order=1)
+        sp = self.simulation[self.species]
+
+        # Composite base quantities
+        self._ensure_diagnostic(sp, sp["n"] * sp["vfl1"], "nvfl1")
+        self._ensure_diagnostic(sp, sp["n"] * sp["T11"], "nT11")
+
+        # First derivatives
+        for name in ("vfl1", "n", "T11", "nvfl1", "nT11"):
+            self._ensure_diagnostic(sp, d_dx1[self.species][name], f"d_{name}_dx1")
+
+        # Second derivatives
+        for name in ("vfl1", "n", "T11", "nvfl1", "nT11"):
+            self._ensure_diagnostic(sp, d_dx1[self.species][f"d_{name}_dx1"], f"d2_{name}_dx1")
+
+        # Third derivatives
+        for name in ("vfl1", "n", "T11", "nvfl1", "nT11"):
+            self._ensure_diagnostic(sp, d_dx1[self.species][f"d2_{name}_dx1"], f"d3_{name}_dx1")
+
+        # Fourth derivatives
+        for name in ("vfl1", "n", "T11", "nvfl1", "nT11"):
+            self._ensure_diagnostic(sp, d_dx1[self.species][f"d3_{name}_dx1"], f"d4_{name}_dx1")
+
+        return MFT_Simulation(self.simulation, mft_axis=self.build_config.mft_axis)
+
+    def _vnT_feature_specs(self, sim_mft: MFT_Simulation) -> list[FeatureSpec]:
+        """Return (label, frame_getter) pairs for the vnT tensor (25 features)."""
+        sp = self.species
+        sm = sim_mft
+
+        def _sp(name: str) -> Callable[[int], np.ndarray]:
+            return lambda t: sm[sp][name]["avg"][t].flatten()
+
+        base = ["vfl1", "n", "T11", "nvfl1", "nT11"]
+        specs: list[FeatureSpec] = [(f"{q}_avg", _sp(q)) for q in base]
+        for order, prefix in enumerate(("d_", "d2_", "d3_", "d4_"), start=1):
+            for q in base:
+                diag_name = f"{prefix}{q}_dx1"
+                specs.append((f"{diag_name}_avg", _sp(diag_name)))
+        return specs
+
+    def _vnT_database(self, name: str) -> None:
+        sim_mft = self._setup_vnT_diagnostics()
+        specs = self._vnT_feature_specs(sim_mft)
+        F = len(specs)
+        labels, getters = zip(*specs, strict=True)
+
+        logger.info("vnT tensor: %d features — %s", F, list(labels))
+
+        def get_frame(t_idx: int) -> np.ndarray:
+            return np.stack([g(t_idx) for g in getters])
+
+        self._build_tensor(
+            name=name,
+            shape=(self.T, F, self.X),
+            frame_fn=get_frame,
+            desc="Building vnT tensor",
+            validate=False,
         )
 
     # ------------------------------------------------------------------
