@@ -271,6 +271,7 @@ class Diagnostic:
         self._all_loaded: bool = False  # if the data is already loaded into memory
         self._quantity: str | None = None
         self._load_lock = threading.Lock()  # guards _data and _all_loaded across threads
+        self._frame_cache: dict[tuple, np.ndarray] = {}  # per-frame cache to avoid redundant disk reads
 
     #########################################
     #
@@ -655,6 +656,16 @@ class Diagnostic:
 
     def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
         """Return one timestep (lazy). Overridden by derived diagnostics."""
+        if getattr(self, "_all_loaded", False) and self._data is not None:
+            return self._data[(index,) + data_slice] if data_slice is not None else self._data[index]
+        cache = getattr(self, "_frame_cache", None)
+        if cache is not None:
+            key = (index, data_slice)
+            if key in cache:
+                return cache[key]
+            result = self._read_index(index, data_slice=data_slice)
+            cache[key] = result
+            return result
         return self._read_index(index, data_slice=data_slice)
 
     ###########################################
