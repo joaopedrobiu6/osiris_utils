@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 import tqdm as tqdm
 
-from ..ar import AnomalousResistivity, AnomalousResistivityConfig
+from ..ar import AnomalousResistivity, AnomalousResistivityConfig, vlasov_electric_field
 from ..postprocessing import Derivative_Diagnostic, Derivative_Simulation, MFT_Simulation
 from ..profiling import _start_timer, _stop_timer
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["DatabaseBuildConfig", "DatabaseCreator"]
 
-_VALID_DATABASE_TYPES = {"both", "input", "output", "eta_new", "e_vlasov", "all", "vnT"}
+_VALID_DATABASE_TYPES = {"both", "input", "output", "e_vlasov", "all", "vnT"}
 
 # Feature spec type: (label, frame_getter(t_idx) -> 1-D array)
 FeatureSpec = tuple[str, Callable[[int], np.ndarray]]
@@ -76,10 +76,9 @@ class DatabaseCreator:
     ------------------------
     ``"input"``     — 22-feature mean-field input tensor.
     ``"output"``    — eta (thesis pressure decomposition) tensor.
-    ``"eta_new"``   — eta_new (simplified 4-term pressure) tensor.
     ``"e_vlasov"``  — mean-field Vlasov electric field tensor.
     ``"both"``      — input + output (eta).
-    ``"all"``       — all four tensors above.
+    ``"all"``       — all three tensors above plus vnT.
     ``"vnT"``       — 25-feature tensor: vfl1, n, T11, n*vfl1, n*T11 and their x1-derivatives up to 4th order, all MFT-averaged.
     """
 
@@ -141,7 +140,6 @@ class DatabaseCreator:
         database: str = "both",
         name_input: str = "input_tensor",
         name_output: str = "eta_tensor",
-        name_eta_new: str = "eta_new_tensor",
         name_vlasov: str = "e_vlasov_tensor",
         name_vnT: str = "vnT_tensor",
     ) -> None:
@@ -155,9 +153,9 @@ class DatabaseCreator:
         Parameters
         ----------
         database :
-            Which tensors to build. One of: ``"input"``, ``"output"``, ``"eta_new"``,
+            Which tensors to build. One of: ``"input"``, ``"output"``,
             ``"e_vlasov"``, ``"vnT"``, ``"both"`` (input + output), ``"all"`` (all).
-        name_input, name_output, name_eta_new, name_vlasov, name_vnT :
+        name_input, name_output, name_vlasov, name_vnT :
             File-stem names (without ``.npy``) for each tensor.
         """
         if database not in _VALID_DATABASE_TYPES:
@@ -171,7 +169,6 @@ class DatabaseCreator:
 
         build_input = database in {"input", "both", "all"}
         build_output = database in {"output", "both", "all"}
-        build_eta_new = database in {"eta_new", "all"}
         build_vlasov = database in {"e_vlasov", "all"}
         build_vnT = database in {"vnT", "all"}
 
@@ -188,13 +185,9 @@ class DatabaseCreator:
                 logger.info("Building output (eta) database '%s'...", name_output)
                 self._ar_database(key="eta", name=name_output, desc="Creating eta database")
 
-            if build_eta_new:
-                logger.info("Building eta_new database '%s'...", name_eta_new)
-                self._ar_database(key="eta_new", name=name_eta_new, desc="Creating eta_new database")
-
             if build_vlasov:
                 logger.info("Building e_vlasov database '%s'...", name_vlasov)
-                self._ar_database(key="e_vlasov_avg", name=name_vlasov, desc="Creating e_vlasov database")
+                self._e_vlasov_database(name=name_vlasov)
 
             if build_vnT:
                 logger.info("Building vnT database '%s'...", name_vnT)
@@ -344,6 +337,34 @@ class DatabaseCreator:
             shape=(self.T, 1, self.X),
             frame_fn=get_frame,
             desc=desc,
+            validate=self.build_config.validate_output,
+        )
+
+    def _e_vlasov_database(self, name: str) -> None:
+        """Build the e_vlasov database by computing only the Vlasov electric field.
+
+        Uses :func:`vlasov_electric_field` rather than the full
+        :class:`AnomalousResistivity` — no eta / mean-field terms are computed.
+        The stored value is the MFT average of ``simulation["e_vlasov"]``.
+        """
+        ar_config = self.build_config.ar_config or AnomalousResistivityConfig(
+            species=self.species,
+            include_time_derivative=False,
+            include_convection=True,
+            include_pressure=True,
+            include_magnetic_force=True,
+        )
+        vlasov_electric_field(self.simulation, self.species, config=ar_config)
+        sim_mft = MFT_Simulation(self.simulation, mft_axis=self.build_config.mft_axis)
+
+        def get_frame(t_idx: int) -> np.ndarray:
+            return np.stack([sim_mft["e_vlasov"]["avg"][t_idx].flatten()])
+
+        self._build_tensor(
+            name=name,
+            shape=(self.T, 1, self.X),
+            frame_fn=get_frame,
+            desc="Creating e_vlasov database",
             validate=self.build_config.validate_output,
         )
 
