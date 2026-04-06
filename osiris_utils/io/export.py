@@ -515,9 +515,21 @@ def _export_frames(
 ) -> Path:
     """Write every frame to a memory-mapped npy file (bounded RAM).
 
-    If a ``.progress`` sidecar exists from a previous interrupted run
-    (and ``overwrite`` is False), only the missing frames are written.
+    Two internal paths:
+
+    **Base diagnostics** (direct HDF5 reads, n_workers > 1):
+        Frames are read in parallel into a contiguous chunk buffer, then
+        written to the memmap in one sequential block.  Peak extra RAM =
+        ``chunk_size × frame_bytes``.
+
+    **Derived diagnostics** (arithmetic / post-processing, n_workers = 1):
+        Frames are computed and written one at a time directly into the
+        memmap slot — no chunk buffer.  ``_frame_cache`` is cleared after
+        *every frame* so intermediate results from the computation chain
+        never accumulate.  The derivative LRU cache (maxsize=6) is
+        intentionally preserved for stencil reuse across consecutive frames.
     """
+    derived = len(chain) > 1 or n_workers == 1
     progress_path = _progress_path(output_path)
     full_shape = (n_frames, *frame_shape)
     frame_bytes = int(np.prod(frame_shape)) * raw_dtype.itemsize
@@ -540,54 +552,89 @@ def _export_frames(
         return output_path  # already complete
 
     n_done_already = len(completed)
-    pbar = _make_pbar(
-        f"Exporting → {output_path.name}",
-        total=n_frames,
-        n_workers=n_workers,
-        chunk_mb=chunk_mb,
-        show=show_progress,
-    )
-    pbar.update(n_done_already)  # reflect already-done frames in the bar
 
-    with ThreadPoolExecutor(max_workers=n_workers) as executor:
-        for chunk_start in range(0, len(pending), chunk_size):
-            chunk_indices = pending[chunk_start : chunk_start + chunk_size]
-            n_chunk = len(chunk_indices)
+    if derived:
+        # ------------------------------------------------------------------
+        # Derived path: frame-by-frame, no chunk buffer, cache cleared every
+        # frame.  RAM at any point = 1 frame + stencil window in LRU cache.
+        # ------------------------------------------------------------------
+        pbar = tqdm.tqdm(
+            total=n_frames,
+            desc=f"Exporting → {output_path.name}",
+            unit="frame",
+            disable=not show_progress,
+            postfix={"mode": "sequential", "frame_MB": f"{frame_bytes / 1024**2:.0f}"},
+        )
+        pbar.update(n_done_already)
 
-            # Pre-allocate a contiguous chunk buffer.  Futures complete out
-            # of order but results land in their correct position here, so
-            # the final write to the memmap is one sequential block instead
-            # of n_chunk scattered seeks — critical for GB-scale files.
-            chunk_buf = np.empty((n_chunk, *frame_shape), dtype=raw_dtype)
-            pos_of = {i: pos for pos, i in enumerate(chunk_indices)}
-
-            future_map = {
-                executor.submit(_read_frame, (diagnostic, i, reduce_axis)): i
-                for i in chunk_indices
-            }
-            for future in as_completed(future_map):
-                idx, arr = future.result()
-                chunk_buf[pos_of[idx]] = arr
-                completed.add(idx)
-                pbar.update(1)
-
-            # One contiguous write covering the whole chunk.
-            out_start = chunk_indices[0]
-            out_end   = chunk_indices[-1] + 1
-            out[out_start:out_end] = chunk_buf
-            del chunk_buf  # release RAM before next chunk
-
+        for idx in pending:
+            arr = diagnostic._frame(idx)
+            if reduce_axis is not None:
+                arr = arr.mean(axis=reduce_axis)
+            out[idx] = arr
+            del arr
             # Clear unbounded _frame_cache on every diagnostic in the chain
-            # so intermediate results don't accumulate across chunks.
+            # immediately — prevents any accumulation across frames.
             _clear_frame_caches(chain)
+            completed.add(idx)
+            pbar.update(1)
 
             if checkpoint:
-                out.flush()
-                _save_progress(progress_path, "frames", n_frames, reduce_axis, completed)
+                # Flush and checkpoint every `chunk_size` frames to bound
+                # the re-work on resume without hammering the filesystem.
+                if len(completed) % chunk_size == 0:
+                    out.flush()
+                    _save_progress(progress_path, "frames", n_frames, reduce_axis, completed)
 
-    pbar.close()
+        pbar.close()
+
+    else:
+        # ------------------------------------------------------------------
+        # Base path: parallel reads into a contiguous chunk buffer, then one
+        # sequential write per chunk.
+        # ------------------------------------------------------------------
+        pbar = _make_pbar(
+            f"Exporting → {output_path.name}",
+            total=n_frames,
+            n_workers=n_workers,
+            chunk_mb=chunk_mb,
+            show=show_progress,
+        )
+        pbar.update(n_done_already)
+
+        with ThreadPoolExecutor(max_workers=n_workers) as executor:
+            for chunk_start in range(0, len(pending), chunk_size):
+                chunk_indices = pending[chunk_start : chunk_start + chunk_size]
+                n_chunk = len(chunk_indices)
+
+                # Pre-allocate contiguous buffer so the memmap write is one
+                # sequential block rather than n_chunk scattered seeks.
+                chunk_buf = np.empty((n_chunk, *frame_shape), dtype=raw_dtype)
+                pos_of = {i: pos for pos, i in enumerate(chunk_indices)}
+
+                future_map = {
+                    executor.submit(_read_frame, (diagnostic, i, reduce_axis)): i
+                    for i in chunk_indices
+                }
+                for future in as_completed(future_map):
+                    idx, arr = future.result()
+                    chunk_buf[pos_of[idx]] = arr
+                    completed.add(idx)
+                    pbar.update(1)
+
+                out_start = chunk_indices[0]
+                out_end   = chunk_indices[-1] + 1
+                out[out_start:out_end] = chunk_buf
+                del chunk_buf
+
+                if checkpoint:
+                    out.flush()
+                    _save_progress(progress_path, "frames", n_frames, reduce_axis, completed)
+
+        pbar.close()
+
     if checkpoint:
-        progress_path.unlink(missing_ok=True)  # clean up on success
+        progress_path.unlink(missing_ok=True)
     return output_path
 
 
@@ -651,29 +698,41 @@ def _export_time_average(
     )
     pbar.update(n_done_already)
 
-    with ThreadPoolExecutor(max_workers=n_workers) as executor:
-        for chunk_start in range(0, len(pending), chunk_size):
-            chunk_indices = pending[chunk_start : chunk_start + chunk_size]
+    derived = len(chain) > 1 or n_workers == 1
 
-            future_map = {
-                executor.submit(_read_frame, (diagnostic, i, reduce_axis)): i
-                for i in chunk_indices
-            }
-            # Accumulate immediately as each future completes — addition is
-            # commutative so order doesn't matter.  This means only one extra
-            # frame lives in RAM at a time (vs holding the whole chunk dict).
-            for future in as_completed(future_map):
-                idx, arr = future.result()
-                acc += arr
-                completed.add(idx)
-                pbar.update(1)
-
-            # Clear unbounded _frame_cache on every diagnostic in the chain.
+    if derived:
+        # Derived path: compute one frame at a time, clear caches immediately.
+        for idx in pending:
+            arr = diagnostic._frame(idx)
+            if reduce_axis is not None:
+                arr = arr.mean(axis=reduce_axis)
+            acc += arr
+            del arr
             _clear_frame_caches(chain)
+            completed.add(idx)
+            pbar.update(1)
 
-            if checkpoint:
+            if checkpoint and len(completed) % chunk_size == 0:
                 np.save(acc_path, acc)
                 _save_progress(progress_path, "time_average", n_frames, reduce_axis, completed)
+    else:
+        with ThreadPoolExecutor(max_workers=n_workers) as executor:
+            for chunk_start in range(0, len(pending), chunk_size):
+                chunk_indices = pending[chunk_start : chunk_start + chunk_size]
+
+                future_map = {
+                    executor.submit(_read_frame, (diagnostic, i, reduce_axis)): i
+                    for i in chunk_indices
+                }
+                for future in as_completed(future_map):
+                    idx, arr = future.result()
+                    acc += arr
+                    completed.add(idx)
+                    pbar.update(1)
+
+                if checkpoint:
+                    np.save(acc_path, acc)
+                    _save_progress(progress_path, "time_average", n_frames, reduce_axis, completed)
 
     pbar.close()
 
