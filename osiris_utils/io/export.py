@@ -68,6 +68,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -82,15 +83,65 @@ if TYPE_CHECKING:
 # Beyond ~32 threads, Lustre MDS contention dominates on HPC clusters.
 _MAX_EXPORT_WORKERS = 32
 
+# WeakValueDictionary so locks are GC'd when their diagnostic is GC'd,
+# preventing unbounded growth for long-running scripts with many diagnostics.
+import weakref
+_cache_lock_registry: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
+_registry_lock = threading.Lock()
+
+
+def _get_cache_lock(diagnostic) -> threading.Lock:
+    """Return (creating if needed) a per-diagnostic-identity Lock."""
+    key = id(diagnostic)
+    with _registry_lock:
+        lock = _cache_lock_registry.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _cache_lock_registry[key] = lock
+        return lock
+
 
 def _read_frame(args: tuple) -> tuple[int, np.ndarray]:
     """Worker: read one frame and optionally reduce spatial axes.
 
+    Uses ``_frame()`` — the universal interface for all diagnostic types
+    (base file-backed and derived via arithmetic / post-processing).
+
+    Locking strategy
+    ----------------
+    * No lock when ``_frame_cache`` is absent (the common case for base
+      diagnostics): each thread opens its own HDF5 handle with no shared
+      state, so reads are fully concurrent.
+    * Per-diagnostic lock only when ``_frame_cache`` is present: the lock
+      guards the dict read-check-write triplet, but the actual computation
+      (``_read_index`` or derived ``_frame``) runs *outside* the lock so
+      threads only serialise on the brief dict mutation, not on I/O.
+
     Spatial reduction is done inside the thread so that only the
-    (much smaller) reduced array is returned to the main thread.
+    (much smaller) reduced array crosses the thread boundary.
     """
     diagnostic, index, reduce_axis = args
-    arr = diagnostic._read_index(index)
+
+    cache = getattr(diagnostic, "_frame_cache", None)
+    if cache is not None:
+        # Fast path: already cached — only needs the lock for the dict lookup.
+        lock = _get_cache_lock(diagnostic)
+        with lock:
+            if index in cache:
+                arr = cache[index]
+            else:
+                # Release lock during the actual I/O so other threads can
+                # proceed, then re-acquire to insert the result.
+                pass  # fall through to compute below
+        if index not in cache:
+            arr = diagnostic._frame(index)   # compute without lock
+            with lock:
+                cache.setdefault(index, arr)  # only store if not already inserted by another thread
+                arr = cache[index]
+    else:
+        # No cache → no shared mutable state → no lock needed.
+        arr = diagnostic._frame(index)
+
     if reduce_axis is not None:
         arr = arr.mean(axis=reduce_axis)
     return index, arr
@@ -112,6 +163,7 @@ def export_to_npy(
     overwrite: bool = False,
     reduce_axis: int | tuple[int, ...] | None = None,
     time_average: bool = False,
+    checkpoint: bool = True,
 ) -> Path:
     """Export all timesteps of a Diagnostic to a single ``.npy`` file.
 
@@ -140,6 +192,12 @@ def export_to_npy(
         If ``True``, stream a running mean over all timesteps and save a
         single averaged frame.  Combines naturally with ``reduce_axis``.
         Uses a ``float64`` accumulator for numerical stability.
+    checkpoint : bool, optional
+        If ``True`` (default), flush the output to disk and save a
+        ``.progress`` sidecar after every chunk so an interrupted run can
+        resume.  Set to ``False`` to skip both — saves one syscall per
+        chunk and is faster on high-latency parallel filesystems when
+        you do not need crash-safety.
 
     Returns
     -------
@@ -193,7 +251,7 @@ def export_to_npy(
     # Probe shape / dtype from first frame (do not keep in memory).
     # ------------------------------------------------------------------
     try:
-        first_raw = diagnostic._read_index(0)
+        first_raw = diagnostic._frame(0)
     except Exception as exc:
         raise RuntimeError("Failed to read the first timestep.") from exc
 
@@ -224,6 +282,7 @@ def export_to_npy(
             chunk_size=chunk_size,
             show_progress=show_progress,
             overwrite=overwrite,
+            checkpoint=checkpoint,
         )
 
     # ------------------------------------------------------------------
@@ -241,6 +300,7 @@ def export_to_npy(
         chunk_size=chunk_size,
         show_progress=show_progress,
         overwrite=overwrite,
+        checkpoint=checkpoint,
     )
 
 
@@ -349,6 +409,7 @@ def _export_frames(
     chunk_size,
     show_progress,
     overwrite,
+    checkpoint,
 ) -> Path:
     """Write every frame to a memory-mapped npy file (bounded RAM).
 
@@ -389,24 +450,38 @@ def _export_frames(
     with ThreadPoolExecutor(max_workers=n_workers) as executor:
         for chunk_start in range(0, len(pending), chunk_size):
             chunk_indices = pending[chunk_start : chunk_start + chunk_size]
+            n_chunk = len(chunk_indices)
 
-            future_to_idx = {
+            # Pre-allocate a contiguous chunk buffer.  Futures complete out
+            # of order but results land in their correct position here, so
+            # the final write to the memmap is one sequential block instead
+            # of n_chunk scattered seeks — critical for GB-scale files.
+            chunk_buf = np.empty((n_chunk, *frame_shape), dtype=raw_dtype)
+            pos_of = {i: pos for pos, i in enumerate(chunk_indices)}
+
+            future_map = {
                 executor.submit(_read_frame, (diagnostic, i, reduce_axis)): i
                 for i in chunk_indices
             }
-            for future in as_completed(future_to_idx):
+            for future in as_completed(future_map):
                 idx, arr = future.result()
-                out[idx] = arr
+                chunk_buf[pos_of[idx]] = arr
                 completed.add(idx)
                 pbar.update(1)
 
-            out.flush()
-            # Checkpoint after every chunk — worst-case re-work on resume
-            # is one chunk, not the whole run.
-            _save_progress(progress_path, "frames", n_frames, reduce_axis, completed)
+            # One contiguous write covering the whole chunk.
+            out_start = chunk_indices[0]
+            out_end   = chunk_indices[-1] + 1
+            out[out_start:out_end] = chunk_buf
+            del chunk_buf  # release RAM before next chunk
+
+            if checkpoint:
+                out.flush()
+                _save_progress(progress_path, "frames", n_frames, reduce_axis, completed)
 
     pbar.close()
-    progress_path.unlink(missing_ok=True)  # clean up on success
+    if checkpoint:
+        progress_path.unlink(missing_ok=True)  # clean up on success
     return output_path
 
 
@@ -425,6 +500,7 @@ def _export_time_average(
     chunk_size,
     show_progress,
     overwrite,
+    checkpoint,
 ) -> Path:
     """Stream a running mean over all timesteps — O(frame_size) RAM.
 
@@ -472,32 +548,31 @@ def _export_time_average(
         for chunk_start in range(0, len(pending), chunk_size):
             chunk_indices = pending[chunk_start : chunk_start + chunk_size]
 
-            future_to_idx = {
+            future_map = {
                 executor.submit(_read_frame, (diagnostic, i, reduce_axis)): i
                 for i in chunk_indices
             }
-            chunk_results: dict[int, np.ndarray] = {}
-            for future in as_completed(future_to_idx):
+            # Accumulate immediately as each future completes — addition is
+            # commutative so order doesn't matter.  This means only one extra
+            # frame lives in RAM at a time (vs holding the whole chunk dict).
+            for future in as_completed(future_map):
                 idx, arr = future.result()
-                chunk_results[idx] = arr
+                acc += arr
                 completed.add(idx)
                 pbar.update(1)
 
-            for arr in chunk_results.values():
-                acc += arr
-
-            # Checkpoint accumulator and progress after every chunk.
-            np.save(acc_path, acc)
-            _save_progress(progress_path, "time_average", n_frames, reduce_axis, completed)
+            if checkpoint:
+                np.save(acc_path, acc)
+                _save_progress(progress_path, "time_average", n_frames, reduce_axis, completed)
 
     pbar.close()
 
     acc /= n_frames
     np.save(output_path, acc)
 
-    # Clean up sidecars on success.
-    progress_path.unlink(missing_ok=True)
-    acc_path.unlink(missing_ok=True)
+    if checkpoint:
+        progress_path.unlink(missing_ok=True)
+        acc_path.unlink(missing_ok=True)
     return output_path
 
 
@@ -511,6 +586,7 @@ def export_simulation_to_npy(
     overwrite: bool = False,
     reduce_axis: int | tuple[int, ...] | None = None,
     time_average: bool = False,
+    checkpoint: bool = True,
 ) -> dict[str, Path]:
     """Export multiple quantities from a Simulation to ``.npy`` files.
 
@@ -586,6 +662,7 @@ def export_simulation_to_npy(
             overwrite=overwrite,
             reduce_axis=reduce_axis,
             time_average=time_average,
+            checkpoint=checkpoint,
         )
 
     return results
