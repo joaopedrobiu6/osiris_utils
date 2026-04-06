@@ -481,17 +481,73 @@ def _save_progress(
 
 
 # ------------------------------------------------------------------
-# Frame export (full time series)
+# Frame export helpers
 # ------------------------------------------------------------------
 
-def _clear_frame_caches(chain: list) -> None:
-    """Clear the unbounded ``_frame_cache`` on every diagnostic in the chain.
+def _find_base_diagnostics(chain: list) -> list:
+    """Return only the file-backed base diagnostics from the chain.
 
-    Called after each chunk so that intermediate results from arithmetic /
-    post-processing diagnostics do not accumulate in memory across the full
-    time series.  The bounded LRU ``_cache`` inside ``Derivative_Diagnostic``
-    is intentionally *not* cleared — it provides the sliding-window locality
-    that makes sequential d/dt efficient.
+    These are the leaf nodes of the computation graph — they hold a
+    ``_file_list`` and can call ``_read_index`` directly.  Prefetching
+    their files in parallel is safe because each call opens an independent
+    HDF5 handle.
+    """
+    return [d for d in chain if getattr(d, '_file_list', None) is not None]
+
+
+def _get_stencil_range(chain: list) -> tuple[int, int]:
+    """Return ``(max_backward, max_forward)`` offsets across all derivatives.
+
+    For ``stencil=[-2,-1,0,1,2]`` this returns ``(2, 2)``.
+    Zero when no ``Derivative_Diagnostic`` is present in the chain.
+    """
+    max_back = max_fwd = 0
+    for d in chain:
+        stencil = getattr(d, '_stencil', None)
+        if stencil is not None:
+            for s in stencil:
+                s = int(s)
+                if s < 0:
+                    max_back = max(max_back, -s)
+                elif s > 0:
+                    max_fwd = max(max_fwd, s)
+    return max_back, max_fwd
+
+
+def _prefetch_into_cache(diag, idx: int) -> None:
+    """Read one frame from a base diagnostic into its ``_frame_cache``.
+
+    Thread-safe in CPython: individual dict ``__setitem__`` calls are
+    atomic under the GIL.  Duplicate concurrent writes of the same key
+    are benign (same value).
+    """
+    key = (idx, None)
+    fc = diag._frame_cache
+    if key not in fc:
+        fc[key] = diag._read_index(idx)
+
+
+def _clear_frame_caches_selective(chain: list, keep_from: int, keep_to: int) -> None:
+    """Evict ``_frame_cache`` entries outside ``[keep_from, keep_to]``.
+
+    Keeps the stencil window warm while preventing unbounded growth.
+    The bounded LRU ``_cache`` inside ``Derivative_Diagnostic`` is never
+    touched here — it manages its own eviction.
+    """
+    for diag in chain:
+        fc = diag.__dict__.get('_frame_cache')
+        if fc is None:
+            continue
+        stale = [k for k in list(fc) if not (keep_from <= k[0] <= keep_to)]
+        for k in stale:
+            del fc[k]
+
+
+def _clear_frame_caches(chain: list) -> None:
+    """Clear ALL ``_frame_cache`` entries on every diagnostic in the chain.
+
+    Used by the base (non-derived) path where there is no stencil window
+    to preserve.
     """
     for diag in chain:
         fc = diag.__dict__.get('_frame_cache')
@@ -555,36 +611,91 @@ def _export_frames(
 
     if derived:
         # ------------------------------------------------------------------
-        # Derived path: frame-by-frame, no chunk buffer, cache cleared every
-        # frame.  RAM at any point = 1 frame + stencil window in LRU cache.
+        # Derived path: prefetch pipeline + selective cache eviction.
+        #
+        # Problem: for each output frame the lazy eval graph triggers ~18
+        # sequential HDF5 reads (stencil frames + all "current-only" terms
+        # like n, P12, vfl2, b3 …).  At 7 ms/read that is ~126 ms of pure
+        # I/O per frame, on top of ~50-100 ms of numpy computation.
+        #
+        # Fix: a dedicated I/O thread pool pre-reads every base-diagnostic
+        # file for the NEXT frame while the main thread computes the current
+        # one.  By the time computation finishes the next frame's data is
+        # already in _frame_cache — the lazy eval finds it without touching
+        # disk.
+        #
+        # Memory: selective cache eviction keeps only the stencil window
+        # [idx - max_back .. idx + max_fwd] alive, bounding RAM to
+        # (stencil_width) × (n_base_diags) × frame_size regardless of n_frames.
         # ------------------------------------------------------------------
+        base_diags = _find_base_diagnostics(chain)
+        max_back, max_fwd = _get_stencil_range(chain)
+        n_io = max(1, min(_MAX_EXPORT_WORKERS, len(base_diags) * (max_fwd + 1)))
+
         pbar = tqdm.tqdm(
             total=n_frames,
             desc=f"Exporting → {output_path.name}",
             unit="frame",
             disable=not show_progress,
-            postfix={"mode": "sequential", "frame_MB": f"{frame_bytes / 1024**2:.0f}"},
+            postfix={"mode": "prefetch", "io_workers": n_io,
+                     "frame_MB": f"{frame_bytes / 1024**2:.0f}"},
         )
         pbar.update(n_done_already)
 
-        for idx in pending:
-            arr = diagnostic._frame(idx)
-            if reduce_axis is not None:
-                arr = arr.mean(axis=reduce_axis)
-            out[idx] = arr
-            del arr
-            # Clear unbounded _frame_cache on every diagnostic in the chain
-            # immediately — prevents any accumulation across frames.
-            _clear_frame_caches(chain)
-            completed.add(idx)
-            pbar.update(1)
+        with ThreadPoolExecutor(max_workers=n_io) as io_pool:
+            # Warmup: pre-read the initial forward stencil window so the
+            # very first frames don't pay full cold-cache I/O cost.
+            warmup = [
+                io_pool.submit(_prefetch_into_cache, d, j)
+                for d in base_diags
+                for j in range(min(max_fwd + 1, n_frames))
+            ]
+            for f in warmup:
+                f.result()
 
-            if checkpoint:
-                # Flush and checkpoint every `chunk_size` frames to bound
-                # the re-work on resume without hammering the filesystem.
-                if len(completed) % chunk_size == 0:
+            prefetch_futures: list = []
+            for idx in pending:
+                # Wait for the prefetch that was launched for *this* frame
+                # (submitted at the end of the previous iteration).
+                # In practice these are already done — computation takes
+                # longer than 18 parallel HDF5 reads.
+                for f in prefetch_futures:
+                    f.result()
+
+                # Compute current frame — most reads hit _frame_cache.
+                arr = diagnostic._frame(idx)
+                if reduce_axis is not None:
+                    arr = arr.mean(axis=reduce_axis)
+
+                # Launch prefetch for the next forward stencil frame of
+                # every base diagnostic while we write the current frame.
+                next_pf = idx + max_fwd + 1
+                if next_pf < n_frames:
+                    prefetch_futures = [
+                        io_pool.submit(_prefetch_into_cache, d, next_pf)
+                        for d in base_diags
+                    ]
+                else:
+                    prefetch_futures = []
+
+                # Write directly into the memmap slot (no chunk buffer).
+                out[idx] = arr
+                del arr
+
+                # Selective eviction: keep only the current stencil window.
+                # Entries outside [idx-max_back .. idx+max_fwd] are stale.
+                _clear_frame_caches_selective(chain, idx - max_back, idx + max_fwd)
+
+                completed.add(idx)
+                pbar.update(1)
+
+                if checkpoint and len(completed) % chunk_size == 0:
                     out.flush()
                     _save_progress(progress_path, "frames", n_frames, reduce_axis, completed)
+
+            # Drain any remaining prefetch futures.
+            for f in prefetch_futures:
+                f.result()
 
         pbar.close()
 
@@ -701,20 +812,50 @@ def _export_time_average(
     derived = len(chain) > 1 or n_workers == 1
 
     if derived:
-        # Derived path: compute one frame at a time, clear caches immediately.
-        for idx in pending:
-            arr = diagnostic._frame(idx)
-            if reduce_axis is not None:
-                arr = arr.mean(axis=reduce_axis)
-            acc += arr
-            del arr
-            _clear_frame_caches(chain)
-            completed.add(idx)
-            pbar.update(1)
+        # Derived path: same prefetch pipeline as _export_frames.
+        base_diags = _find_base_diagnostics(chain)
+        max_back, max_fwd = _get_stencil_range(chain)
+        n_io = max(1, min(_MAX_EXPORT_WORKERS, len(base_diags) * (max_fwd + 1)))
 
-            if checkpoint and len(completed) % chunk_size == 0:
-                np.save(acc_path, acc)
-                _save_progress(progress_path, "time_average", n_frames, reduce_axis, completed)
+        with ThreadPoolExecutor(max_workers=n_io) as io_pool:
+            warmup = [
+                io_pool.submit(_prefetch_into_cache, d, j)
+                for d in base_diags
+                for j in range(min(max_fwd + 1, n_frames))
+            ]
+            for f in warmup:
+                f.result()
+
+            prefetch_futures: list = []
+            for idx in pending:
+                for f in prefetch_futures:
+                    f.result()
+
+                arr = diagnostic._frame(idx)
+                if reduce_axis is not None:
+                    arr = arr.mean(axis=reduce_axis)
+
+                next_pf = idx + max_fwd + 1
+                if next_pf < n_frames:
+                    prefetch_futures = [
+                        io_pool.submit(_prefetch_into_cache, d, next_pf)
+                        for d in base_diags
+                    ]
+                else:
+                    prefetch_futures = []
+
+                acc += arr
+                del arr
+                _clear_frame_caches_selective(chain, idx - max_back, idx + max_fwd)
+                completed.add(idx)
+                pbar.update(1)
+
+                if checkpoint and len(completed) % chunk_size == 0:
+                    np.save(acc_path, acc)
+                    _save_progress(progress_path, "time_average", n_frames, reduce_axis, completed)
+
+            for f in prefetch_futures:
+                f.result()
     else:
         with ThreadPoolExecutor(max_workers=n_workers) as executor:
             for chunk_start in range(0, len(pending), chunk_size):
