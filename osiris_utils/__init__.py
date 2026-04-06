@@ -23,6 +23,7 @@ from .data.simulation import Simulation, Species_Handler
 from .database import DatabaseBuildConfig, DatabaseCreator
 from .decks.decks import InputDeckIO
 from .decks.species import Species
+from .io.export import export_simulation_to_npy, export_to_npy
 from .postprocessing.derivative import Derivative_Diagnostic, Derivative_Simulation
 from .postprocessing.fft import FFT_Diagnostic, FFT_Simulation
 from .postprocessing.field_centering import (
@@ -105,6 +106,9 @@ __all__ = [
     "read_data",
     "convert_tracks",
     "create_file_tags",
+    # IO / Export
+    "export_to_npy",
+    "export_simulation_to_npy",
     # Profiling
     "enable_profiling",
     "disable_profiling",
