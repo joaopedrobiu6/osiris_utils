@@ -112,10 +112,9 @@ def _read_frame(args: tuple) -> tuple[int, np.ndarray]:
     * No lock when ``_frame_cache`` is absent (the common case for base
       diagnostics): each thread opens its own HDF5 handle with no shared
       state, so reads are fully concurrent.
-    * Per-diagnostic lock only when ``_frame_cache`` is present: the lock
-      guards the dict read-check-write triplet, but the actual computation
-      (``_read_index`` or derived ``_frame``) runs *outside* the lock so
-      threads only serialise on the brief dict mutation, not on I/O.
+    * Per-diagnostic lock only when ``_frame_cache`` is present: guards the
+      check-compute-insert triplet to prevent duplicate work and dict races
+      under concurrent access.
 
     Spatial reduction is done inside the thread so that only the
     (much smaller) reduced array crosses the thread boundary.
@@ -124,27 +123,77 @@ def _read_frame(args: tuple) -> tuple[int, np.ndarray]:
 
     cache = getattr(diagnostic, "_frame_cache", None)
     if cache is not None:
-        # Fast path: already cached — only needs the lock for the dict lookup.
         lock = _get_cache_lock(diagnostic)
         with lock:
-            if index in cache:
+            arr_found = index in cache
+            if arr_found:
                 arr = cache[index]
-            else:
-                # Release lock during the actual I/O so other threads can
-                # proceed, then re-acquire to insert the result.
-                pass  # fall through to compute below
-        if index not in cache:
-            arr = diagnostic._frame(index)   # compute without lock
+        if not arr_found:
+            computed = diagnostic._frame(index)  # heavy work outside the lock
             with lock:
-                cache.setdefault(index, arr)  # only store if not already inserted by another thread
+                if index not in cache:            # another thread may have inserted it
+                    cache[index] = computed
                 arr = cache[index]
     else:
-        # No cache → no shared mutable state → no lock needed.
         arr = diagnostic._frame(index)
 
     if reduce_axis is not None:
         arr = arr.mean(axis=reduce_axis)
     return index, arr
+
+
+# -----------------------------------------------------------------------
+# Derived-diagnostic helpers
+# -----------------------------------------------------------------------
+
+def _is_derived(diagnostic) -> bool:
+    """Return True when frames come from computation rather than direct HDF5 reads.
+
+    Covers:
+    * Arithmetic results: ``_frame`` set as an instance attribute by ``_binary_op``
+    * Post-processing subclasses: ``Derivative_Diagnostic``, ``FFT_Diagnostic``, etc.
+    """
+    from ..data.diagnostic import Diagnostic
+    return '_frame' in diagnostic.__dict__ or type(diagnostic) is not Diagnostic
+
+
+def _collect_chain(diagnostic, _seen: set | None = None) -> list:
+    """Recursively collect every Diagnostic in the computation chain.
+
+    Used to clear unbounded ``_frame_cache`` dicts after each chunk,
+    preventing memory explosion for long time-series exports.
+
+    Note: *only* ``_frame_cache`` is cleared — the bounded LRU ``_cache``
+    inside ``Derivative_Diagnostic`` is intentionally preserved because it
+    provides the sliding-window caching that makes sequential d/dt efficient.
+    """
+    from ..data.diagnostic import Diagnostic
+    if _seen is None:
+        _seen = set()
+    uid = id(diagnostic)
+    if uid in _seen:
+        return []
+    _seen.add(uid)
+
+    chain = [diagnostic]
+
+    # Arithmetic-derived: _frame is a closure capturing 'self' and 'other'
+    instance_frame = diagnostic.__dict__.get('_frame')
+    if instance_frame is not None and hasattr(instance_frame, '__closure__') and instance_frame.__closure__:
+        for name, cell in zip(instance_frame.__code__.co_freevars, instance_frame.__closure__):
+            try:
+                val = cell.cell_contents
+                if isinstance(val, Diagnostic):
+                    chain.extend(_collect_chain(val, _seen))
+            except ValueError:
+                pass  # empty cell
+
+    # Post-processing subclasses store their parent in self._diag
+    diag_attr = getattr(diagnostic, '_diag', None)
+    if isinstance(diag_attr, Diagnostic):
+        chain.extend(_collect_chain(diag_attr, _seen))
+
+    return chain
 
 
 def _resolve_workers(n_workers: int | None, n_frames: int) -> int:
@@ -264,7 +313,42 @@ def export_to_npy(
     raw_dtype = first_raw.dtype
     del first_raw, first_reduced
 
-    n_workers = _resolve_workers(n_workers, n_frames)
+    # ------------------------------------------------------------------
+    # Derived-diagnostic detection
+    # ------------------------------------------------------------------
+    # Derived diagnostics (arithmetic results, Derivative_Diagnostic, FFT, …)
+    # have two properties that make parallel I/O counter-productive:
+    #
+    # 1. Their internal caches (especially Derivative_Diagnostic._cache with
+    #    maxsize=6) are designed for sequential sliding-window access.
+    #    With N workers, N×stencil_width frames are needed simultaneously,
+    #    causing constant LRU evictions and redundant re-reads.
+    #    With n_workers=1 sequential, only 1 new file read is needed per
+    #    frame after the stencil warmup (vs 10 with parallel workers).
+    #
+    # 2. The general _frame_cache on every Diagnostic in the chain is
+    #    unbounded. Without periodic clearing, it balloons to GB/TB over
+    #    thousands of frames, causing swap thrashing.
+    #
+    # Fix: force n_workers=1, collect the full chain of Diagnostics, and
+    # clear their _frame_cache after every chunk.
+    derived = _is_derived(diagnostic)
+    if derived:
+        chain = _collect_chain(diagnostic)
+        if n_workers is None:
+            n_workers = 1
+        elif n_workers > 1:
+            import warnings
+            warnings.warn(
+                f"Derived diagnostic detected — forcing n_workers=1 for memory and cache efficiency. "
+                f"(You requested n_workers={n_workers}.) "
+                f"See export_to_npy docstring for details.",
+                stacklevel=3,
+            )
+            n_workers = 1
+    else:
+        chain = [diagnostic]
+        n_workers = _resolve_workers(n_workers, n_frames)
 
     # ------------------------------------------------------------------
     # Branch 1 — time_average=True: streaming accumulator, O(frame) RAM.
@@ -283,6 +367,7 @@ def export_to_npy(
             show_progress=show_progress,
             overwrite=overwrite,
             checkpoint=checkpoint,
+            chain=chain,
         )
 
     # ------------------------------------------------------------------
@@ -301,6 +386,7 @@ def export_to_npy(
         show_progress=show_progress,
         overwrite=overwrite,
         checkpoint=checkpoint,
+        chain=chain,
     )
 
 
@@ -398,6 +484,21 @@ def _save_progress(
 # Frame export (full time series)
 # ------------------------------------------------------------------
 
+def _clear_frame_caches(chain: list) -> None:
+    """Clear the unbounded ``_frame_cache`` on every diagnostic in the chain.
+
+    Called after each chunk so that intermediate results from arithmetic /
+    post-processing diagnostics do not accumulate in memory across the full
+    time series.  The bounded LRU ``_cache`` inside ``Derivative_Diagnostic``
+    is intentionally *not* cleared — it provides the sliding-window locality
+    that makes sequential d/dt efficient.
+    """
+    for diag in chain:
+        fc = diag.__dict__.get('_frame_cache')
+        if fc is not None:
+            fc.clear()
+
+
 def _export_frames(
     diagnostic,
     output_path,
@@ -410,6 +511,7 @@ def _export_frames(
     show_progress,
     overwrite,
     checkpoint,
+    chain,
 ) -> Path:
     """Write every frame to a memory-mapped npy file (bounded RAM).
 
@@ -475,6 +577,10 @@ def _export_frames(
             out[out_start:out_end] = chunk_buf
             del chunk_buf  # release RAM before next chunk
 
+            # Clear unbounded _frame_cache on every diagnostic in the chain
+            # so intermediate results don't accumulate across chunks.
+            _clear_frame_caches(chain)
+
             if checkpoint:
                 out.flush()
                 _save_progress(progress_path, "frames", n_frames, reduce_axis, completed)
@@ -501,6 +607,7 @@ def _export_time_average(
     show_progress,
     overwrite,
     checkpoint,
+    chain,
 ) -> Path:
     """Stream a running mean over all timesteps — O(frame_size) RAM.
 
@@ -560,6 +667,9 @@ def _export_time_average(
                 acc += arr
                 completed.add(idx)
                 pbar.update(1)
+
+            # Clear unbounded _frame_cache on every diagnostic in the chain.
+            _clear_frame_caches(chain)
 
             if checkpoint:
                 np.save(acc_path, acc)
