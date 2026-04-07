@@ -496,13 +496,17 @@ def _find_base_diagnostics(chain: list) -> list:
 
 
 def _get_stencil_range(chain: list) -> tuple[int, int]:
-    """Return ``(max_backward, max_forward)`` offsets across all derivatives.
+    """Return ``(max_backward, max_forward)`` time-frame offsets across all temporal derivatives.
 
-    For ``stencil=[-2,-1,0,1,2]`` this returns ``(2, 2)``.
-    Zero when no ``Derivative_Diagnostic`` is present in the chain.
+    Only considers diagnostics with ``_deriv_type == 't'`` — spatial derivatives
+    (x1, x2, x3) use the same ``_stencil`` attribute for spatial grid offsets, which
+    must not be confused with time-frame offsets when managing ``_frame_cache``.
+    Zero when no temporal ``Derivative_Diagnostic`` is present in the chain.
     """
     max_back = max_fwd = 0
     for d in chain:
+        if getattr(d, '_deriv_type', None) != 't':
+            continue
         stencil = getattr(d, '_stencil', None)
         if stencil is not None:
             for s in stencil:
