@@ -4,6 +4,7 @@ import logging
 import operator
 import threading
 import warnings
+from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -271,7 +272,12 @@ class Diagnostic:
         self._all_loaded: bool = False  # if the data is already loaded into memory
         self._quantity: str | None = None
         self._load_lock = threading.Lock()  # guards _data and _all_loaded across threads
-        self._frame_cache: dict[tuple, np.ndarray] = {}  # per-frame cache to avoid redundant disk reads
+        # Per-frame LRU cache to avoid redundant disk reads within a single frame computation.
+        # Bounded to prevent unbounded memory growth when many frames are computed concurrently
+        # (e.g. parallel database building).  Export paths that need larger windows manage
+        # eviction explicitly via _clear_frame_caches_selective / _prefetch_into_cache.
+        self._frame_cache: OrderedDict[tuple, np.ndarray] = OrderedDict()
+        self._frame_cache_maxsize: int = 8
 
     #########################################
     #
@@ -662,9 +668,13 @@ class Diagnostic:
         if cache is not None:
             key = (index, data_slice)
             if key in cache:
+                cache.move_to_end(key)
                 return cache[key]
             result = self._read_index(index, data_slice=data_slice)
             cache[key] = result
+            maxsize = getattr(self, "_frame_cache_maxsize", 8)
+            while len(cache) > maxsize:
+                cache.popitem(last=False)  # evict least-recently-used
             return result
         return self._read_index(index, data_slice=data_slice)
 
