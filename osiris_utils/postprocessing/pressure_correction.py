@@ -135,6 +135,9 @@ class PressureCorrection_Diagnostic(Diagnostic):
         result = P - n * u * v
         if cache is not None:
             cache[(index, data_slice)] = result
+            maxsize = getattr(self, "_frame_cache_maxsize", 8)
+            while len(cache) > maxsize:
+                cache.popitem(last=False)
         return result
 
 
