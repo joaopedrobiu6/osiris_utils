@@ -114,23 +114,37 @@ class OsirisData():
             pass
 
     def _open_timings_file(self, filename):
-        self._df = pd.read_csv(
-            filename,
-            sep=r"\s{2,}",
-            engine="python",
-            header=1,
-            skiprows=lambda i: i == 3,
-            on_bad_lines="skip",
-            )
 
-        try:
-            with open(filename) as f:
-                line = f.readlines()[0]
+        with open(filename) as f:
+            line = f.readlines()[0]
+        
+        if (line.strip().split("=")[0].strip().lower() == "iterations"):
             iteration = line.strip().split("=")[-1].strip()
+
+            self._df = pd.read_csv(
+                filename,
+                sep=r"\s{2,}",
+                engine="python",
+                header=1,
+                skiprows=lambda i: i == 3,
+                on_bad_lines="skip",
+                )
+            
             self._df.attrs["iterations"] = int(iteration)
-        except:
-            print("Error reading iterations.")
-            pass
+        else:
+            # Sometimes TIMINGS files don't have the iterations
+            print("Iterations not found in the first line of the file. Setting iterations to 0.")
+
+            self._df = pd.read_csv(
+                filename,
+                sep=r"\s{2,}",
+                engine="python",
+                header=0,
+                skiprows=lambda i: i == 1,
+                on_bad_lines="skip",
+                )          
+
+            self._df.attrs["iterations"] = 0
 
     def _close_file(self):
         '''

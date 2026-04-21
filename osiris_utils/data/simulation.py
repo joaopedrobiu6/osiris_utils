@@ -1,3 +1,4 @@
+from osiris_utils.data.data import OsirisTIMINGS
 from ..data.diagnostic import Diagnostic
 from ..data.track_diagnostic import Track_Diagnostic
 from ..decks.decks import InputDeckIO
@@ -71,6 +72,8 @@ class Simulation:
         
         if key == "tracks":
             raise ValueError("Tracks diagnostics require a specie.")
+        if key.lower() == "timings":
+            return OsirisTIMINGS(self._simulation_folder + "/TIMINGS/timings-final")
         else:
             # Create a temporary diagnostic for this quantity - this is for quantities that are not species related
             diag = Diagnostic(simulation_folder=self._simulation_folder, species=None, input_deck=self._input_deck)
