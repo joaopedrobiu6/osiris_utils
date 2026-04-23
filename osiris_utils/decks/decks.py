@@ -183,7 +183,7 @@ class InputDeckIO:
             ast.literal_eval(s_names[i]): Species(
                 name=ast.literal_eval(s_names[i]),
                 rqm=float(s_rqm[i]),
-                q=int(s_qreal[0]) * np.sign(float(s_rqm[i])),
+                q=int(s_qreal[0]) * float(s_rqm[i]),
             )
             for i in range(self.n_species)
         }

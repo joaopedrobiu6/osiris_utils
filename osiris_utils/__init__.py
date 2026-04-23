@@ -20,7 +20,7 @@ from .data.data import (
 )
 from .data.diagnostic import Diagnostic
 from .data.simulation import Simulation, Species_Handler
-from .database import DatabaseBuildConfig, DatabaseCreator
+from .database import DatabaseBuildConfig, DatabaseCreator, LorentzDatabaseBuildConfig, LorentzDatabaseCreator
 from .decks.decks import InputDeckIO
 from .decks.species import Species
 from .io.export import export_simulation_to_npy, export_to_npy
@@ -66,6 +66,8 @@ __all__ = [
     # Database
     "DatabaseCreator",
     "DatabaseBuildConfig",
+    "LorentzDatabaseCreator",
+    "LorentzDatabaseBuildConfig",
     # Data Singles
     "OsirisGridFile",
     "OsirisRawFile",
