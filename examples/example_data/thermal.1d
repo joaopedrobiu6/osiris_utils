@@ -21,7 +21,7 @@ grid
 time_step
 {
 	dt = 0.0099,
-	ndump = 1,
+	ndump = 20,
 }
 
 restart

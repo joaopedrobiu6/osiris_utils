@@ -1,10 +1,21 @@
 .. osiris-utils documentation master file
 
-OSIRIS Utils Documentation
-==========================
-
 .. include:: ../../README.rst
-   
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Examples:
+   :hidden:
+
+   examples
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Command Line Interface:
+   :hidden:
+
+   api/cli
+
 .. toctree::
    :maxdepth: 2
    :caption: Simulation and Diagnostic API:
@@ -24,6 +35,7 @@ OSIRIS Utils Documentation
    :caption: Utilities API:
    :hidden:
    
+   api/decks
    api/utilities
 
 .. toctree::

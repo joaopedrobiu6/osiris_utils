@@ -1,9 +1,21 @@
-import re
+from __future__ import annotations
+
 import ast
 import copy
+import re
+from pathlib import Path
+
 import numpy as np
 
-from .species import Specie
+from .species import Species
+
+__all__ = ["InputDeckIO", "deval"]
+
+# Pre-compiled regex patterns used in _parse_input_deck
+_RE_STRIP_WHITESPACE = re.compile(r'"[^"]*"|(\s+)')
+_RE_SECTION_NAMES = re.compile(r"(?:^|\})(.*?)(?:\{)")
+_RE_SECTION_INFOS = re.compile(r"(?:\{)(.*?)(?:\})")
+_RE_SPLIT_COMMA = re.compile(r",(?![^()]*\))\s*")
 
 
 def deval(x):
@@ -41,20 +53,19 @@ class InputDeckIO:
         Number of dimensions in the simulation (1, 2, or 3).
     """
 
-    def __init__(self, filename: str, verbose: bool = True):
+    def __init__(self, filename: str, verbose: bool = False):
         self._filename = str(filename)
         self._sections = self._parse_input_deck(verbose)
         self._dim = self._get_dim()
         self._species = self._get_species()
 
     def _parse_input_deck(self, verbose):
-
         section_list = []
 
         if verbose:
             print(f"\nParsing input deck : {self._filename}")
 
-        with open(self._filename, "r", encoding="utf-8") as f:
+        with Path(self._filename).open(encoding="utf-8") as f:
             lines = f.readlines()
 
         # remove comments
@@ -64,15 +75,13 @@ class InputDeckIO:
         lines = "".join(lines)
 
         # remove tabs/spaces/paragraphs (except spaces inside "")
-        lines = re.sub(
-            r'"[^"]*"|(\s+)', lambda x: "" if x.group(1) else x.group(0), lines
-        )
+        lines = _RE_STRIP_WHITESPACE.sub(lambda x: "" if x.group(1) else x.group(0), lines)
 
         # split sections
         # get name before brackets
-        section_names = re.findall(r"(?:^|\})(.*?)(?:\{)", lines)
+        section_names = _RE_SECTION_NAMES.findall(lines)
         # get content inside brackets
-        section_infos = re.findall(r"(?:\{)(.*?)(?:\})", lines)
+        section_infos = _RE_SECTION_INFOS.findall(lines)
 
         if len(section_names) != len(section_infos):
             raise RuntimeError(
@@ -84,12 +93,12 @@ class InputDeckIO:
             )
 
         # parse section information
-        for section, info in zip(section_names, section_infos):
+        for section, info in zip(section_names, section_infos, strict=False):
             if verbose:
                 print(f"Reading {section}")
 
             # split section contents at commas (unless comma inside brackets e.g. pmax(1:2, 1))
-            info = re.split(r",(?![^()]*\))\s*", info)
+            info = _RE_SPLIT_COMMA.split(info)
             info = list(filter(None, info))
 
             # save pairs of (param, values) to dict
@@ -149,9 +158,7 @@ class InputDeckIO:
                 dim = i
                 break
         if dim is None:
-            raise RuntimeError(
-                "Error parsing grid dimension. Grid dimension could not be estabilished."
-            )
+            raise RuntimeError("Error parsing grid dimension. Grid dimension could not be estabilished.")
         return dim
 
     def _get_species(self):
@@ -166,23 +173,14 @@ class InputDeckIO:
             s_qreal = np.ones(len(s_names))
         # check if we have information for all species
         if len(s_names) != self.n_species:
-            raise RuntimeError(
-                "Number of specie names does not match number of species: "
-                f"{len(s_names)} != {len(self.n_species)}."
-            )
+            raise RuntimeError(f"Number of specie names does not match number of species: {len(s_names)} != {len(self.n_species)}.")
         if len(s_rqm) != self.n_species:
-            raise RuntimeError(
-                "Number of specie rqm does not match number of species: "
-                f"{len(s_rqm)} != {len(self.n_species)}."
-            )
+            raise RuntimeError(f"Number of specie rqm does not match number of species: {len(s_rqm)} != {len(self.n_species)}.")
         if len(s_qreal) != self.n_species:
-            raise RuntimeError(
-                "Number of specie rqm does not match number of species: "
-                f"{len(s_qreal)} != {len(self.n_species)}."
-            )
+            raise RuntimeError(f"Number of specie rqm does not match number of species: {len(s_qreal)} != {len(self.n_species)}.")
 
         return {
-            ast.literal_eval(s_names[i]): Specie(
+            ast.literal_eval(s_names[i]): Species(
                 name=ast.literal_eval(s_names[i]),
                 rqm=float(s_rqm[i]),
                 q=int(s_qreal[0]) * np.sign(float(s_rqm[i])),
@@ -191,6 +189,29 @@ class InputDeckIO:
         }
 
     def set_param(self, section, param, value, i_use=None, unexistent_ok=False):
+        """
+        Set a parameter value in the input deck.
+
+        Parameters
+        ----------
+        section : str
+            The name of the section where the parameter is located.
+        param : str
+            The name of the parameter to set.
+        value : str or list or int or float
+            The value to set. If a list, it is converted to a comma-separated string.
+        i_use : int or list of int, optional
+            The index(es) of the section(s) to modify if multiple sections with the same name exist.
+            If None, all sections with the matching name are modified.
+        unexistent_ok : bool, optional
+            If True, allows setting a parameter that does not currently exist in the section.
+            Default is False.
+
+        Raises
+        ------
+        KeyError
+            If the section is not found, or if the parameter is not found (and unexistent_ok is False).
+        """
         # get all sections with the same name
         # (e.g. there might be multiple 'species')
         i_sections = [i for i, m in enumerate(self._sections) if m[0] == section]
@@ -206,10 +227,7 @@ class InputDeckIO:
 
         for i in i_sections:
             if not unexistent_ok and param not in self._sections[i][1]:
-                raise KeyError(
-                    f'"{param}" not yet inside section "{section}" '
-                    "(set unexistent_ok=True to ignore)."
-                )
+                raise KeyError(f'"{param}" not yet inside section "{section}" (set unexistent_ok=True to ignore).')
             if isinstance(value, str):
                 self._sections[i][1][param] = str(f'"{value}"')
             elif isinstance(value, list):
@@ -218,11 +236,43 @@ class InputDeckIO:
                 self._sections[i][1][param] = str(value)
 
     def set_tag(self, tag, value):
+        """
+        Replace a tag in all parameters within the input deck.
+        This is useful for template replacement.
+
+        Parameters
+        ----------
+        tag : str
+            The tag substring to search for (e.g., "<TAG>").
+        value : str or int or float
+            The value to replace the tag with.
+        """
         for im, (_, params) in enumerate(self._sections):
             for p, v in params.items():
                 self._sections[im][1][p] = v.replace(tag, str(value))
 
     def get_param(self, section, param):
+        """
+        Get the value(s) of a parameter from a specific section.
+
+        Parameters
+        ----------
+        section : str
+            The name of the section.
+        param : str
+            The name of the parameter.
+
+        Returns
+        -------
+        values : list
+            A list of values for the parameter. Returns a list because there can be multiple
+            sections with the same name.
+
+        Raises
+        ------
+        KeyError
+            If the parameter is not found in one of the sections.
+        """
         i_sections = [i for i, m in enumerate(self._sections) if m[0] == section]
 
         if len(i_sections) == 0:
@@ -238,6 +288,16 @@ class InputDeckIO:
         return values
 
     def delete_param(self, section, param):
+        """
+        Delete a parameter from a specific section.
+
+        Parameters
+        ----------
+        section : str
+            The name of the section.
+        param : str
+            The name of the parameter to delete.
+        """
         sections_new = []
         for m_name, m_dict in self._sections:
             if m_name == section and param in m_dict:
@@ -246,7 +306,15 @@ class InputDeckIO:
         self._sections = sections_new
 
     def print_to_file(self, filename):
-        with open(filename, "w", encoding="utf-8") as f:
+        """
+        Write the current state of the input deck to a file.
+
+        Parameters
+        ----------
+        filename : str
+            The path to the output file.
+        """
+        with Path(filename).open("w", encoding="utf-8") as f:
             for section, section_dict in self._sections:
                 f.write(f"{section}\n{{\n")
                 for k, v in section_dict.items():
@@ -279,9 +347,7 @@ class InputDeckIO:
                 return int(self["particles"][0]["num_cathode"])
             except (KeyError, IndexError):
                 # If neither exists, raise an informative error
-                raise KeyError(
-                    "Could not find 'num_species' or 'num_cathode' in the particles section"
-                )
+                raise KeyError("Could not find 'num_species' or 'num_cathode' in the particles section") from None
 
     @property
     def species(self):

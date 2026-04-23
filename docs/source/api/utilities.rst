@@ -1,7 +1,7 @@
 Utilities API
 =============
 
-This document provides a reference to the osiris_utils utilities API.
+This document provides a reference to the `osiris_utils` utilities API, which includes tools for reading various OSIRIS data formats (Grid, Raw Particles, Tracks, HIST) and helper functions for common physics calculations and data operations.
 
 Data Readers Structures
 -----------------------
@@ -79,7 +79,7 @@ Particle Data
    .. code-block:: python
   
       import osiris_utils as ou  
-      raw = ou.raw = ou.OsirisRawFile("path/to/raw/file.h5")
+      raw = ou.OsirisRawFile("path/to/raw/file.h5")
       print(raw.data.keys())
       print(raw.data["x1"][0:10])  # Access x1 position of first 10 particles
 
@@ -119,6 +119,17 @@ HIST Data
 
    Processes HIST file from OSIRIS diagnostics.
 
+
+
+TIMINGS Data
+~~~~~~~~~
+
+TIMINGS Data
+.. autoclass:: osiris_utils.data.data.Osiris
+   :inherited-members: grid, nx, dx, x, axis, data, units, label
+
+   Processes TIMINGS Data file from OSIRIS diagnostics.
+
 TRACK Data
 ~~~~~~~~~~
 
@@ -149,7 +160,7 @@ TRACK Data
    .. code-block:: python
   
       import osiris_utils as ou
-      track = ou.OsirisTrackFile(path/to/track_file.h5)
+      track = ou.OsirisTrackFile("path/to/track_file.h5")
       print(track.data[0:10, :]["x1"]) # Access x1 position of first 10 particles over all time steps
 
 
@@ -175,7 +186,7 @@ Convert track file to the older more readable format
    .. code-block:: python
       
       >>> import osiris_utils as ou 
-      >>> ou.utils.convert_tracks('path/to/input_trackfile.h5')
+      >>> ou.convert_tracks('path/to/input_trackfile.h5')
       >>> # The output will be saved as 'path/to/input_trackfile-v2.h5'
 
    **Notes:**  
@@ -209,26 +220,11 @@ To create a tag file directly from raw data, see :class:`osiris_utils.data.data.
       import osiris_utils as ou 
       import numpy as np
       tags = np.array([[1, 12345], [2, 67890], [3, 11111]])  # Example tags
-      ou.utils.create_file_tags('output.tag', tags)
+      ou.create_file_tags('output.tag', tags)
       # This will generate a file 'output.tag' with the particle tags.
 
    **Notes:**  
    - The function generates the `file_tags` file in a format that can be used by the OSIRIS track diagnostic.
-
-Visualization & GUI
--------------------
-
-Interactive Visualization
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: osiris_utils.gui.gui.LAVA
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :noindex:
-
-   LAVA (Lightweight Analysis and Visualization Application) provides interactive 
-   visualization capabilities for OSIRIS data.
 
 Physics & Analysis
 ------------------

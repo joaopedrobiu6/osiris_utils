@@ -1,12 +1,63 @@
-import numpy as np
-import pandas as pd
-import h5py
-from osiris_utils.utils import create_file_tags
+from __future__ import annotations
+
+import os
 from typing import Literal
 
-class OsirisData():
+import h5py
+import numpy as np
+import pandas as pd
+
+from osiris_utils.utils import create_file_tags
+
+__all__ = [
+    "OsirisData",
+    "OsirisGridFile",
+    "OsirisRawFile",
+    "OsirisHIST",
+    "OsirisTIMINGS",
+    "OsirisTrackFile",
+]
+
+
+def _hdf5_chunk_cache_bytes() -> int:
+    """Return an HPC-tuned HDF5 chunk cache size in bytes.
+
+    Resolution order
+    ----------------
+    1. ``OSIRIS_HDF5_CACHE_MB`` environment variable — set this in your SLURM
+       job script for full control::
+
+           export OSIRIS_HDF5_CACHE_MB=256
+
+    2. 10 % of available RAM reported by ``psutil`` (capped at 512 MB,
+       floored at 64 MB). Adapts automatically to per-node memory limits on
+       HPC allocations.
+
+    3. 64 MB hard fallback (``psutil`` not installed).
+
+    Notes
+    -----
+    The cache is per open file handle, so setting a large value when loading
+    many files in parallel (``load_all``) multiplies accordingly. Keep
+    ``OSIRIS_HDF5_CACHE_MB`` ≤ (node RAM) / (n_workers * 2) to avoid OOM.
     """
-    Base class for handling OSIRIS simulation data files (HDF5 and HIST formats).
+    env = os.environ.get("OSIRIS_HDF5_CACHE_MB")
+    if env is not None:
+        try:
+            return max(1, int(env)) * 1024 * 1024
+        except ValueError:
+            pass  # malformed value — fall through
+    try:
+        import psutil
+        available_mb = psutil.virtual_memory().available // (1024 * 1024)
+        return min(512, max(64, available_mb // 10)) * 1024 * 1024
+    except ImportError:
+        return 64 * 1024 * 1024  # 64 MB safe fallback
+
+
+class OsirisData:
+    """
+    Base class for handling OSIRIS simulation data files (HDF5, HIST and TIMINGS formats).
 
     This class provides common functionality for reading and managing basic attributes
     from OSIRIS output files. It serves as the parent class for specialized data handlers.
@@ -17,6 +68,7 @@ class OsirisData():
         Path to the data file. Supported formats:
         - HDF5 files (.h5 extension)
         - HIST files (ending with _ene)
+        - TIMINGS files (starting with timings)
 
     Attributes
     ----------
@@ -42,82 +94,126 @@ class OsirisData():
 
         self._verbose = False
 
-        if self._filename.endswith('.h5'):
+        if self._filename.endswith(".h5"):
             self._open_file_hdf5(self._filename)
             self._load_basic_attributes(self._file)
-        elif self._filename.endswith('_ene'):
+        elif self._filename.endswith("_ene"):
             self._open_hist_file(self._filename)
+        elif os.path.basename(self._filename).startswith("timings"):
+            self._open_timings_file(self._filename)
         else:
-            raise ValueError('The file should be an HDF5 file with the extension .h5, or a HIST file ending with _ene.')
-        
-        
+            raise ValueError(
+                "The file should be an HDF5 file with the extension .h5, a HIST file ending with \"_ene\", \
+                or a timings files starting with \"timings\"."
+            )
+
     def _load_basic_attributes(self, f: h5py.File) -> None:
-        '''Load common attributes from HDF5 file'''
-        self._dt = float(f['SIMULATION'].attrs['DT'][0])
-        self._dim = int(f['SIMULATION'].attrs['NDIMS'][0])
-        self._time = [float(f.attrs['TIME'][0]), f.attrs['TIME UNITS'][0].decode('utf-8')]
-        self._iter = int(f.attrs['ITER'][0])
-        self._name = f.attrs['NAME'][0].decode('utf-8')
-        self._type = f.attrs['TYPE'][0].decode('utf-8')
-    
+        """Load common attributes from HDF5 file"""
+        self._dt = float(f["SIMULATION"].attrs["DT"][0])
+        self._dim = int(f["SIMULATION"].attrs["NDIMS"][0])
+        self._time = [
+            float(f.attrs["TIME"][0]),
+            f.attrs["TIME UNITS"][0].decode("utf-8"),
+        ]
+        self._iter = int(f.attrs["ITER"][0])
+        self._name = f.attrs["NAME"][0].decode("utf-8")
+        self._type = f.attrs["TYPE"][0].decode("utf-8")
+
     def verbose(self, verbose: bool = True):
-        '''
+        """
         Set the verbosity of the class
 
         Parameters
         ----------
         verbose : bool, optional
             If True, the class will print messages, by default True when calling (False when not calling)
-        '''
+        """
         self._verbose = verbose
 
     def _open_file_hdf5(self, filename):
-        '''
-        Open the OSIRIS output file. Usually an HDF5 file or txt.
+        """
+        Open the OSIRIS output file with optimized cache settings.
 
         Parameters
         ----------
         filename : str
             The path to the HDF5 file.
-        '''
-        if self._verbose: 
-            print(f'Opening file > {filename}') 
+        """
+        if self._verbose:
+            print(f"Opening file > {filename}")
 
-        if filename.endswith('.h5'):
-            self._file = h5py.File(filename, 'r')
-        else:
-            raise ValueError('The file should be an HDF5 file with the extension .h5')
-            
+        if not filename.endswith(".h5"):
+            raise ValueError("The file should be an HDF5 file with the extension .h5")
+
+        # Optimize HDF5 chunk cache for better performance
+        # Increase cache from default 1MB to 10MB for large file access
+        propfaid = h5py.h5p.create(h5py.h5p.FILE_ACCESS)
+        propfaid.set_cache(
+            0,  # Meta cache elements (0 = use default)
+            10485760,  # 10MB chunk cache (default is 1MB)
+            0.75,  # Chunk cache preemption policy (0.75 = aggressive caching)
+            0,  # Hash table size (0 = use default)
+        )
+
+        # Open file with optimized settings
+        fid = h5py.h5f.open(filename.encode(), flags=h5py.h5f.ACC_RDONLY, fapl=propfaid)
+        self._file = h5py.File(fid)
+
     def _open_hist_file(self, filename):
-        self._df = pd.read_csv(filename, sep=r'\s+', comment='!', header=0, engine='python')
+        self._df = pd.read_csv(filename, sep=r"\s+", comment="!", header=0, engine="python")
+
+    def _open_timings_file(self, filename):
+        self._df = pd.read_csv(
+            filename,
+            sep=r"\s{2,}",
+            engine="python",
+            header=1,
+            skiprows=lambda i: i == 3,
+            on_bad_lines="skip",
+        )
+
+        try:
+            with open(filename) as f:
+                line = f.readlines()[0]
+            iteration = line.strip().split("=")[-1].strip()
+            self._df.attrs["iterations"] = int(iteration)
+        except Exception:
+            print("Error reading iterations.")
+            pass
 
     def _close_file(self):
-        '''
+        """
         Close the HDF5 file.
-        '''
-        if self._verbose: 
-            print('Closing file') 
+        """
+        if self._verbose:
+            print("Closing file")
         if self._file:
             self._file.close()
-        
+
     @property
     def dt(self):
         return self._dt
+
     @property
     def dim(self):
         return self._dim
+
     @property
     def time(self):
         return self._time
+
     @property
     def iter(self):
         return self._iter
+
     @property
     def name(self):
         return self._name
+
     @property
     def type(self):
         return self._type
+
 
 class OsirisGridFile(OsirisData):
     """
@@ -151,200 +247,134 @@ class OsirisGridFile(OsirisData):
         Field units (LaTeX formatted)
     label : str
         Field label/name (LaTeX formatted, e.g., r'$E_x$')
-    FFTdata : np.ndarray
-        Fourier-transformed data (available after calling FFT())
     """
 
-    def __init__(self, filename):
+    def __init__(self, filename, data_slice: slice | None = None, load_data: bool = True):
         super().__init__(filename)
-            
+
         variable_key = self._get_variable_key(self._file)
-        
-        self._units = self._file.attrs['UNITS'][0].decode('utf-8')
-        self._label = self._file.attrs['LABEL'][0].decode('utf-8')
+
+        self._units = self._file.attrs["UNITS"][0].decode("utf-8")
+        self._label = self._file.attrs["LABEL"][0].decode("utf-8")
         self._FFTdata = None
-        
-        data = np.array(self._file[variable_key][:])
 
-        axis = list(self._file['AXIS'].keys())
+        # Use dataset.shape to obtain sizes without loading full data when possible
+        dset = self._file[variable_key]
+
+        axis = list(self._file["AXIS"].keys())
         if len(axis) == 1:
-            self._grid = self._file['AXIS/' + axis[0]][()]
-            self._nx = len(data)
-            self._dx = (self.grid[1] - self.grid[0] ) / self.nx
+            self._grid = self._file["AXIS/" + axis[0]][()]
+            # nx for 1D is dataset length along its only axis
+            self._nx = dset.shape[0]
+            self._dx = (self.grid[1] - self.grid[0]) / self.nx
             self._x = np.arange(self.grid[0], self.grid[1], self.dx)
-        else: 
+        else:
             grid = []
-            for ax in axis: 
-                grid.append(self._file['AXIS/' + ax][()])
+            for ax in axis:
+                grid.append(self._file["AXIS/" + ax][()])
             self._grid = np.array(grid)
-            self._nx = self._file[variable_key][()].transpose().shape
-            self._dx = (self.grid[:, 1] - self.grid[:, 0])/self.nx
-            
-            # There's an issue when the dimension is 3 and we want to plot a 2D phasespace. I believe this 
-            # is a problem for all cases where the dim != dim_of_phasespace
-            self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
-            # self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(2)]
+            # use dataset.shape to avoid reading the whole dataset
+            # dataset stored may need transpose to match expected ordering; preserve shape only
+            self._nx = tuple(dset.shape[::-1]) if len(dset.shape) > 1 else (dset.shape[0],)
+            self._dx = (self.grid[:, 1] - self.grid[:, 0]) / self.nx
 
+            try:
+                self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(self.dim)]
+            except Exception:
+                self._x = [np.arange(self.grid[i, 0], self.grid[i, 1], self.dx[i]) for i in range(1)]
 
         self._axis = []
         for ax in axis:
             axis_data = {
-                'name': self._file['AXIS/'+ax].attrs['NAME'][0].decode('utf-8'),
-                'units': self._file['AXIS/'+ax].attrs['UNITS'][0].decode('utf-8'),
-                'long_name': self._file['AXIS/'+ax].attrs['LONG_NAME'][0].decode('utf-8'),
-                'type': self._file['AXIS/'+ax].attrs['TYPE'][0].decode('utf-8'),
-                'plot_label': rf'${self._file["AXIS/"+ax].attrs["LONG_NAME"][0].decode("utf-8")}$ $[{self._file["AXIS/"+ax].attrs["UNITS"][0].decode("utf-8")}]$',
+                "name": self._file["AXIS/" + ax].attrs["NAME"][0].decode("utf-8"),
+                "units": self._file["AXIS/" + ax].attrs["UNITS"][0].decode("utf-8"),
+                "long_name": self._file["AXIS/" + ax].attrs["LONG_NAME"][0].decode("utf-8"),
+                "type": self._file["AXIS/" + ax].attrs["TYPE"][0].decode("utf-8"),
+                "plot_label": rf'${self._file["AXIS/" + ax].attrs["LONG_NAME"][0].decode("utf-8")}$'
+                + rf'$[{self._file["AXIS/" + ax].attrs["UNITS"][0].decode("utf-8")}]$',
             }
             self._axis.append(axis_data)
-        
-        self._data = np.ascontiguousarray(data.T)
+
+        # Only load data if explicitly requested. Otherwise keep a placeholder so metadata-only
+        # initializations are cheap for large files.
+        if load_data:
+            # Handle partial slicing by padding with (slice(None),)
+            if data_slice is not None:
+                if not isinstance(data_slice, tuple):
+                    data_slice = (data_slice,)
+
+                # Check if we need to pad
+                ndims = len(dset.shape)
+                if len(data_slice) < ndims:
+                    data_slice = data_slice + (slice(None),) * (ndims - len(data_slice))
+
+            # data slice should be transposed to match data storage order [x, y, z] to [z, y, x]
+            data_slice = data_slice[::-1] if data_slice is not None and len(dset.shape) > 1 else data_slice
+
+            if data_slice is None and len(dset.shape) > 1:
+                # Read directly into a pre-allocated transposed buffer to avoid an intermediate copy.
+                # buf.T is Fortran-contiguous with the HDF5 storage shape; h5py writes into it
+                # so buf ends up C-contiguous with the transposed (x1, x2, ...) shape.
+                buf = np.empty(dset.shape[::-1], dtype=dset.dtype)
+                dset.read_direct(buf.T)
+                self._data = buf
+            elif data_slice is None:
+                self._data = dset[()]
+            else:
+                self._data = np.ascontiguousarray(dset[data_slice].T)
+        else:
+            self._data = None
 
         self._close_file()
 
     def _load_basic_attributes(self, f: h5py.File) -> None:
-        '''Load common attributes from HDF5 file'''
-        self._dt = float(f['SIMULATION'].attrs['DT'][0])
-        self._dim = int(f['SIMULATION'].attrs['NDIMS'][0])
-        self._time = [float(f.attrs['TIME'][0]), f.attrs['TIME UNITS'][0].decode('utf-8')]
-        self._iter = int(f.attrs['ITER'][0])
-        self._name = f.attrs['NAME'][0].decode('utf-8')
-        self._type = f.attrs['TYPE'][0].decode('utf-8')
-            
+        """Load common attributes from HDF5 file"""
+        self._dt = float(f["SIMULATION"].attrs["DT"][0])
+        self._dim = int(f["SIMULATION"].attrs["NDIMS"][0])
+        self._time = [
+            float(f.attrs["TIME"][0]),
+            f.attrs["TIME UNITS"][0].decode("utf-8"),
+        ]
+        self._iter = int(f.attrs["ITER"][0])
+        self._name = f.attrs["NAME"][0].decode("utf-8")
+        self._type = f.attrs["TYPE"][0].decode("utf-8")
+
     def _get_variable_key(self, f: h5py.File) -> str:
-        return next(k for k in f.keys() if k not in {'AXIS', 'SIMULATION'})
-    
-    
-
-    def _yeeToCellCorner1d(self, boundary):
-        '''
-        Converts 1d EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell (the corner of the cell [1] has coordinates [1])
-        '''
-
-        if self.name.lower() in ['b2', 'b3', 'e1']:
-            if boundary == 'periodic': 
-                return 0.5 * (np.roll(self.data, shift=1) + self.data) 
-            else: 
-                return 0.5 * (self.data[1:] + self.data[:-1])
-        elif self.name.lower() in ['b1', 'e2', 'e3']:
-            if boundary == 'periodic': 
-                return self.data 
-            else: 
-                return  self.data[1:]
-        else: 
-            raise TypeError(f'This method expects magnetic or electric field grid data but received \'{self.name}\' instead')
-    
-
-    def _yeeToCellCorner2d(self, boundary):
-        '''
-        Converts 2d EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell (the corner of the cell [1,1] has coordinates [1,1])
-        '''
-
-        if self.name.lower() in ['e1', 'b2']:
-            if boundary == 'periodic': 
-                return 0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)
-            else: 
-                return 0.5 * (self.data[1:, 1:] + self.data[:-1, 1:])
-        elif self.name.lower() in ['e2', 'b1']:
-            if boundary == 'periodic': 
-                return 0.5 * (np.roll(self.data, shift=1, axis=1) + self.data)
-            else: 
-                return 0.5 * (self.data[1:, 1:] + self.data[1:, :-1])
-        elif self.name.lower() in ['b3']:
-            if boundary == 'periodic': 
-               return 0.5 * (np.roll((0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)), shift=1, axis=1) + (0.5 * (np.roll(self.data, shift=1, axis=0) + self.data)))
-            else:
-                return 0.25 * (self.data[1:, 1:] + self.data[:-1, 1:] + self.data[1:, :-1] + self.data[:-1, :-1])
-        elif self.name.lower() in ['e3']:
-            if boundary == 'periodic': 
-                return self.data
-            else: 
-                return self.data[1:, 1:]
-        else:
-            raise TypeError(f'This method expects magnetic or electric field grid data but received \'{self.name}\' instead')
-        
-
-    def _yeeToCellCorner3d(self, boundary):
-        '''
-        Converts 3d EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell (the corner of the cell [1,1,1] has coordinates [1,1,1])
-        '''
-        if boundary == 'periodic':
-            raise ValueError('Centering field from 3D simulations considering periodic boundary conditions is not implemented yet')
-        if self.name.lower() == 'b1':
-            return 0.25 * (self.data[1:, 1:, 1:] + self.data[1:, :-1, 1:] + self.data[1:, 1:, :-1] + self.data[1:, :-1, :-1])
-        elif self.name.lower() == 'b2':
-            return 0.25 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:] + self.data[1:, 1:, :-1] + self.data[:-1, 1:, :-1])
-        elif self.name.lower() == 'b3':
-            return 0.25 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:] + self.data[1:, :-1, 1:] + self.data[:-1, :-1, 1:])
-        elif self.name.lower() == 'e1':
-            return 0.5 * (self.data[1:, 1:, 1:] + self.data[:-1, 1:, 1:])
-        elif self.name.lower() == 'e2':
-            return 0.5 * (self.data[1:, 1:, 1:] + self.data[1:, :-1, 1:])
-        elif self.name.lower() == 'e3':
-            return 0.5 * (self.data[1:, 1:, 1:] + self.data[1:, 1:, :-1])
-        else:
-            raise TypeError(f'This method expects magnetic or electric field grid data but received \'{self.name}\' instead')
-        
-    def yeeToCellCorner(self, boundary=None):
-        ''''
-        Converts EM fields from a staggered Yee mesh to a grid with field values centered on the corner of the cell.'
-        Can be used for 1D, 2D and 3D simulations.'
-        Creates a new attribute `data_centered` with the centered data.'
-        '''
-        
-        cases = {'b1', 'b2', 'b3', 'e1', 'e2', 'e3'}
-        if self.name not in cases:
-            raise TypeError(f'This method expects magnetic or electric field grid data but received \'{self.name}\' instead')
-        
-        if self.dim == 1:
-            self.data_centered = self._yeeToCellCorner1d(boundary)
-            return self.data_centered
-        elif self.dim == 2:
-            self.data_centered = self._yeeToCellCorner2d(boundary)
-            return self.data_centered
-        elif self.dim == 3:
-            self.data_centered = self._yeeToCellCorner3d(boundary)
-            return self.data_centered
-        else:
-            raise ValueError(f'Dimension {self.dim} is not supported')
-        
-    def FFT(self, axis=(0, )):
-        '''
-        Computes the Fast Fourier Transform of the data along the specified axis and shifts the zero frequency to the center.
-        Transforms the data to the frequency domain. A(x, y, z) -> A(kx, ky, kz)
-        '''
-        datafft = np.fft.fftn(self.data, axes=axis)
-        self._FFTdata = np.fft.fftshift(datafft, axes=axis)
+        return next(k for k in f.keys() if k not in {"AXIS", "SIMULATION"})
 
     # Getters
     @property
     def grid(self):
         return self._grid
+
     @property
     def nx(self):
         return self._nx
+
     @property
     def dx(self):
         return self._dx
+
     @property
     def x(self):
         return self._x
+
     @property
     def axis(self):
-        return self._axis   
+        return self._axis
+
     @property
     def data(self):
         return self._data
+
     @property
     def units(self):
         return self._units
+
     @property
     def label(self):
         return self._label
-    @property
-    def FFTdata(self):
-        if self._FFTdata is None:
-            raise ValueError('The FFT of the data has not been computed yet. Compute it using the FFT method.')
-        return self._FFTdata
+
     # Setters
     @data.setter
     def data(self, data):
@@ -352,22 +382,33 @@ class OsirisGridFile(OsirisData):
 
     def __str__(self):
         # write me a template to print with the name, label, units, time, iter, grid, nx, dx, axis, dt, dim in a logical way
-        return rf'{self.name}' + '\n' + rf'Time: [{self.time[0]} {self.time[1]}], dt = {self.dt}' + '\n' + f'Iteration: {self.iter}' + '\n' + f'Grid: {self.grid}' + '\n' + f'dx: {self.dx}' + '\n' + f'Dimensions: {self.dim}D'
-    
+        return (
+            rf"{self.name}"
+            + "\n"
+            + rf"Time: [{self.time[0]} {self.time[1]}], dt = {self.dt}"
+            + "\n"
+            + f"Iteration: {self.iter}"
+            + "\n"
+            + f"Grid: {self.grid}"
+            + "\n"
+            + f"dx: {self.dx}"
+            + "\n"
+            + f"Dimensions: {self.dim}D"
+        )
 
     def __array__(self):
         return np.asarray(self.data)
 
 
 class OsirisRawFile(OsirisData):
-    '''
+    """
     Class to read the raw data from an OSIRIS HDF5 file.
-    
+
     Parameters
     ----------
     filename : str
         Path to OSIRIS HDF5 track file (.h5 extension)
-    
+
     Attributes:
     -----------
     axis : dict[str, dict[str, str]]
@@ -396,43 +437,48 @@ class OsirisRawFile(OsirisData):
     quants : list[str]
         field names of the data
     units : list[str]
-        Units of each field of the data (LaTeX formatted, e.g., 'c/\\omega_p')        
-    
+        Units of each field of the data (LaTeX formatted, e.g., 'c/\\omega_p')
+
     Example
     -------
-        >>> import osiris_utils as ou  
+        >>> import osiris_utils as ou
         >>> raw = ou.raw = ou.OsirisRawFile("path/to/raw/file.h5")
         >>> print(raw.data.keys())
         >>> # Access x1 position of first 10 particles
         >>> print(raw.data[\"x1\"][0:10])
         >>> # Write beautiful labels and units
         >>> print("${} = $".format(raw.labels[\"x1\"]) + "$[{}]$".format(track.units[\"x1\"]))
-    '''
+    """
 
     def __init__(self, filename):
         super().__init__(filename)
 
-        self._grid = np.array([self._file['SIMULATION'].attrs['XMIN'], self._file['SIMULATION'].attrs['XMAX']]).T
+        self._grid = np.array(
+            [
+                self._file["SIMULATION"].attrs["XMIN"],
+                self._file["SIMULATION"].attrs["XMAX"],
+            ]
+        ).T
 
-        self._quants = [byte.decode('utf-8') for byte in self._file.attrs['QUANTS'][:]]
-        units_list = [byte.decode('utf-8') for byte in self._file.attrs['UNITS'][:]]
-        labels_list = [byte.decode('utf-8') for byte in self._file.attrs['LABELS'][:]]
-        self._units = dict(zip(self._quants, units_list))
-        self._labels = dict(zip(self._quants, labels_list))
+        self._quants = [byte.decode("utf-8") for byte in self._file.attrs["QUANTS"][:]]
+        units_list = [byte.decode("utf-8") for byte in self._file.attrs["UNITS"][:]]
+        labels_list = [byte.decode("utf-8") for byte in self._file.attrs["LABELS"][:]]
+        self._units = dict(zip(self._quants, units_list, strict=False))
+        self._labels = dict(zip(self._quants, labels_list, strict=False))
 
         self._data = {}
         self._axis = {}
         for key in self._file.keys():
-            if key == 'SIMULATION': 
+            if key == "SIMULATION":
                 continue
 
             self.data[key] = np.array(self._file[key][()])
 
-            idx = np.where(self._file.attrs['QUANTS'] == str(key).encode('utf-8'))
+            idx = np.where(self._file.attrs["QUANTS"] == str(key).encode("utf-8"))
             axis_data = {
-                'name': self._file.attrs['QUANTS'][idx][0].decode('utf-8'),
-                'units': self._file.attrs['UNITS'][idx][0].decode('utf-8'),
-                'long_name': self._file.attrs['LABELS'][idx][0].decode('utf-8'),
+                "name": self._file.attrs["QUANTS"][idx][0].decode("utf-8"),
+                "units": self._file.attrs["UNITS"][idx][0].decode("utf-8"),
+                "long_name": self._file.attrs["LABELS"][idx][0].decode("utf-8"),
             }
             self._axis[key] = axis_data
 
@@ -464,7 +510,7 @@ class OsirisRawFile(OsirisData):
             so we apply the absolute function when generating the file
 
         """
-            
+
         if mask is not None:
             # Apply mask to select certain tags
             if not isinstance(mask, np.ndarray) or mask.dtype != bool or mask.shape[0] != self.data["tag"].shape[0]:
@@ -473,13 +519,14 @@ class OsirisRawFile(OsirisData):
             filtered_tags = self.data["tag"][filtered_indices]
         else:
             filtered_tags = self.data["tag"]
-        
+
         if type == "all":
             tags = filtered_tags
         elif type == "random":
             if len(filtered_tags) < n_tags:
                 raise ValueError("Not enough tags to sample from.")
-            random_indices = np.random.choice(len(filtered_tags), size=n_tags, replace=False)
+            rng = np.random.default_rng()
+            random_indices = rng.choice(len(filtered_tags), size=n_tags, replace=False)
             tags = filtered_tags[random_indices]
         else:
             raise TypeError("Invalid type", type)
@@ -491,25 +538,31 @@ class OsirisRawFile(OsirisData):
     @property
     def grid(self):
         return self._grid
+
     @property
     def data(self):
         return self._data
+
     @property
     def units(self):
         return self._units
+
     @property
     def labels(self):
         return self._labels
+
     @property
     def quants(self):
         return self._quants
+
     @property
     def axis(self):
-        return self._axis    
+        return self._axis
+
 
 class OsirisHIST(OsirisData):
-    ''''
-    Class to read the data from an OSIRIS HIST file.'
+    """
+    Class to read the data from an OSIRIS HIST file.
 
     Input
     -----
@@ -521,13 +574,45 @@ class OsirisHIST(OsirisData):
         str
     df: the data in a pandas DataFrame
         pandas.DataFrame
-    '''
+    """
+
     def __init__(self, filename):
         super().__init__(filename)
 
     @property
     def df(self):
         return self._df
+
+
+class OsirisTIMINGS(OsirisData):
+    """
+    Class to read the data from an OSIRIS TIMINGS file.
+
+    Input
+    -----
+    filename: the path to the TIMINGS file
+
+    Attributes
+    ----------
+    filename: the path to the file
+        str
+    df: the data in a pandas DataFrame
+        pandas.DataFrame
+    iterations: number of iterations in the run
+        int
+    """
+
+    def __init__(self, filename):
+        super().__init__(filename)
+
+    @property
+    def df(self):
+        return self._df
+
+    @property
+    def iterations(self):
+        return self._df.attrs["iterations"]
+
 
 class OsirisTrackFile(OsirisData):
     """
@@ -540,7 +625,7 @@ class OsirisTrackFile(OsirisData):
 
     Attributes
     ----------
-    data: numpy.ndarray of shape (num_particles, num_time_iter), 
+    data: numpy.ndarray of shape (num_particles, num_time_iter),
         dtype = [(field_name, float) for field_name in field_names]
         A structured numpy array with the track data
         Accessed as data[particles, time_iters][quant]
@@ -556,7 +641,7 @@ class OsirisTrackFile(OsirisData):
         field names of the data
     units : list[str]
         Units of each field of the data (LaTeX formatted, e.g., 'c/\\omega_p')
-    
+
     Example
     -------
         >>> import osiris_utils as ou
@@ -566,20 +651,25 @@ class OsirisTrackFile(OsirisData):
 
     def __init__(self, filename):
         super().__init__(filename)
-        
-        self._grid = np.array([self._file['SIMULATION'].attrs['XMIN'], self._file['SIMULATION'].attrs['XMAX']]).T
 
-        self._quants = [byte.decode('utf-8') for byte in self._file.attrs['QUANTS'][1:]]
-        units_list = [byte.decode('utf-8') for byte in self._file.attrs['UNITS'][1:]]
-        labels_list = [byte.decode('utf-8') for byte in self._file.attrs['LABELS'][1:]]
-        self._units = dict(zip(self._quants, units_list))
-        self._labels = dict(zip(self._quants, labels_list))
-        
-        self._num_particles = self._file.attrs['NTRACKS'][0]
+        self._grid = np.array(
+            [
+                self._file["SIMULATION"].attrs["XMIN"],
+                self._file["SIMULATION"].attrs["XMAX"],
+            ]
+        ).T
 
-        unordered_data = self._file['data'][:]
-        itermap = self._file['itermap'][:]
-        
+        self._quants = [byte.decode("utf-8") for byte in self._file.attrs["QUANTS"][1:]]
+        units_list = [byte.decode("utf-8") for byte in self._file.attrs["UNITS"][1:]]
+        labels_list = [byte.decode("utf-8") for byte in self._file.attrs["LABELS"][1:]]
+        self._units = dict(zip(self._quants, units_list, strict=False))
+        self._labels = dict(zip(self._quants, labels_list, strict=False))
+
+        self._num_particles = self._file.attrs["NTRACKS"][0]
+
+        unordered_data = self._file["data"][:]
+        itermap = self._file["itermap"][:]
+
         idxs = get_track_indexes(itermap, self._num_particles)
         self._data = reorder_track_data(unordered_data, idxs, self._quants)
         self._time = self._data[0][:]["t"]
@@ -587,38 +677,42 @@ class OsirisTrackFile(OsirisData):
         self._close_file()
 
     def _load_basic_attributes(self, f: h5py.File) -> None:
-        '''Load common attributes from HDF5 file'''
-        self._dt = float(f['SIMULATION'].attrs['DT'][0])
-        self._dim = int(f['SIMULATION'].attrs['NDIMS'][0])
+        """Load common attributes from HDF5 file"""
+        self._dt = float(f["SIMULATION"].attrs["DT"][0])
+        self._dim = int(f["SIMULATION"].attrs["NDIMS"][0])
         self._time = None
         self._iter = None
-        self._name = f.attrs['NAME'][0].decode('utf-8')
-        self._type = f.attrs['TYPE'][0].decode('utf-8')
-
+        self._name = f.attrs["NAME"][0].decode("utf-8")
+        self._type = f.attrs["TYPE"][0].decode("utf-8")
 
     # Getters
     @property
     def grid(self):
         return self._grid
+
     @property
     def data(self):
         return self._data
+
     @property
     def units(self):
         return self._units
+
     @property
     def labels(self):
         return self._labels
+
     @property
     def quants(self):
         return self._quants
+
     @property
     def num_particles(self):
         return self._num_particles
+
     @property
     def num_time_iters(self):
-        return self._num_time_iters   
-
+        return self._num_time_iters
 
     # Setters
     @data.setter
@@ -627,36 +721,45 @@ class OsirisTrackFile(OsirisData):
 
     def __str__(self):
         # write me a template to print with the name, label, units, iter, grid, nx, dx, axis, dt, dim in a logical way
-        return rf'{self.name}' + '\n' + f'Iteration: {self.iter}' + '\n' + f'Grid: {self.grid}' + '\n' + f'dx: {self.dx}' + '\n' + f'Dimensions: {self.dim}D'
+        return (
+            rf"{self.name}"
+            + "\n"
+            + f"Iteration: {self.iter}"
+            + "\n"
+            + f"Grid: {self.grid}"
+            + "\n"
+            + f"dx: {self.dx}"
+            + "\n"
+            + f"Dimensions: {self.dim}D"
+        )
 
     def __array__(self):
         return np.asarray(self.data)
 
 
-
 def reorder_track_data(unordered_data, indexes, field_names):
-    '''
+    """
     Reorder data from HDF5 track file such data it can be accessed more intuitively
-    
+
     Parameters
     ----------
     unordered_data: np.array
         The data from a HDF5 osiris track file
-    
+
     indexes : list[list[int]]
         Output of get_track_indexes(), list with the indexes associated with each particle
 
     field_names: list[str]
-        Names for the quantities on the output file. 
+        Names for the quantities on the output file.
         Recommended: field_names = [byte.decode('utf-8') for byte in file.attrs['QUANTS'][1:]]
-    
+
     Returns
     -------
-    data_sorted: numpy.ndarray of shape (num_particles, num_time_iter), 
+    data_sorted: numpy.ndarray of shape (num_particles, num_time_iter),
                     dtype = [(field_name, float) for field_name in field_names]
         A structured numpy array where data is reordered according to indexes.
-    
-    '''
+
+    """
     # Initialize the sorted data structure
     num_particles = len(indexes)
     num_time_iter = len(indexes[0])
@@ -667,15 +770,14 @@ def reorder_track_data(unordered_data, indexes, field_names):
         for time_iter in range(num_time_iter):
             index = indexes[particle][time_iter]
             if len(unordered_data[index]) != len(field_names):
-                raise ValueError(f"Data at index {index} has {len(unordered_data[index])} elements, "
-                                f"but {len(field_names)} are expected.")
+                raise ValueError(f"Data at index {index} has {len(unordered_data[index])} elements, but {len(field_names)} are expected.")
             data_sorted[particle, time_iter] = tuple(unordered_data[index])
 
-    return (data_sorted)
+    return data_sorted
 
 
 def get_track_indexes(itermap, num_particles):
-    '''
+    """
     Returns the indexes for each particle to read track data directly from the hd5 file
     (before it is ordered)
 
@@ -685,27 +787,27 @@ def get_track_indexes(itermap, num_particles):
         Itermap from a HDF5 osiris track file
     num_particles: int
         num of particles tracked, recomended file.attrs['NTRACKS'][0]
-    
+
     Returns
-    -------     
+    -------
     indexes : list[list[int]]
         Returns a list with the indexes associated with each particle
         shape(num_particles, num_time_iters)
-    '''
+    """
 
     itermapshape = itermap.shape
     for i in range(itermapshape[0]):
-        part_number,npoints,nstart = itermap[i,:]
+        part_number, npoints, nstart = itermap[i, :]
     track_indices = np.zeros(num_particles)
 
     data_index = 0
     indexes = [[] for _ in range(num_particles)]
     for i in range(itermapshape[0]):
-        part_number,npoints,nstart = itermap[i,:]
+        part_number, npoints, nstart = itermap[i, :]
 
-        indexes[part_number-1].extend(list(range(data_index, data_index + npoints)))
+        indexes[part_number - 1].extend(list(range(data_index, data_index + npoints)))
 
         data_index += npoints
-        track_indices[part_number-1] += npoints
+        track_indices[part_number - 1] += npoints
 
     return indexes

@@ -1,6 +1,7 @@
 /* Sidebar background */
 .wy-nav-side {
-  background: #88cbf8;  /* Change to your preferred color */
+  background: #367582;
+  /* Change to your preferred color */
 }
 
 /* Sidebar link color */
@@ -10,30 +11,41 @@
 
 /* Sidebar link hover color */
 .wy-menu-vertical a:hover {
-  background-color: #36a8f3;
+  background-color: #5d256d;
+}
+
+.wy-menu-vertical header,
+.wy-menu-vertical p.caption,
+span.caption-text {
+  color: #414141;
 }
 
 /* Selected item in sidebar */
 .wy-menu-vertical li.current {
-  background: #2f93f0;
+  background: #f6f6f2;
 }
 
-.wy-menu-vertical li.current > a {
+.wy-menu-vertical li.current>a {
   background: #aeecff;
 }
 
 /* Header (H1, H2, etc.) colors */
-h1, h2, h3, h4, h5, h6 {
-  color: #57bafb;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: #263876;
 }
 
 a:hover {
-  color: #a5c0fe;
+  color: #f6f6f2;
 }
 
 /* Code block background */
 .highlight {
-  background: #000000;
+  background: #414141;
 }
 
 /* Keep your existing settings for content width */
@@ -43,11 +55,21 @@ a:hover {
 
 /* Keep your existing table width overrides */
 @media screen and (min-width: 767px) {
-.wy-table-responsive table td {
-  white-space: normal !important;
+  .wy-table-responsive table td {
+    white-space: normal !important;
+  }
+
+  .wy-table-responsive {
+    overflow: visible !important;
+  }
 }
 
-.wy-table-responsive {
-  overflow: visible !important;
-}
+/* Small easter-egg logo sizing */
+.wy-side-nav-search .logo img,
+.wy-side-nav .logo img,
+.rst-sidebar .logo img,
+.logo img {
+  max-width: 80px;
+  margin: 6px 8px;
+  height: auto;
 }

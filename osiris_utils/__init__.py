@@ -1,57 +1,85 @@
-from .utils import (
-    time_estimation,
-    filesize_estimation,
-    transverse_average,
-    integrate,
-    save_data,
-    read_data,
-    courant2D,
+from __future__ import annotations
+
+from importlib import metadata as _meta
+
+try:
+    # Use the version that was baked into the wheel / sdist at build time
+    __version__: str = _meta.version(__name__)
+except _meta.PackageNotFoundError:  # package is being run from a checkout
+    # Fallback for `pip install -e .` or direct source use
+    __version__ = "0.0.0.dev0"
+
+from .data.data import (
+    OsirisData,
+    OsirisGridFile,
+    OsirisHIST,
+    OsirisRawFile,
+    OsirisTIMINGS,
+    OsirisTrackFile,
 )
-from .gui.gui import LAVA_Qt, LAVA
-from .data.data import OsirisGridFile, OsirisRawFile, OsirisData, OsirisHIST, OsirisTrackFile
+from .data.diagnostic import Diagnostic
 from .data.simulation import Simulation, Species_Handler
 from .data.diagnostic import Diagnostic
 from .data.track_diagnostic import Track_Diagnostic
 
 from .decks.decks import InputDeckIO
-from .decks.species import Specie
-
-from .postprocessing.postprocess import PostProcess
-from .postprocessing.derivative import Derivative_Simulation, Derivative_Diagnostic
-from .postprocessing.fft import FFT_Diagnostic, FastFourierTransform_Simulation
-
-from .postprocessing.mft_for_gridfile import MFT_Single
+from .decks.species import Species
+from .postprocessing.derivative import Derivative_Diagnostic, Derivative_Simulation
+from .postprocessing.fft import FFT_Diagnostic, FFT_Simulation
+from .postprocessing.field_centering import (
+    FieldCentering_Diagnostic,
+    FieldCentering_Simulation,
+)
+from .postprocessing.heatflux_correction import (
+    HeatfluxCorrection_Diagnostic,
+    HeatfluxCorrection_Simulation,
+)
 from .postprocessing.mft import (
-    MeanFieldTheory_Simulation,
     MFT_Diagnostic,
     MFT_Diagnostic_Average,
     MFT_Diagnostic_Fluctuations,
+    MFT_Simulation,
 )
-
-from .postprocessing.field_centering import FieldCentering_Simulation, FieldCentering_Diagnostic
-
-from .postprocessing.pressure_correction import PressureCorrection_Simulation, PressureCorrection_Diagnostic
-
-from .postprocessing.heatflux_correction import HeatfluxCorrection_Simulation, HeatfluxCorrection_Diagnostic
+from .postprocessing.postprocess import PostProcess
+from .postprocessing.pressure_correction import (
+    PressureCorrection_Diagnostic,
+    PressureCorrection_Simulation,
+)
+from .utils import (
+    convert_tracks,
+    courant2D,
+    create_file_tags,
+    filesize_estimation,
+    integrate,
+    read_data,
+    save_data,
+    time_estimation,
+    transverse_average,
+)
+from .profiling import disable_profiling, enable_profiling, profile_block
 
 __all__ = [
+    # Data Singles
     "OsirisGridFile",
     "OsirisRawFile",
     "OsirisData",
     "OsirisHIST",
+    "OsirisTIMINGS",
     "OsirisTrackFile",
+    # Data Diagnostic and Simulation
     "Simulation",
-    "Species_Handler",
-    "Specie",
     "Diagnostic",
+    "Species_Handler",
+    # Decks
+    "Species",
     "InputDeckIO",
+    # PostProcessing
     "PostProcess",
     "Derivative_Simulation",
     "Derivative_Diagnostic",
     "FFT_Diagnostic",
-    "FastFourierTransform_Simulation",
-    "MFT_Single",
-    "MeanFieldTheory_Simulation",
+    "FFT_Simulation",
+    "MFT_Simulation",
     "MFT_Diagnostic",
     "MFT_Diagnostic_Average",
     "MFT_Diagnostic_Fluctuations",
@@ -61,13 +89,18 @@ __all__ = [
     "PressureCorrection_Diagnostic",
     "HeatfluxCorrection_Simulation",
     "HeatfluxCorrection_Diagnostic",
-    "LAVA_Qt",
-    "LAVA",
+    # Utilities
+    "courant2D",
     "time_estimation",
     "filesize_estimation",
     "transverse_average",
     "integrate",
     "save_data",
     "read_data",
-    "courant2D",
+    "convert_tracks",
+    "create_file_tags",
+    # Profiling
+    "enable_profiling",
+    "disable_profiling",
+    "profile_block",
 ]
