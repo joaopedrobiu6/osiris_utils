@@ -4,6 +4,13 @@
 
 .. toctree::
    :maxdepth: 2
+   :caption: Conference:
+   :hidden:
+
+   conference
+
+.. toctree::
+   :maxdepth: 2
    :caption: Examples:
    :hidden:
 
