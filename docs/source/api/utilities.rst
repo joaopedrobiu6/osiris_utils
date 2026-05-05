@@ -122,9 +122,8 @@ HIST Data
 
 
 TIMINGS Data
-~~~~~~~~~
+~~~~~~~~~~~~
 
-TIMINGS Data
 .. autoclass:: osiris_utils.data.data.Osiris
    :inherited-members: grid, nx, dx, x, axis, data, units, label
 
