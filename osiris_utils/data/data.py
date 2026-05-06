@@ -796,13 +796,12 @@ def get_track_indexes(itermap, num_particles):
     """
 
     itermapshape = itermap.shape
-    for i in range(itermapshape[0]):
-        part_number, npoints, nstart = itermap[i, :]
     track_indices = np.zeros(num_particles)
 
     data_index = 0
     indexes = [[] for _ in range(num_particles)]
     for i in range(itermapshape[0]):
+        # TODO have nstart into account (for particles that are not initiallized at t=0)
         part_number, npoints, nstart = itermap[i, :]
 
         indexes[part_number - 1].extend(list(range(data_index, data_index + npoints)))
