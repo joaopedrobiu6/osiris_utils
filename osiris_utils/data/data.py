@@ -674,7 +674,7 @@ class OsirisTrackFile(OsirisData):
         idxs = get_track_indexes(itermap, self._num_particles)
         self._data = reorder_track_data(unordered_data, idxs, self._quants)
         self._time = self._data[0][:]["t"]
-        self._num_time_iters = np.shape(self._time.shape)
+        self._num_time_iters = len(self._time)
         self._close_file()
 
     def _load_basic_attributes(self, f: h5py.File) -> None:
