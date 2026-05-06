@@ -96,7 +96,7 @@ diag_species
 	ndump_fac_temp = 1,
 	ndump_fac = 1,
 
-	ndump_fac_tracks = 100,
+	ndump_fac_tracks = 1,
 	niter_tracks = 1,
 	file_tags = "file_tags.tags",
 	ifdmp_tracks_efl(1:3) = .true., .true., .true.,
@@ -113,4 +113,3 @@ smooth
 diag_current
 {
 }
-
