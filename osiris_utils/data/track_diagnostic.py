@@ -138,16 +138,15 @@ class Track_Diagnostic:
         #     self._dx = (self._grid[:,1] - self._grid[:,0])/self._nx
         #     self._x = [np.arange(self._grid[i,0], self._grid[i,1], self._dx[i]) for i in range(self._dim)]
 
-        try:
-            if isinstance(self._input_deck, InputDeckIO):
-                self._ndump = int(self._input_deck["time_step"][0]["ndump"])
-            else:
-                warnings.warn(f"Invalid type for input deck : {type(self._input_deck)}. Expected InputDeckIO.")
-                raise TypeError(f"Invalid type for input deck : {type(self._input_deck)}. Expected InputDeckIO.")
-        except:
+        if isinstance(self._input_deck, InputDeckIO):
+            self._ndump = int(self._input_deck["time_step"][0]["ndump"])
+        elif self._input_deck is None:
+            self._ndump = 1
+        else:
             self._ndump = 1
             warnings.warn(
-                f"Failed to read ndump from input deck. Defaulting to {self._ndump}. Use \"Tracks_Diagnostic.dump = <value>\" to set it."
+                f"Invalid type for input deck : {type(self._input_deck)}. Expected InputDeckIO. Defaulting ndump to {self._ndump}.",
+                stacklevel=2,
             )
 
         try:
@@ -163,8 +162,8 @@ class Track_Diagnostic:
             self._num_time_iters = dump.num_time_iters
             self._num_particles = dump.num_particles
             self._quants = dump.quants
-        except:
-            pass
+        except Exception as e:
+            warnings.warn(f"Error loading track diagnostic attributes: {e!s}. Please verify the track file exists.", stacklevel=2)
 
     def _data_generator(self, index=None):
         if self._simulation_folder is None:
@@ -205,7 +204,7 @@ class Track_Diagnostic:
         Unload data from memory. This is useful to free memory when the data is not needed anymore.
         """
         print("Unloading data from memory.")
-        if self._all_loaded == False:
+        if not self._all_loaded:
             print("Data is not loaded.")
             return
         self._data = None

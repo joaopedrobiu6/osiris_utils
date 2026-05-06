@@ -67,6 +67,7 @@ __all__ = [
     # Data Diagnostic and Simulation
     "Simulation",
     "Diagnostic",
+    "Track_Diagnostic",
     "Species_Handler",
     # Decks
     "Species",
