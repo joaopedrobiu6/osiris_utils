@@ -2,18 +2,11 @@
 Equivalent of diagnostic but for tracks files instead of grid files
 """
 
-import numpy as np
 import os
-import glob
-
-from .data import OsirisTrackFile
-import tqdm
-import matplotlib.pyplot as plt
 import warnings
-from typing import Literal
-from ..decks.decks import InputDeckIO, deval
-from ..data.diagnostic import OSIRIS_ALL, OSIRIS_SPECIE_REP_UDIST, OSIRIS_SPECIE_REPORTS, OSIRIS_FLD, OSIRIS_PHA, OSIRIS_DENSITY
 
+from ..decks.decks import InputDeckIO
+from .data import OsirisTrackFile
 
 
 class Track_Diagnostic:
@@ -24,7 +17,7 @@ class Track_Diagnostic:
     Parameters
     ----------
     species : str
-        The species for which the track diagnostics will be handled. 
+        The species for which the track diagnostics will be handled.
     simulation_folder : str, optional
         The path to the simulation folder. This folder must contain the relevant OSIRIS output data. If not provided, it defaults to None.
     input_deck : str, optional
@@ -102,9 +95,7 @@ class Track_Diagnostic:
         if simulation_folder:
             self._simulation_folder = simulation_folder
             if not os.path.isdir(simulation_folder):
-                raise FileNotFoundError(
-                    f"Simulation folder {simulation_folder} not found."
-                )
+                raise FileNotFoundError(f"Simulation folder {simulation_folder} not found.")
         else:
             self._simulation_folder = None
 
@@ -124,22 +115,16 @@ class Track_Diagnostic:
         """
         self._quantity = "tracks"
 
-
         if self._species is None:
             raise ValueError("Species not set.")
         if self._simulation_folder is None:
-            raise ValueError(
-                "Simulation folder not set."
-            )
-        
+            raise ValueError("Simulation folder not set.")
+
         self._path = os.path.join(self._simulation_folder, f"MS/TRACKS/{self._species.name}-tracks.h5")
         self._load_attributes()
 
-
-
-
     def _load_attributes(
-        self, 
+        self,
     ):  # this will be replaced by reading the input deck
         # This can go wrong! NDUMP
         # if input_deck is not None:
@@ -161,7 +146,9 @@ class Track_Diagnostic:
                 raise TypeError(f"Invalid type for input deck : {type(self._input_deck)}. Expected InputDeckIO.")
         except:
             self._ndump = 1
-            warnings.warn(f"Failed to read ndump from input deck. Defaulting to {self._ndump}. Use \"Tracks_Diagnostic.dump = <value>\" to set it.")
+            warnings.warn(
+                f"Failed to read ndump from input deck. Defaulting to {self._ndump}. Use \"Tracks_Diagnostic.dump = <value>\" to set it."
+            )
 
         try:
             dump = OsirisTrackFile(self._path)
@@ -179,22 +166,18 @@ class Track_Diagnostic:
         except:
             pass
 
-    def _data_generator(self, index = None):
+    def _data_generator(self, index=None):
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set.")
         data_object = OsirisTrackFile(self._path)
 
         if index is None:
-            yield (
-                data_object.data
-            )
+            yield (data_object.data)
         else:
             if index not in self._quants:
                 raise ValueError(f"Quantity {index} is invalid, Options are {self._quants}.")
             else:
-                yield (
-                    data_object.data[index]
-                )
+                yield (data_object.data[index])
 
     def load_all(self):
         """
@@ -209,7 +192,6 @@ class Track_Diagnostic:
         if self._all_loaded and self._data is not None:
             print("Data already loaded.")
             return self._data
-
 
         # Original implementation for file-based diagnostics
         print("Loading data from tracks file.")
@@ -240,7 +222,6 @@ class Track_Diagnostic:
         """
         return self.load_all()
 
-
     def __getitem__(self, index):
         # For derived diagnostics with cached data
         if self._all_loaded and self._data is not None:
@@ -252,26 +233,19 @@ class Track_Diagnostic:
                 return next(self._data_generator(index))
 
         # If we get here, we don't know how to get data for this index
-        raise ValueError(
-            f"Cannot retrieve data for this diagnostic at index {index}. No data loaded and no generator available."
-        )
-
+        raise ValueError(f"Cannot retrieve data for this diagnostic at index {index}. No data loaded and no generator available.")
 
     # Getters
     @property
     def data(self):
         if self._data is None:
-            raise ValueError(
-                "Data not loaded into memory. Use get_* method with load_all=True or access via generator/index."
-            )
+            raise ValueError("Data not loaded into memory. Use get_* method with load_all=True or access via generator/index.")
         return self._data
 
     @property
     def time(self):
         if self._time is None:
-            raise ValueError(
-                "Data not loaded into memory. Use get_* method with load_all=True or access via generator/index."
-            )
+            raise ValueError("Data not loaded into memory. Use get_* method with load_all=True or access via generator/index.")
         return self._time
 
     @property
@@ -345,7 +319,7 @@ class Track_Diagnostic:
     @iter.setter
     def iter(self, value):
         self._iter = value
-    
+
     @property
     def tunits(self):
         return self._tunits

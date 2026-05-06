@@ -78,28 +78,25 @@ class Simulation:
 
         if key in self._diagnostics:
             return self._diagnostics[key]
-        
+
         if key == "tracks":
             raise ValueError("Tracks diagnostics require a specie.")
         else:
             # Create a temporary diagnostic for this quantity - this is for quantities that are not species related
-            diag = Diagnostic(
-                simulation_folder=self._simulation_folder, 
-                species=None, 
-                input_deck=self._input_deck)
+            diag = Diagnostic(simulation_folder=self._simulation_folder, species=None, input_deck=self._input_deck)
             diag.get_quantity(key)
-            
+
             original_load_all = diag.load_all
-            
+
             def patched_load_all(*args, **kwargs):
                 result = original_load_all(*args, **kwargs)  # noqa: F841
                 self._diagnostics[key] = diag
                 return diag
-            
+
             diag.load_all = patched_load_all
-            
+
             return diag
-    
+
     def add_diagnostic(self, diagnostic, name=None):
         """
         Add a custom diagnostic to the simulation.
@@ -163,15 +160,9 @@ class Species_Handler:
 
         # Create a temporary diagnostic for this quantity
         if key == "tracks":
-            diag = Track_Diagnostic(
-                simulation_folder=self._simulation_folder, 
-                species=self._species_name, 
-                input_deck=self._input_deck)
+            diag = Track_Diagnostic(simulation_folder=self._simulation_folder, species=self._species_name, input_deck=self._input_deck)
         else:
-            diag = Diagnostic(
-                simulation_folder=self._simulation_folder, 
-                species=self._species_name, 
-                input_deck=self._input_deck)
+            diag = Diagnostic(simulation_folder=self._simulation_folder, species=self._species_name, input_deck=self._input_deck)
             diag.get_quantity(key)
 
         original_load_all = diag.load_all

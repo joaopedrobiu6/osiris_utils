@@ -49,6 +49,7 @@ def _hdf5_chunk_cache_bytes() -> int:
             pass  # malformed value — fall through
     try:
         import psutil
+
         available_mb = psutil.virtual_memory().available // (1024 * 1024)
         return min(512, max(64, available_mb // 10)) * 1024 * 1024
     except ImportError:

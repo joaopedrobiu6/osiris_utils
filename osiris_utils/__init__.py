@@ -19,9 +19,7 @@ from .data.data import (
 )
 from .data.diagnostic import Diagnostic
 from .data.simulation import Simulation, Species_Handler
-from .data.diagnostic import Diagnostic
 from .data.track_diagnostic import Track_Diagnostic
-
 from .decks.decks import InputDeckIO
 from .decks.species import Species
 from .postprocessing.derivative import Derivative_Diagnostic, Derivative_Simulation
@@ -45,6 +43,7 @@ from .postprocessing.pressure_correction import (
     PressureCorrection_Diagnostic,
     PressureCorrection_Simulation,
 )
+from .profiling import disable_profiling, enable_profiling, profile_block
 from .utils import (
     convert_tracks,
     courant2D,
@@ -56,7 +55,6 @@ from .utils import (
     time_estimation,
     transverse_average,
 )
-from .profiling import disable_profiling, enable_profiling, profile_block
 
 __all__ = [
     # Data Singles
