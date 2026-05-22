@@ -104,6 +104,26 @@ Cache management
    # remove all cached diagnostics
    sim.delete_all_diagnostics()
 
+   Accessing tracks diagnostics: Tracks_Diagnostic objects do not support operations but they work similarly to the 
+   basic Diagnostic objects.
+   
+   .. code-block:: python
+        # tracks is a Tracks_Diagnostic object
+        tracks = sim["electrons"]["tracks"]
+
+        # Print all the data keys you can access
+        print(tracks.quants)
+
+        # Access x1 for first 10 particles across all timesteps (lazy)
+        print(track_diag["x1"][0:10, :])
+
+        # Load everything into memory
+        track_diag.load_all()
+
+        # Access data directly from memory
+        print(track_diag["p2"][0:10, :])
+        print(track_diag.data["p2"][0:10, :])
+
 
 Integration with Diagnostics
 ----------------------------

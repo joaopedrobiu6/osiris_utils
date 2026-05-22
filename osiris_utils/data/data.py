@@ -49,6 +49,7 @@ def _hdf5_chunk_cache_bytes() -> int:
             pass  # malformed value — fall through
     try:
         import psutil
+
         available_mb = psutil.virtual_memory().available // (1024 * 1024)
         return min(512, max(64, available_mb // 10)) * 1024 * 1024
     except ImportError:
@@ -673,7 +674,7 @@ class OsirisTrackFile(OsirisData):
         idxs = get_track_indexes(itermap, self._num_particles)
         self._data = reorder_track_data(unordered_data, idxs, self._quants)
         self._time = self._data[0][:]["t"]
-        self._num_time_iters = np.shape(self._time.shape)
+        self._num_time_iters = len(self._time)
         self._close_file()
 
     def _load_basic_attributes(self, f: h5py.File) -> None:
@@ -796,13 +797,12 @@ def get_track_indexes(itermap, num_particles):
     """
 
     itermapshape = itermap.shape
-    for i in range(itermapshape[0]):
-        part_number, npoints, nstart = itermap[i, :]
     track_indices = np.zeros(num_particles)
 
     data_index = 0
     indexes = [[] for _ in range(num_particles)]
     for i in range(itermapshape[0]):
+        # TODO have nstart into account (for particles that are not initiallized at t=0)
         part_number, npoints, nstart = itermap[i, :]
 
         indexes[part_number - 1].extend(list(range(data_index, data_index + npoints)))

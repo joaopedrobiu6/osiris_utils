@@ -19,6 +19,7 @@ from .data.data import (
 )
 from .data.diagnostic import Diagnostic
 from .data.simulation import Simulation, Species_Handler
+from .data.track_diagnostic import Track_Diagnostic
 from .decks.decks import InputDeckIO
 from .decks.species import Species
 from .postprocessing.derivative import Derivative_Diagnostic, Derivative_Simulation
@@ -66,6 +67,7 @@ __all__ = [
     # Data Diagnostic and Simulation
     "Simulation",
     "Diagnostic",
+    "Track_Diagnostic",
     "Species_Handler",
     # Decks
     "Species",
