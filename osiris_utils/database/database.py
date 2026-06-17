@@ -469,7 +469,12 @@ class DatabaseCreator:
             raise ValueError("Nothing to build: T <= 0. Did you call set_limits()?")
 
         save_path = os.path.join(self.save_folder, f"{name}.npy")
-        progress_path = f"{save_path}.progress"
+        # NOTE: end the progress path in `.npy` so np.save does NOT silently
+        # append another `.npy` (it does when the name lacks the extension).
+        # Otherwise the checkpoint is written as `<save>.npy.progress.npy` while
+        # np.load / os.remove look for `<save>.npy.progress` — so resume never
+        # finds it (restarts from scratch) and stray files are never cleaned up.
+        progress_path = f"{save_path}.progress.npy"
         dtype = self.build_config.dtype
 
         # ── Open / create the memory-mapped file ──────────────────────────
