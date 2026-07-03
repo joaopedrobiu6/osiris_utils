@@ -3,26 +3,120 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import tqdm as tqdm
 
-from ..ar import AnomalousResistivity, AnomalousResistivityConfig, vlasov_electric_field
-from ..postprocessing import Derivative_Diagnostic, Derivative_Simulation, MFT_Simulation
+from ..ar import AnomalousResistivityConfig
 from ..profiling import _start_timer, _stop_timer
+from .filters import SpatialFilter, as_filter
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["DatabaseBuildConfig", "DatabaseCreator"]
 
 _VALID_DATABASE_TYPES = {"both", "input", "output", "e_vlasov", "all", "vnT"}
+_VALID_ETA_FORMULAS = {"thesis", "lhs"}
 
-# Feature spec type: (label, frame_getter(t_idx) -> 1-D array)
-FeatureSpec = tuple[str, Callable[[int], np.ndarray]]
+# =====================================================================
+# Database parameters — edit here to change what the tensors contain
+# =====================================================================
+# Boundary convention (2-D shock simulations): x1 is longitudinal and
+# non-periodic, x2 is transverse and periodic.  The transverse average
+# is taken along ``DatabaseBuildConfig.mft_axis`` (OSIRIS 1-indexed,
+# default 2 = x2).
+#
+# Each label below must be a key of the quantity dict produced by
+# ``_mean_field_frame_quantities`` (input/output/e_vlasov) or
+# ``_vnT_frame_quantities`` (vnT).  Tensor rows follow list order, so
+# adding/removing/reordering a feature is an edit here (plus, for a new
+# quantity, one line in the frame function that computes it).
+
+#: Rows of the "input" tensor (mean-field features).
+INPUT_FEATURE_LABELS: list[str] = [
+    # Fields
+    "b2_avg",
+    "b3_avg",
+    # Species fluid velocities
+    "vfl1_avg",
+    "vfl2_avg",
+    "vfl3_avg",
+    # Density and temperature
+    "n_avg",
+    "T11_avg",
+    "T12_avg",
+    "nvfl1_avg",
+    # First derivatives (x1)
+    "d1_b2_dx1_avg",
+    "d1_b3_dx1_avg",
+    "d1_vfl1_dx1_avg",
+    "d1_vfl2_dx1_avg",
+    "d1_vfl3_dx1_avg",
+    "d1_n_dx1_avg",
+    "d1_T11_dx1_avg",
+    "d1_T12_dx1_avg",
+    # Second derivatives (x1)
+    "d2_b2_dx1_avg",
+    "d2_b3_dx1_avg",
+    "d2_vfl1_dx1_avg",
+    "d2_vfl2_dx1_avg",
+    "d2_vfl3_dx1_avg",
+    "d2_n_dx1_avg",
+    "d2_T11_dx1_avg",
+    "d2_T12_dx1_avg",
+    # Three derivatives (x1)
+    "d3_b2_dx1_avg",
+    "d3_b3_dx1_avg",
+    "d3_vfl1_dx1_avg",
+    "d3_vfl2_dx1_avg",
+    "d3_vfl3_dx1_avg",
+    "d3_n_dx1_avg",
+    "d3_T11_dx1_avg",
+    "d3_T12_dx1_avg",
+    # Four derivatives (x1)
+    "d4_b2_dx1_avg",
+    "d4_b3_dx1_avg",
+    "d4_vfl1_dx1_avg",
+    "d4_vfl2_dx1_avg",
+    "d4_vfl3_dx1_avg",
+    "d4_n_dx1_avg",
+    "d4_T11_dx1_avg",
+    "d4_T12_dx1_avg",
+    # Composite: d/dx1 (n_avg * T11_avg)
+    "d1_nT11_dx1_avg",
+    "d1_nvfl1_dx1_avg",
+    # Composite: d2/dx1 (n_avg * T11_avg)
+    "d2_nT11_dx1_avg",
+    "d2_nvfl1_dx1_avg",
+    # Composite: d/dx1 (n_avg * T11_avg) / n_avg
+    "dnT11_dx1_over_n_avg",
+]
+
+#: Rows of the "output" tensor (anomalous resistivity).
+OUTPUT_LABELS: list[str] = ["eta_avg"]
+
+#: Rows of the "e_vlasov" tensor.
+E_VLASOV_LABELS: list[str] = ["e_vlasov_avg"]
+
+#: Base (transverse-averaged) quantities of the vnT tensor; the tensor
+#: holds these plus their x1-derivatives of orders VNT_DERIV_ORDERS.
+VNT_BASE_QUANTITIES: tuple[str, ...] = ("vfl1", "n", "T11", "nvfl1", "nT11")
+VNT_DERIV_ORDERS: tuple[int, ...] = (1, 2, 3, 4)
+
+
+def vnT_feature_labels() -> list[str]:
+    """Ordered rows of the vnT tensor, derived from the parameters above."""
+    labels = [f"{q}_avg" for q in VNT_BASE_QUANTITIES]
+    for order in VNT_DERIV_ORDERS:
+        prefix = "d_" if order == 1 else f"d{order}_"
+        labels += [f"{prefix}{q}_dx1_avg" for q in VNT_BASE_QUANTITIES]
+    return labels
 
 
 @dataclass(frozen=True)
@@ -36,16 +130,34 @@ class DatabaseBuildConfig:
     max_workers :
         Worker threads for parallel frame building. None = ThreadPoolExecutor default.
     mft_axis :
-        Axis along which mean-field theory averages are computed. Default: 2 (y-axis).
+        Axis along which mean-field theory averages are computed
+        (OSIRIS 1-indexed). Default: 2 (transverse / x2).
     ar_config :
-        AnomalousResistivityConfig used for output/e_vlasov databases.
-        If None, a default is constructed at runtime (no time derivative, with convection,
-        pressure, and magnetic force).
+        AnomalousResistivityConfig whose ``include_*`` flags gate which terms
+        enter e_vlasov and eta. If None, the defaults are used (no time
+        derivative; convection, pressure and magnetic force included).
+        ``include_time_derivative=True`` is not supported by the per-frame
+        pipeline and raises NotImplementedError.
+    filters :
+        Spatial filters applied, in order, to every raw 2-D frame *before*
+        any physics (e_vlasov, mean fields, derivatives) is computed.
+        Empty (default) = no filtering, 4th-order finite-difference
+        derivatives — identical to the historical tensors.  Filters like
+        :class:`~osiris_utils.database.filters.SavitzkyGolayFilter` also
+        supply their own analytic derivative scheme, which is then used for
+        every derivative in the pipeline.
+    eta_formula :
+        Which formula the output (eta) tensor uses:
+        ``"thesis"`` (default) — 7-term pressure decomposition built from
+        transverse fluctuation cross-terms (matches the historical output);
+        ``"lhs"`` — ⟨e_vlasov⟩ plus mean-field corrections (the form used by
+        the Lorentz database).
     validate_output :
-        If True, NaN/inf values are replaced with 0 per frame and logged.
+        If True, NaN/inf values are replaced with 0 per frame and logged
+        (output and e_vlasov tensors only).
     resume :
         If True, skip frames already written in a previous (possibly crashed) run.
-        Requires the ``.npy`` and ``.npy.progress`` files from that run to exist.
+        Requires the ``.npy`` and ``.npy.progress.npy`` files from that run to exist.
         Progress is tracked per-frame, so a job can be safely killed and restarted.
     flush_every :
         Flush the memory-mapped output to disk and save the progress file every
@@ -57,9 +169,250 @@ class DatabaseBuildConfig:
     max_workers: int | None = None
     mft_axis: int = 2
     ar_config: AnomalousResistivityConfig | None = None
+    filters: Sequence[SpatialFilter] | SpatialFilter | None = ()
+    eta_formula: str = "thesis"
     validate_output: bool = True
     resume: bool = False
     flush_every: int = 128
+
+
+# ----------------------------------------------------------------------
+# Per-frame computation (module-level for clean stack traces)
+# ----------------------------------------------------------------------
+
+
+def _stack_rows(quantities: dict[str, np.ndarray], labels: Sequence[str]) -> np.ndarray:
+    """Stack the 1-D quantities selected by *labels* into a (F, X) array."""
+    try:
+        return np.stack([np.asarray(quantities[label], dtype=np.float64).ravel() for label in labels])
+    except KeyError as e:
+        raise KeyError(f"Feature '{e.args[0]}' is not computed by the frame pipeline. Available: {sorted(quantities)}") from e
+
+
+def _load_filtered_fields(
+    raw: dict[str, Any],
+    names: Sequence[str],
+    t_idx: int,
+    filt: SpatialFilter,
+    avg_axis: int,
+) -> dict[str, np.ndarray]:
+    """Load the raw 2-D fields *names* at *t_idx* and smooth each one."""
+    periodic = tuple(ax == avg_axis for ax in range(2))
+    return {name: filt.smooth(np.asarray(raw[name][t_idx], dtype=np.float64), periodic=periodic) for name in names}
+
+
+def _mean_field_frame_quantities(
+    raw: dict[str, Any],
+    t_idx: int,
+    filt: SpatialFilter,
+    dx: float,
+    dx2: float,
+    avg_axis: int,
+    flags: AnomalousResistivityConfig,
+    eta_formula: str = "thesis",
+    compute_e_vlasov: bool = True,
+    compute_eta: bool = True,
+) -> dict[str, np.ndarray]:
+    r"""Compute all mean-field quantities for one timestep.
+
+    Pipeline (per timestep):
+
+        raw (nx, ny) frames
+          → spatial filter (2-D)
+          → x1-derivatives, e_vlasov and composites in 2-D   [same (nx, ny)]
+          → transverse mean ⟨·⟩ along *avg_axis*             [(nx,)]
+          → eta ("thesis" or "lhs" formula)
+
+    Returns a dict of named 1-D arrays; tensors select rows from it via
+    :data:`INPUT_FEATURE_LABELS` / :data:`OUTPUT_LABELS` / :data:`E_VLASOV_LABELS`.
+
+    Notes
+    -----
+    - All per-field x1-derivatives are taken on the filtered 2-D data
+      **before** the transverse average (along the longitudinal axis,
+      i.e. the first array dimension for the default ``mft_axis=2``).
+      The exceptions are the mean-field composites ``d{1,2}_nT11_dx1_avg``
+      = ∂x1(⟨n⟩⟨T11⟩) and ``d{1,2}_nvfl1_dx1_avg`` = ∂x1(⟨n⟩⟨vfl1⟩), which by
+      definition differentiate the product of the averaged profiles.
+    - ``eta_formula="lhs"``:
+
+      .. math::
+          \eta = \langle e_{vlasov}\rangle
+               + \langle v_1\rangle\,\partial_{x}\langle v_1\rangle
+               + \frac{1}{\langle n\rangle}\partial_{x}(\langle n\rangle\langle T_{11}\rangle)
+               + \langle v_2\rangle\langle B_3\rangle - \langle v_3\rangle\langle B_2\rangle
+
+    - ``eta_formula="thesis"``: fluctuation cross-terms
+      (:math:`f' = f - \langle f\rangle`), replicating
+      ``AnomalousResistivity._compute_mft_terms`` / ``_compute_eta_values``:
+
+      .. math::
+          \eta = -\langle v_1'\,(\partial_x v_1)'\rangle
+               - \langle v_2' B_3'\rangle + \langle v_3' B_2'\rangle
+               + \Bigl\langle\frac{\partial_x(\langle n\rangle\langle T_{11}\rangle)}{n}
+                              \frac{n'}{\langle n\rangle}\Bigr\rangle
+               - \sum \Bigl\langle\frac{\partial(\text{pressure cross-terms})}{n}\Bigr\rangle
+    """
+    if compute_eta and eta_formula == "lhs":
+        compute_e_vlasov = True
+
+    x_axis = 1 - avg_axis  # longitudinal axis in 2-D arrays (avg_axis=1 → x_axis=0)
+
+    f = _load_filtered_fields(raw, ("n", "T11", "T12", "vfl1", "vfl2", "vfl3", "b2", "b3"), t_idx, filt, avg_axis)
+    n, T11, T12 = f["n"], f["T11"], f["T12"]
+    vfl1, vfl2, vfl3 = f["vfl1"], f["vfl2"], f["vfl3"]
+    b2, b3 = f["b2"], f["b3"]
+
+    # Recursive derivative helpers (2-D, before the transverse average)
+    def d_x1(g: np.ndarray, order: int = 1) -> np.ndarray:
+        return filt.derivative(g, dx, axis=x_axis, order=order, periodic=False)
+
+    def d_x2(g: np.ndarray, order: int = 1) -> np.ndarray:
+        return filt.derivative(g, dx2, axis=avg_axis, order=order, periodic=True)
+
+    def avg(g: np.ndarray) -> np.ndarray:
+        return g.mean(axis=avg_axis)
+
+    # ── Transverse averages ⟨·⟩ ───────────────────────────────────────
+    q: dict[str, np.ndarray] = {f"{name}_avg": avg(arr) for name, arr in f.items()}
+
+    # ── x1-derivatives in 2-D (before the transverse average), orders 1-4 ──
+    deriv_fields = ("vfl1", "vfl2", "vfl3", "n", "T11", "T12", "b2", "b3")
+    prev_2d = f
+    d_2d_by_order: dict[int, dict[str, np.ndarray]] = {}
+    for order in (1, 2, 3, 4):
+        cur_2d = {name: d_x1(prev_2d[name]) for name in deriv_fields}
+        d_2d_by_order[order] = cur_2d
+        for name in deriv_fields:
+            q[f"d{order}_{name}_dx1_avg"] = avg(cur_2d[name])
+        prev_2d = cur_2d
+    d1_2d = d_2d_by_order[1]
+
+    # Mean-field composites ⟨n⟩⟨T11⟩, ⟨n⟩⟨vfl1⟩: products of the *averaged*
+    # profiles, so their derivatives can only be taken after the average
+    # (unlike the per-field derivatives above, which are taken in 2-D first).
+    nT11_mf = q["n_avg"] * q["T11_avg"]
+    nvfl1_mf = q["n_avg"] * q["vfl1_avg"]
+    q["nvfl1_avg"] = nvfl1_mf
+    q["d1_nT11_dx1_avg"] = filt.derivative(nT11_mf, dx, axis=0, order=1, periodic=False)
+    q["d2_nT11_dx1_avg"] = filt.derivative(nT11_mf, dx, axis=0, order=2, periodic=False)
+    q["d1_nvfl1_dx1_avg"] = filt.derivative(nvfl1_mf, dx, axis=0, order=1, periodic=False)
+    q["d2_nvfl1_dx1_avg"] = filt.derivative(nvfl1_mf, dx, axis=0, order=2, periodic=False)
+    q["dnT11_dx1_over_n_avg"] = q["d1_nT11_dx1_avg"] / q["n_avg"]
+
+    if not (compute_e_vlasov or compute_eta):
+        return q
+
+    # ── Remaining 2-D derivatives for e_vlasov / eta ───────────────────
+    dvfl1_dx1_2d = d1_2d["vfl1"]
+    dvfl1_dx2_2d = d_x2(vfl1) if flags.include_transverse_advection else None
+
+    # ── e_vlasov in 2-D (no E_x), then transverse average ─────────────
+    if compute_e_vlasov:
+        e_vlasov = np.zeros_like(n)
+        if flags.include_convection:
+            e_vlasov -= vfl1 * dvfl1_dx1_2d
+        if flags.include_transverse_advection:
+            e_vlasov -= vfl2 * dvfl1_dx2_2d
+        if flags.include_pressure:
+            e_vlasov -= (d_x1(n * T11) + d_x2(n * T12)) / n
+        if flags.include_magnetic_force:
+            e_vlasov += -vfl2 * b3 + vfl3 * b2
+        q["e_vlasov_avg"] = avg(e_vlasov)
+
+    if not compute_eta:
+        return q
+
+    # ── eta ────────────────────────────────────────────────────────────
+    if eta_formula == "lhs":
+        eta = q["e_vlasov_avg"].copy()
+        if flags.include_convection:
+            eta += q["vfl1_avg"] * q["d1_vfl1_dx1_avg"]
+        if flags.include_transverse_advection:
+            eta += q["vfl2_avg"] * avg(dvfl1_dx2_2d)
+        if flags.include_pressure:
+            eta += q["dnT11_dx1_over_n_avg"]
+        if flags.include_magnetic_force:
+            eta += q["vfl2_avg"] * q["b3_avg"] - q["vfl3_avg"] * q["b2_avg"]
+
+    elif eta_formula == "thesis":
+
+        def delta(g: np.ndarray) -> np.ndarray:
+            return g - g.mean(axis=avg_axis, keepdims=True)
+
+        eta = np.zeros_like(q["n_avg"])
+        if flags.include_convection:
+            eta -= avg(delta(vfl1) * delta(dvfl1_dx1_2d))
+        if flags.include_transverse_advection:
+            eta -= avg(delta(vfl2) * delta(dvfl1_dx2_2d))
+        if flags.include_magnetic_force:
+            eta -= avg(delta(vfl2) * delta(b3))
+            eta += avg(delta(vfl3) * delta(b2))
+        if flags.include_pressure:
+            # Thesis decomposition: density-fluctuation correction + 6 pressure
+            # cross-terms (avg×delta, delta×avg, delta×delta for xx and xy).
+            n_avg_kd = n.mean(axis=avg_axis, keepdims=True)
+            n_d = n - n_avg_kd
+            T11_avg_kd = T11.mean(axis=avg_axis, keepdims=True)
+            T11_d = T11 - T11_avg_kd
+            T12_avg_kd = T12.mean(axis=avg_axis, keepdims=True)
+            T12_d = T12 - T12_avg_kd
+
+            eta += avg((d_x1(n_avg_kd * T11_avg_kd) / n) * (n_d / n_avg_kd))
+            eta -= avg(d_x1(n_avg_kd * T11_d) / n)
+            eta -= avg(d_x1(n_d * T11_avg_kd) / n)
+            eta -= avg(d_x1(n_d * T11_d) / n)
+            eta -= avg(d_x2(n_avg_kd * T12_d) / n)
+            eta -= avg(d_x2(n_d * T12_avg_kd) / n)
+            eta -= avg(d_x2(n_d * T12_d) / n)
+
+    else:
+        raise ValueError(f"Invalid eta_formula '{eta_formula}'. Choose from: {sorted(_VALID_ETA_FORMULAS)}.")
+
+    q["eta_avg"] = eta
+    return q
+
+
+def _vnT_frame_quantities(
+    raw: dict[str, Any],
+    t_idx: int,
+    filt: SpatialFilter,
+    dx: float,
+    avg_axis: int,
+) -> dict[str, np.ndarray]:
+    """Compute the vnT quantities for one timestep.
+
+    Transverse-averaged base quantities (:data:`VNT_BASE_QUANTITIES`) plus
+    their x1-derivatives of orders :data:`VNT_DERIV_ORDERS`.  Derivatives are
+    taken on the filtered 2-D data **before** the transverse average, by
+    recursively chaining the filter's first-derivative operator along the
+    longitudinal axis (for :class:`NoFilter` this is repeated 4th-order FD —
+    identical to the historical chained first derivatives).
+    """
+    x_axis = 1 - avg_axis  # longitudinal axis in 2-D arrays (avg_axis=1 → x_axis=0)
+    f = _load_filtered_fields(raw, ("n", "T11", "vfl1"), t_idx, filt, avg_axis)
+
+    base_2d = {
+        "vfl1": f["vfl1"],
+        "n": f["n"],
+        "T11": f["T11"],
+        "nvfl1": f["n"] * f["vfl1"],
+        "nT11": f["n"] * f["T11"],
+    }
+    if set(base_2d) != set(VNT_BASE_QUANTITIES):
+        raise KeyError(f"VNT_BASE_QUANTITIES {VNT_BASE_QUANTITIES} do not match the computed quantities {sorted(base_2d)}.")
+
+    q: dict[str, np.ndarray] = {}
+    for name in VNT_BASE_QUANTITIES:
+        q[f"{name}_avg"] = base_2d[name].mean(axis=avg_axis)
+        d_2d = base_2d[name]
+        prev_order = 0
+        for order in VNT_DERIV_ORDERS:
+            d_2d = filt.derivative(d_2d, dx, axis=x_axis, order=order - prev_order, periodic=False)
+            prev_order = order
+            prefix = "d_" if order == 1 else f"d{order}_"
+            q[f"{prefix}{name}_dx1_avg"] = d_2d.mean(axis=avg_axis)
+    return q
 
 
 class DatabaseCreator:
@@ -72,14 +425,22 @@ class DatabaseCreator:
     2. Call ``set_limits(t0, t1)`` to define the time range.
     3. Call ``create_database(database=...)`` to build and save the tensors.
 
+    Per timestep, the raw 2-D frames are loaded, passed through the spatial
+    filters from ``DatabaseBuildConfig.filters`` (if any), then all
+    x1-derivatives and e_vlasov are computed in 2-D, and only then is the
+    transverse average taken.  What each tensor contains is controlled by
+    the parameter block at the top of this module (``INPUT_FEATURE_LABELS``
+    etc.).
+
     Supported database types
     ------------------------
-    ``"input"``     — 22-feature mean-field input tensor.
-    ``"output"``    — eta (thesis pressure decomposition) tensor.
+    ``"input"``     — mean-field input tensor (rows = ``INPUT_FEATURE_LABELS``).
+    ``"output"``    — eta tensor (formula selected by ``DatabaseBuildConfig.eta_formula``).
     ``"e_vlasov"``  — mean-field Vlasov electric field tensor.
-    ``"both"``      — input + output (eta).
-    ``"all"``       — all three tensors above plus vnT.
-    ``"vnT"``       — 25-feature tensor: vfl1, n, T11, n*vfl1, n*T11 and their x1-derivatives up to 4th order, all MFT-averaged.
+    ``"both"``      — input + output, computed in a single pass.
+    ``"all"``       — all three tensors above plus vnT, in a single pass.
+    ``"vnT"``       — vnT tensor: ``VNT_BASE_QUANTITIES`` and their x1-derivatives
+    of orders ``VNT_DERIV_ORDERS``, all transverse-averaged.
     """
 
     def __init__(
@@ -99,10 +460,6 @@ class DatabaseCreator:
         self.final_iter: int | None = None
         self.T: int = 0
         self.X: int = 0
-
-        # Lazily initialised
-        self._ar: AnomalousResistivity | None = None
-        self._sim_mft: MFT_Simulation | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -145,10 +502,12 @@ class DatabaseCreator:
     ) -> None:
         """Build and save database tensors as ``.npy`` files in ``save_folder``.
 
-        Tensors are written frame-by-frame to memory-mapped files — the full
-        tensor is **never held in RAM**.  Progress is checkpointed every
-        ``flush_every`` frames so interrupted jobs can be resumed with
-        ``DatabaseBuildConfig(resume=True)``.
+        All requested tensors are computed in a **single pass** over the
+        simulation frames — each raw field is loaded and filtered exactly
+        once per timestep.  Tensors are written frame-by-frame to
+        memory-mapped files, so the full tensor is never held in RAM, and
+        progress is checkpointed every ``flush_every`` frames so interrupted
+        jobs can be resumed with ``DatabaseBuildConfig(resume=True)``.
 
         Parameters
         ----------
@@ -161,6 +520,14 @@ class DatabaseCreator:
         if database not in _VALID_DATABASE_TYPES:
             raise ValueError(f"Invalid database type '{database}'. Choose from: {sorted(_VALID_DATABASE_TYPES)}.")
 
+        cfg = self.build_config
+        if cfg.eta_formula not in _VALID_ETA_FORMULAS:
+            raise ValueError(f"Invalid eta_formula '{cfg.eta_formula}'. Choose from: {sorted(_VALID_ETA_FORMULAS)}.")
+
+        flags = cfg.ar_config or AnomalousResistivityConfig(species=self.species)
+        if flags.include_time_derivative:
+            raise NotImplementedError("include_time_derivative=True is not supported by the per-frame database pipeline.")
+
         os.makedirs(self.save_folder, exist_ok=True)
 
         if self.final_iter is None:
@@ -171,361 +538,189 @@ class DatabaseCreator:
         build_output = database in {"output", "both", "all"}
         build_vlasov = database in {"e_vlasov", "all"}
         build_vnT = database in {"vnT", "all"}
+        need_mean_field = build_input or build_output or build_vlasov
+
+        filt = as_filter(cfg.filters)
+        dx = float(self.simulation["e1"].dx[0])  # longitudinal grid spacing
+        dx2 = float(self.simulation["e1"].dx[1])  # transverse grid spacing
+        avg_axis = cfg.mft_axis - 1  # 0-indexed numpy axis
+
+        vnT_labels = vnT_feature_labels()
+
+        # (name, row labels, validate) for each requested tensor, in output order.
+        specs: list[tuple[str, list[str], bool]] = []
+        if build_input:
+            specs.append((name_input, INPUT_FEATURE_LABELS, False))
+        if build_output:
+            specs.append((name_output, OUTPUT_LABELS, cfg.validate_output))
+        if build_vlasov:
+            specs.append((name_vlasov, E_VLASOV_LABELS, cfg.validate_output))
+        if build_vnT:
+            specs.append((name_vnT, vnT_labels, False))
+
+        raw = self._load_raw_diagnostics()
+
+        def frame_fn(t_idx: int) -> list[np.ndarray]:
+            frames: list[np.ndarray] = []
+            if need_mean_field:
+                q = _mean_field_frame_quantities(
+                    raw,
+                    t_idx,
+                    filt,
+                    dx,
+                    dx2,
+                    avg_axis,
+                    flags,
+                    eta_formula=cfg.eta_formula,
+                    compute_e_vlasov=build_vlasov,
+                    compute_eta=build_output,
+                )
+                if build_input:
+                    frames.append(_stack_rows(q, INPUT_FEATURE_LABELS))
+                if build_output:
+                    frames.append(_stack_rows(q, OUTPUT_LABELS))
+                if build_vlasov:
+                    frames.append(_stack_rows(q, E_VLASOV_LABELS))
+            if build_vnT:
+                qv = _vnT_frame_quantities(raw, t_idx, filt, dx, avg_axis)
+                frames.append(_stack_rows(qv, vnT_labels))
+            return frames
 
         _timer = _start_timer(
-            f"create_database({database}, T={self.T}, X={self.X}, "
-            f"dtype={self.build_config.dtype.__name__ if hasattr(self.build_config.dtype, '__name__') else self.build_config.dtype})"
+            f"create_database({database}, T={self.T}, X={self.X}, filter={filt!r}, "
+            f"dtype={cfg.dtype.__name__ if hasattr(cfg.dtype, '__name__') else cfg.dtype})"
         )
         try:
-            if build_input:
-                logger.info("Building input database '%s'...", name_input)
-                self._input_database(name=name_input)
-
-            if build_output:
-                logger.info("Building output (eta) database '%s'...", name_output)
-                self._ar_database(key="eta", name=name_output, desc="Creating eta database")
-
-            if build_vlasov:
-                logger.info("Building e_vlasov database '%s'...", name_vlasov)
-                self._e_vlasov_database(name=name_vlasov)
-
-            if build_vnT:
-                logger.info("Building vnT database '%s'...", name_vnT)
-                self._vnT_database(name=name_vnT)
-
+            for name, labels, _ in specs:
+                logger.info("Tensor '%s': %d features — %s", name, len(labels), labels)
+            self._build_tensors(specs, frame_fn, desc=f"Building '{database}' database")
             logger.info("All requested databases saved to '%s'.", self.save_folder)
         finally:
             _stop_timer(_timer)
 
     # ------------------------------------------------------------------
-    # Input database
+    # Raw field access
     # ------------------------------------------------------------------
 
-    def _setup_input_diagnostics(self) -> MFT_Simulation:
-        """Compute all diagnostics needed for the input tensor and return the MFT wrapper."""
-        d_dx1 = Derivative_Simulation(self.simulation, deriv_type="x1", stencil=[-2, -1, 0, 1, 2], deriv_order=1)
-        # d_dt = Derivative_Simulation(self.simulation, "t", stencil=[-2, -1, 0, 1, 2], deriv_order=1)
-
-        sp = self.simulation[self.species]
-
-        self._ensure_diagnostic(sp, sp["n"] * sp["T11"], "nT11")
-        self._ensure_diagnostic(sp, sp["n"] * sp["T12"], "nT12")
-
-        # First derivatives (x1)
-        self._ensure_diagnostic(
-            sp, Derivative_Diagnostic(sp["nT11"], deriv_type="x1", stencil=[-2, -1, 0, 1, 2], deriv_order=1), "dnT11_dx1"
-        )
-        self._ensure_diagnostic(
-            sp, Derivative_Diagnostic(sp["nT12"], deriv_type="x2", stencil=[-2, -1, 0, 1, 2], deriv_order=1, periodic=True), "dnT12_dx2"
-        )
-        # self._ensure_diagnostic(sp, d_dt[self.species]["vfl1"], "dvfl1_dt")
-        self._ensure_diagnostic(sp, d_dx1[self.species]["vfl1"], "dvfl1_dx1")
-        self._ensure_diagnostic(sp, d_dx1[self.species]["vfl2"], "dvfl2_dx1")
-        self._ensure_diagnostic(sp, d_dx1[self.species]["vfl3"], "dvfl3_dx1")
-        self._ensure_diagnostic(self.simulation, d_dx1["b2"], "db2_dx1")
-        self._ensure_diagnostic(self.simulation, d_dx1["b3"], "db3_dx1")
-        self._ensure_diagnostic(sp, d_dx1[self.species]["n"], "dn_dx1")
-        self._ensure_diagnostic(sp, d_dx1[self.species]["T11"], "dT11_dx1")
-
-        # Second derivatives
-        self._ensure_diagnostic(sp, d_dx1[self.species]["dnT11_dx1"], "d2_nT11_dx1")
-        self._ensure_diagnostic(sp, d_dx1[self.species]["dvfl1_dx1"], "d2_vfl1_dx1")
-        self._ensure_diagnostic(sp, d_dx1[self.species]["dvfl2_dx1"], "d2_vfl2_dx1")
-        self._ensure_diagnostic(sp, d_dx1[self.species]["dvfl3_dx1"], "d2_vfl3_dx1")
-        self._ensure_diagnostic(self.simulation, d_dx1["db2_dx1"], "d2_b2_dx1")
-        self._ensure_diagnostic(self.simulation, d_dx1["db3_dx1"], "d2_b3_dx1")
-        self._ensure_diagnostic(sp, d_dx1[self.species]["dn_dx1"], "d2_n_dx1")
-
-        return MFT_Simulation(self.simulation, mft_axis=self.build_config.mft_axis)
-
-    def _input_feature_specs(self, sim_mft: MFT_Simulation) -> list[FeatureSpec]:
-        """Return an ordered list of (label, frame_getter) pairs for the input tensor.
-
-        Each getter takes a time index and returns a 1-D array of shape (X,).
-        Override this method in a subclass to customise the feature set.
-        """
+    def _load_raw_diagnostics(self) -> dict[str, Any]:
+        """Return lazy Diagnostic handles for every raw field the pipeline may need."""
         sp = self.species
-        sm = sim_mft
-
-        dnT11_dx_avg = Derivative_Diagnostic(
-            sm[sp]["n"]["avg"] * sm[sp]["T11"]["avg"], deriv_type="x1", stencil=[-2, -1, 0, 1, 2], deriv_order=1
-        )
-
-        def _sp(name: str) -> Callable[[int], np.ndarray]:
-            return lambda t: sm[sp][name]["avg"][t].flatten()
-
-        def _field(name: str) -> Callable[[int], np.ndarray]:
-            return lambda t: sm[name]["avg"][t].flatten()
-
-        return [
-            # Fields
-            ("b2_avg", _field("b2")),
-            ("b3_avg", _field("b3")),
-            # Species fluid velocities
-            ("vfl1_avg", _sp("vfl1")),
-            ("vfl2_avg", _sp("vfl2")),
-            ("vfl3_avg", _sp("vfl3")),
-            # Density and temperature
-            ("n_avg", _sp("n")),
-            ("T11_avg", _sp("T11")),
-            ("T12_avg", _sp("T12")),
-            # First derivatives (x1)
-            ("dvfl1_dx1_avg", _sp("dvfl1_dx1")),
-            ("dvfl2_dx1_avg", _sp("dvfl2_dx1")),
-            ("dvfl3_dx1_avg", _sp("dvfl3_dx1")),
-            ("dn_dx1_avg", _sp("dn_dx1")),
-            ("dT11_dx1_avg", _sp("dT11_dx1")),
-            ("db2_dx1_avg", _field("db2_dx1")),
-            ("db3_dx1_avg", _field("db3_dx1")),
-            # Second derivatives (x1)
-            ("d2_vfl1_dx1_avg", _sp("d2_vfl1_dx1")),
-            ("d2_vfl2_dx1_avg", _sp("d2_vfl2_dx1")),
-            ("d2_vfl3_dx1_avg", _sp("d2_vfl3_dx1")),
-            ("d2_b2_dx1_avg", _field("d2_b2_dx1")),
-            ("d2_b3_dx1_avg", _field("d2_b3_dx1")),
-            ("d2_n_dx1_avg", _sp("d2_n_dx1")),
-            # Composite: d/dx1 (n_avg * T11_avg)
-            ("dnT11_dx1_avg", lambda t: dnT11_dx_avg[t].flatten()),
-        ]
-
-    def _input_database(self, name: str) -> None:
-        sim_mft = self._setup_input_diagnostics()
-        specs = self._input_feature_specs(sim_mft)
-        F_in = len(specs)
-        labels, getters = zip(*specs, strict=True)
-
-        logger.info("Input tensor: %d features — %s", F_in, list(labels))
-
-        def get_frame(t_idx: int) -> np.ndarray:
-            return np.stack([g(t_idx) for g in getters])
-
-        self._build_tensor(
-            name=name,
-            shape=(self.T, F_in, self.X),
-            frame_fn=get_frame,
-            desc="Building input tensor",
-            validate=False,
-        )
-
-    # ------------------------------------------------------------------
-    # Output databases (eta, eta_new, e_vlasov)
-    # ------------------------------------------------------------------
-
-    @property
-    def _ar_instance(self) -> AnomalousResistivity:
-        """Lazily create (and cache) the AnomalousResistivity object."""
-        if self._ar is None:
-            ar_config = self.build_config.ar_config or AnomalousResistivityConfig(
-                species=self.species,
-                include_time_derivative=False,
-                include_convection=True,
-                include_pressure=True,
-                include_magnetic_force=True,
-            )
-            self._ar = AnomalousResistivity(self.simulation, self.species, config=ar_config)
-        return self._ar
-
-    def _ar_database(self, *, key: str, name: str, desc: str) -> None:
-        """Generic builder for any scalar AR term (eta, eta_new, e_vlasov_avg, …)."""
-        ar = self._ar_instance
-
-        def get_frame(t_idx: int) -> np.ndarray:
-            return np.stack([ar[key][t_idx].flatten()])
-
-        self._build_tensor(
-            name=name,
-            shape=(self.T, 1, self.X),
-            frame_fn=get_frame,
-            desc=desc,
-            validate=self.build_config.validate_output,
-        )
-
-    def _e_vlasov_database(self, name: str) -> None:
-        """Build the e_vlasov database by computing only the Vlasov electric field.
-
-        Uses :func:`vlasov_electric_field` rather than the full
-        :class:`AnomalousResistivity` — no eta / mean-field terms are computed.
-        The stored value is the MFT average of ``simulation["e_vlasov"]``.
-        """
-        ar_config = self.build_config.ar_config or AnomalousResistivityConfig(
-            species=self.species,
-            include_time_derivative=False,
-            include_convection=True,
-            include_pressure=True,
-            include_magnetic_force=True,
-        )
-        vlasov_electric_field(self.simulation, self.species, config=ar_config)
-        sim_mft = MFT_Simulation(self.simulation, mft_axis=self.build_config.mft_axis)
-
-        def get_frame(t_idx: int) -> np.ndarray:
-            return np.stack([sim_mft["e_vlasov"]["avg"][t_idx].flatten()])
-
-        self._build_tensor(
-            name=name,
-            shape=(self.T, 1, self.X),
-            frame_fn=get_frame,
-            desc="Creating e_vlasov database",
-            validate=self.build_config.validate_output,
-        )
-
-    # ------------------------------------------------------------------
-    # vnT database (vfl1, n, T11, n*vfl1, n*T11 + x1-derivatives 1–4)
-    # ------------------------------------------------------------------
-
-    def _setup_vnT_diagnostics(self) -> MFT_Simulation:
-        """Register all diagnostics needed for the vnT tensor."""
-        d_dx1 = Derivative_Simulation(self.simulation, deriv_type="x1", stencil=[-2, -1, 0, 1, 2], deriv_order=1)
-        sp = self.simulation[self.species]
-
-        # Composite base quantities
-        self._ensure_diagnostic(sp, sp["n"] * sp["vfl1"], "nvfl1")
-        self._ensure_diagnostic(sp, sp["n"] * sp["T11"], "nT11")
-
-        # First derivatives
-        for name in ("vfl1", "n", "T11", "nvfl1", "nT11"):
-            self._ensure_diagnostic(sp, d_dx1[self.species][name], f"d_{name}_dx1")
-
-        # Second derivatives
-        for name in ("vfl1", "n", "T11", "nvfl1", "nT11"):
-            self._ensure_diagnostic(sp, d_dx1[self.species][f"d_{name}_dx1"], f"d2_{name}_dx1")
-
-        # Third derivatives
-        for name in ("vfl1", "n", "T11", "nvfl1", "nT11"):
-            self._ensure_diagnostic(sp, d_dx1[self.species][f"d2_{name}_dx1"], f"d3_{name}_dx1")
-
-        # Fourth derivatives
-        for name in ("vfl1", "n", "T11", "nvfl1", "nT11"):
-            self._ensure_diagnostic(sp, d_dx1[self.species][f"d3_{name}_dx1"], f"d4_{name}_dx1")
-
-        return MFT_Simulation(self.simulation, mft_axis=self.build_config.mft_axis)
-
-    def _vnT_feature_specs(self, sim_mft: MFT_Simulation) -> list[FeatureSpec]:
-        """Return (label, frame_getter) pairs for the vnT tensor (25 features)."""
-        sp = self.species
-        sm = sim_mft
-
-        def _sp(name: str) -> Callable[[int], np.ndarray]:
-            return lambda t: sm[sp][name]["avg"][t].flatten()
-
-        base = ["vfl1", "n", "T11", "nvfl1", "nT11"]
-        specs: list[FeatureSpec] = [(f"{q}_avg", _sp(q)) for q in base]
-        for order, prefix in enumerate(("d_", "d2_", "d3_", "d4_"), start=1):
-            for q in base:
-                diag_name = f"{prefix}{q}_dx1"
-                specs.append((f"{diag_name}_avg", _sp(diag_name)))
-        return specs
-
-    def _vnT_database(self, name: str) -> None:
-        sim_mft = self._setup_vnT_diagnostics()
-        specs = self._vnT_feature_specs(sim_mft)
-        F = len(specs)
-        labels, getters = zip(*specs, strict=True)
-
-        logger.info("vnT tensor: %d features — %s", F, list(labels))
-
-        def get_frame(t_idx: int) -> np.ndarray:
-            return np.stack([g(t_idx) for g in getters])
-
-        self._build_tensor(
-            name=name,
-            shape=(self.T, F, self.X),
-            frame_fn=get_frame,
-            desc="Building vnT tensor",
-            validate=False,
-        )
+        sim = self.simulation
+        return {
+            "n": sim[sp]["n"],
+            "T11": sim[sp]["T11"],
+            "T12": sim[sp]["T12"],
+            "vfl1": sim[sp]["vfl1"],
+            "vfl2": sim[sp]["vfl2"],
+            "vfl3": sim[sp]["vfl3"],
+            "b2": sim["b2"],
+            "b3": sim["b3"],
+        }
 
     # ------------------------------------------------------------------
     # Core tensor builder
     # ------------------------------------------------------------------
 
-    def _build_tensor(
+    def _build_tensors(
         self,
-        *,
-        name: str,
-        shape: tuple[int, int, int],
-        frame_fn: Callable[[int], np.ndarray],
+        specs: Sequence[tuple[str, Sequence[str], bool]],
+        frame_fn: Callable[[int], Sequence[np.ndarray]],
         desc: str,
-        validate: bool = False,
     ) -> None:
-        """Build tensor of *shape* by streaming frames to a memory-mapped file.
+        """Stream frames into one memory-mapped ``.npy`` file per spec, single pass.
 
-        The full tensor is **never held in RAM** — each frame is written directly
-        to the ``.npy`` file on disk via ``numpy.lib.format.open_memmap``.
-        This makes 60 GB tensors feasible on any node regardless of RAM.
+        Parameters
+        ----------
+        specs :
+            ``(name, row_labels, validate)`` per tensor.  Tensor *i* gets shape
+            ``(T, len(row_labels), X)``; ``validate=True`` replaces NaN/inf
+            with 0 per frame.
+        frame_fn :
+            Callable returning one ``(F_i, X)`` array per spec for a given t_idx.
+        desc :
+            tqdm progress-bar description.
+
+        The full tensors are **never held in RAM** — each frame is written
+        directly to disk via ``numpy.lib.format.open_memmap``.
 
         Crash safety / resume
         ---------------------
-        A companion ``<name>.npy.progress`` file (a boolean array of length T)
-        tracks which frames have been flushed to disk.  On the next run with
-        ``DatabaseBuildConfig(resume=True)``, already-completed frames are
-        skipped.  Progress is saved every ``flush_every`` frames.
-
-        The safety guarantee is:
-        * A frame is only marked *done* in the progress file **after** the
-          memmap has been flushed.  So on crash, at worst the last
-          ``flush_every`` frames are recomputed — no corrupt data.
+        A single companion ``<first name>.npy.progress.npy`` file (a boolean
+        array of length T) tracks which frames have been flushed to disk.  On
+        the next run with ``DatabaseBuildConfig(resume=True)``, already-completed
+        frames are skipped.  A frame is only marked *done* **after** the memmaps
+        have been flushed, so on crash at worst the last ``flush_every`` frames
+        are recomputed — no corrupt data.
         """
         if self.T <= 0:
             raise ValueError("Nothing to build: T <= 0. Did you call set_limits()?")
+        if not specs:
+            raise ValueError("No tensors requested.")
 
-        save_path = os.path.join(self.save_folder, f"{name}.npy")
+        dtype = self.build_config.dtype
+        names = [name for name, _, _ in specs]
+        save_paths = [os.path.join(self.save_folder, f"{name}.npy") for name in names]
+        shapes = [(self.T, len(labels), self.X) for _, labels, _ in specs]
+        validates = [validate for _, _, validate in specs]
         # NOTE: end the progress path in `.npy` so np.save does NOT silently
         # append another `.npy` (it does when the name lacks the extension).
         # Otherwise the checkpoint is written as `<save>.npy.progress.npy` while
         # np.load / os.remove look for `<save>.npy.progress` — so resume never
         # finds it (restarts from scratch) and stray files are never cleaned up.
-        progress_path = f"{save_path}.progress.npy"
-        dtype = self.build_config.dtype
+        progress_path = f"{save_paths[0]}.progress.npy"
 
-        # ── Open / create the memory-mapped file ──────────────────────────
-        if self.build_config.resume and os.path.exists(save_path) and os.path.exists(progress_path):
+        # ── Open / create the memory-mapped files ─────────────────────────
+        can_resume = self.build_config.resume and all(os.path.exists(p) for p in save_paths) and os.path.exists(progress_path)
+        if can_resume:
             done_mask = np.load(progress_path)
             if done_mask.shape != (self.T,):
                 logger.warning(
-                    "Progress file shape %s != (%d,); restarting '%s' from scratch.",
+                    "Progress file shape %s != (%d,); restarting %s from scratch.",
                     done_mask.shape,
                     self.T,
-                    name,
+                    names,
                 )
                 done_mask = np.zeros(self.T, dtype=bool)
-                arr = np.lib.format.open_memmap(save_path, mode="w+", dtype=dtype, shape=shape)
+                arrs = [np.lib.format.open_memmap(p, mode="w+", dtype=dtype, shape=s) for p, s in zip(save_paths, shapes, strict=True)]
             else:
-                arr = np.lib.format.open_memmap(save_path, mode="r+", dtype=dtype, shape=shape)
-                logger.info(
-                    "Resuming '%s': %d / %d frames already done.",
-                    name,
-                    int(done_mask.sum()),
-                    self.T,
-                )
+                arrs = [np.lib.format.open_memmap(p, mode="r+", dtype=dtype, shape=s) for p, s in zip(save_paths, shapes, strict=True)]
+                logger.info("Resuming %s: %d / %d frames already done.", names, int(done_mask.sum()), self.T)
         else:
             done_mask = np.zeros(self.T, dtype=bool)
-            arr = np.lib.format.open_memmap(save_path, mode="w+", dtype=dtype, shape=shape)
+            arrs = [np.lib.format.open_memmap(p, mode="w+", dtype=dtype, shape=s) for p, s in zip(save_paths, shapes, strict=True)]
 
         work_items = [(out_i, t_idx) for out_i, t_idx in enumerate(range(self.initial_iter, self.final_iter)) if not done_mask[out_i]]
 
         if not work_items:
-            logger.info("'%s' already complete — skipping.", name)
-            del arr
+            logger.info("%s already complete — skipping.", names)
+            arrs.clear()  # close memmap handles
             return
 
         # ── Thread-safe flush / progress helpers ──────────────────────────
         _lock = threading.Lock()
         _n_written = [0]
 
+        def _flush_all() -> None:
+            for arr in arrs:
+                arr.flush()
+            np.save(progress_path, done_mask.copy())
+
         def _write_frame(out_i: int, t_idx: int) -> None:
-            frame = frame_fn(t_idx)
-            if validate:
-                frame = _clean_frame(frame, name, out_i)
-            # Write to mmap (different out_i → different disk pages → thread-safe)
-            arr[out_i] = frame.astype(dtype, copy=False)
+            frames = frame_fn(t_idx)
+            if len(frames) != len(specs):
+                raise ValueError(f"frame_fn returned {len(frames)} arrays but {len(specs)} tensors were requested.")
+            for arr, frame, name, validate in zip(arrs, frames, names, validates, strict=True):
+                if validate:
+                    frame = _clean_frame(frame, name, out_i)
+                # Write to mmap (different out_i → different disk pages → thread-safe)
+                arr[out_i] = frame.astype(dtype, copy=False)
             with _lock:
                 done_mask[out_i] = True
                 _n_written[0] += 1
                 if _n_written[0] % self.build_config.flush_every == 0:
                     # Flush first, then save progress — so progress only reflects
                     # data that is confirmed on disk.
-                    arr.flush()
-                    np.save(progress_path, done_mask.copy())
+                    _flush_all()
 
         # ── Warm-up: first frame on main thread ───────────────────────────
         # Catches lazy diagnostic initialisation / shape mismatches before
@@ -545,26 +740,21 @@ class DatabaseCreator:
                         except Exception as e:
                             # Emergency flush before propagating — preserve progress
                             with _lock:
-                                arr.flush()
-                                np.save(progress_path, done_mask.copy())
-                            raise RuntimeError(f"Failed building '{name}' at output index {out_i} (simulation t_idx={t_idx}).") from e
+                                _flush_all()
+                            raise RuntimeError(f"Failed building {names} at output index {out_i} (simulation t_idx={t_idx}).") from e
                         pbar.update(1)
 
         # ── Final flush and cleanup ────────────────────────────────────────
-        arr.flush()
-        del arr  # close memmap handle (does not delete the file)
+        for arr in arrs:
+            arr.flush()
+        arrs.clear()  # close memmap handles (does not delete the files)
 
         if os.path.exists(progress_path):
             os.remove(progress_path)
 
-        size_gb = (shape[0] * shape[1] * shape[2] * np.dtype(dtype).itemsize) / 1e9
-        logger.info(
-            "Saved '%s' (%.2f GB, %s) → %s",
-            name,
-            size_gb,
-            "x".join(str(s) for s in shape),
-            save_path,
-        )
+        for name, shape, save_path in zip(names, shapes, save_paths, strict=True):
+            size_gb = (shape[0] * shape[1] * shape[2] * np.dtype(dtype).itemsize) / 1e9
+            logger.info("Saved '%s' (%.2f GB, %s) → %s", name, size_gb, "x".join(str(s) for s in shape), save_path)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -572,10 +762,18 @@ class DatabaseCreator:
 
     @property
     def feature_labels(self) -> list[str]:
-        """Return the ordered list of input feature labels (requires diagnostics to be set up)."""
-        sm = MFT_Simulation(self.simulation, mft_axis=self.build_config.mft_axis)
-        specs = self._input_feature_specs(sm)
-        return [label for label, _ in specs]
+        """Ordered list of input feature labels."""
+        return list(INPUT_FEATURE_LABELS)
+
+    @property
+    def output_labels(self) -> list[str]:
+        """Ordered list of output (eta) labels."""
+        return list(OUTPUT_LABELS)
+
+    @property
+    def vnT_labels(self) -> list[str]:
+        """Ordered list of vnT feature labels."""
+        return vnT_feature_labels()
 
     @property
     def x(self) -> Any:
@@ -584,27 +782,6 @@ class DatabaseCreator:
     @property
     def dx(self) -> Any:
         return self.simulation["e1"].dx[0]
-
-    @staticmethod
-    def _ensure_diagnostic(container, diagnostic, name: str) -> None:
-        """Add a diagnostic only if not already present."""
-        try:
-            _ = container[name]
-        except Exception:
-            container.add_diagnostic(diagnostic, name)
-
-    # _validate_and_clean_data kept for backwards compatibility.
-    # New code uses the module-level _clean_frame() which works per-frame.
-    @staticmethod
-    def _validate_and_clean_data(data: np.ndarray) -> np.ndarray:
-        """Replace NaN/inf with 0 in-place and log a warning if any are found."""
-        mask = ~np.isfinite(data)
-        if np.any(mask):
-            nan_count = int(np.count_nonzero(np.isnan(data)))
-            inf_count = int(np.count_nonzero(np.isinf(data)))
-            logger.warning("Found %d NaN and %d inf values — replacing with zeros.", nan_count, inf_count)
-            data[mask] = 0.0
-        return data
 
 
 def _clean_frame(frame: np.ndarray, name: str, out_i: int) -> np.ndarray:

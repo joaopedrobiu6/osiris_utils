@@ -1,9 +1,15 @@
 from .database import DatabaseBuildConfig, DatabaseCreator
+from .filters import FilterChain, GaussianFilter, NoFilter, SavitzkyGolayFilter, SpatialFilter
 from .lorentz_database import LorentzDatabaseBuildConfig, LorentzDatabaseCreator
 
 __all__ = [
-    "DatabaseCreator",
     "DatabaseBuildConfig",
-    "LorentzDatabaseCreator",
+    "DatabaseCreator",
+    "FilterChain",
+    "GaussianFilter",
     "LorentzDatabaseBuildConfig",
+    "LorentzDatabaseCreator",
+    "NoFilter",
+    "SavitzkyGolayFilter",
+    "SpatialFilter",
 ]

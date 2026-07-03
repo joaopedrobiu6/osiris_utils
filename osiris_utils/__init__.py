@@ -20,7 +20,17 @@ from .data.data import (
 )
 from .data.diagnostic import Diagnostic
 from .data.simulation import Simulation, Species_Handler
-from .database import DatabaseBuildConfig, DatabaseCreator, LorentzDatabaseBuildConfig, LorentzDatabaseCreator
+from .database import (
+    DatabaseBuildConfig,
+    DatabaseCreator,
+    FilterChain,
+    GaussianFilter,
+    LorentzDatabaseBuildConfig,
+    LorentzDatabaseCreator,
+    NoFilter,
+    SavitzkyGolayFilter,
+    SpatialFilter,
+)
 from .decks.decks import InputDeckIO
 from .decks.species import Species
 from .io.export import export_simulation_to_npy, export_to_npy
@@ -68,6 +78,12 @@ __all__ = [
     "DatabaseBuildConfig",
     "LorentzDatabaseCreator",
     "LorentzDatabaseBuildConfig",
+    # Database filters
+    "SpatialFilter",
+    "NoFilter",
+    "SavitzkyGolayFilter",
+    "GaussianFilter",
+    "FilterChain",
     # Data Singles
     "OsirisGridFile",
     "OsirisRawFile",

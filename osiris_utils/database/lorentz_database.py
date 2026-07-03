@@ -2,21 +2,23 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
-import tqdm
 
-from .database import DatabaseCreator, _clean_frame
+from .database import DatabaseCreator
+from .filters import SpatialFilter, as_filter
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["LorentzDatabaseBuildConfig", "LorentzDatabaseCreator"]
 
-# 22 input features — mirrors the input tensor from DatabaseCreator._input_feature_specs
+# =====================================================================
+# Database parameters — edit here to change what the tensors contain
+# =====================================================================
+
+# 22 input features — mirrors the input tensor from DatabaseCreator (INPUT_FEATURE_LABELS)
 LORENTZ_FEATURE_LABELS: list[str] = [
     "n_avg",
     "b2_avg",
@@ -74,6 +76,14 @@ class LorentzDatabaseBuildConfig:
     seed :
         Seed for the NumPy default_rng used to draw β values.
         Pass an integer for reproducible augmentation.
+    filters :
+        Spatial filters applied, in order, to every raw 2-D field right after
+        loading — *before* the Lorentz boost and the transverse average.
+        Empty (default) = no filtering, 4th-order finite-difference
+        derivatives.  Filters like
+        :class:`~osiris_utils.database.filters.SavitzkyGolayFilter` also
+        supply their own analytic derivative scheme, used for every
+        derivative in the pipeline.
     validate_output :
         Replace NaN/inf with 0 per frame in the output tensor when True.
     resume :
@@ -88,6 +98,7 @@ class LorentzDatabaseBuildConfig:
     boost_min: float = 0.0
     boost_max: float = 0.9
     seed: int | None = None
+    filters: Sequence[SpatialFilter] | SpatialFilter | None = ()
     validate_output: bool = True
     resume: bool = False
     flush_every: int = 128
@@ -102,9 +113,10 @@ class LorentzDatabaseCreator(DatabaseCreator):
     Pipeline per timestep *t*:
 
         raw (nx, ny) frames
+          → spatial filter (2-D, from ``build_config.filters``)   [same (nx, ny)]
           → Lorentz boost with :math:`\beta_t`                    [same (nx, ny)]
+          → :math:`\gamma\,\partial/\partial x` derivatives (2-D) [same (nx, ny)]
           → transverse mean :math:`\langle\cdot\rangle_y`          [(nx,)]
-          → :math:`\gamma\,\partial/\partial x` derivatives        [(nx,)]
           → stack 22 input features + 1 output (η)                 [(23, nx)]
 
     The input and output are always computed in a single pass per timestep —
@@ -146,10 +158,6 @@ class LorentzDatabaseCreator(DatabaseCreator):
         self.T: int = 0
         self.X: int = 0
 
-        # Unused inherited attributes — kept to avoid AttributeError in inherited methods
-        self._ar = None
-        self._sim_mft = None
-
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -181,9 +189,7 @@ class LorentzDatabaseCreator(DatabaseCreator):
             the same boost sequence.
         """
         if database not in _VALID_DATABASE_TYPES:
-            raise ValueError(
-                f"Invalid database '{database}'. Choose from: {sorted(_VALID_DATABASE_TYPES)}."
-            )
+            raise ValueError(f"Invalid database '{database}'. Choose from: {sorted(_VALID_DATABASE_TYPES)}.")
 
         os.makedirs(self.save_folder, exist_ok=True)
 
@@ -194,51 +200,32 @@ class LorentzDatabaseCreator(DatabaseCreator):
         # β values generated once, shared across input and output builds.
         betas = self._load_or_generate_betas(name_boosts)
 
-        dx       = float(self.simulation["e1"].dx[0])   # longitudinal grid spacing
-        dx2      = float(self.simulation["e1"].dx[1])   # transverse grid spacing
-        avg_axis = self.build_config.mft_axis - 1       # 0-indexed numpy axis
+        dx = float(self.simulation["e1"].dx[0])  # longitudinal grid spacing
+        dx2 = float(self.simulation["e1"].dx[1])  # transverse grid spacing
+        avg_axis = self.build_config.mft_axis - 1  # 0-indexed numpy axis
+        filt = as_filter(self.build_config.filters)
 
         raw = self._load_raw_diagnostics()
 
         def get_combined_frame(t_idx: int) -> np.ndarray:
             beta = float(betas[t_idx - self.initial_iter])
-            return _boost_combined_frame(raw, t_idx, beta, dx, dx2, avg_axis)
+            return _boost_combined_frame(raw, t_idx, beta, dx, dx2, avg_axis, filt)
 
-        if database == "both":
-            # Single pass: write input and output simultaneously.
-            logger.info(
-                "Lorentz input + output (single pass): T=%d, X=%d", self.T, self.X
-            )
-            self._build_two_tensors(
-                name_a=name_input,
-                name_b=name_output,
-                shape_a=(self.T, _N_FEATURES, self.X),
-                shape_b=(self.T, _N_OUTPUT, self.X),
-                frame_fn=get_combined_frame,
-                n_a=_N_FEATURES,
-                desc="Building Lorentz-boosted input + output tensors",
-                validate_b=self.build_config.validate_output,
-            )
+        specs: list[tuple[str, list[str], bool]] = []
+        splits: list[slice] = []
+        if database in {"input", "both"}:
+            specs.append((name_input, LORENTZ_FEATURE_LABELS, False))
+            splits.append(slice(0, _N_FEATURES))
+        if database in {"output", "both"}:
+            specs.append((name_output, LORENTZ_OUTPUT_LABELS, self.build_config.validate_output))
+            splits.append(slice(_N_FEATURES, _N_FEATURES + _N_OUTPUT))
 
-        elif database == "input":
-            logger.info("Lorentz input tensor: T=%d, X=%d", self.T, self.X)
-            self._build_tensor(
-                name=name_input,
-                shape=(self.T, _N_FEATURES, self.X),
-                frame_fn=lambda t: get_combined_frame(t)[:_N_FEATURES],
-                desc="Building Lorentz-boosted input tensor",
-                validate=False,
-            )
+        def frame_fn(t_idx: int) -> list[np.ndarray]:
+            combined = get_combined_frame(t_idx)  # (23, X)
+            return [combined[sl] for sl in splits]
 
-        else:  # "output"
-            logger.info("Lorentz output tensor: T=%d, X=%d", self.T, self.X)
-            self._build_tensor(
-                name=name_output,
-                shape=(self.T, _N_OUTPUT, self.X),
-                frame_fn=lambda t: get_combined_frame(t)[_N_FEATURES:],
-                desc="Building Lorentz-boosted output tensor",
-                validate=self.build_config.validate_output,
-            )
+        logger.info("Lorentz database '%s': T=%d, X=%d, filter=%r", database, self.T, self.X, filt)
+        self._build_tensors(specs, frame_fn, desc=f"Building Lorentz-boosted '{database}' tensors")
 
     @property
     def feature_labels(self) -> list[str]:
@@ -247,147 +234,6 @@ class LorentzDatabaseCreator(DatabaseCreator):
     @property
     def output_labels(self) -> list[str]:
         return list(LORENTZ_OUTPUT_LABELS)
-
-    # ------------------------------------------------------------------
-    # Single-pass two-tensor builder
-    # ------------------------------------------------------------------
-
-    def _build_two_tensors(
-        self,
-        name_a: str,
-        name_b: str,
-        shape_a: tuple,
-        shape_b: tuple,
-        frame_fn: Callable[[int], np.ndarray],
-        n_a: int,
-        desc: str,
-        validate_b: bool = False,
-    ) -> None:
-        """Stream frames to two memory-mapped files in a single pass.
-
-        ``frame_fn(t_idx)`` must return an array of shape ``(n_a + n_b, X)``.
-        The first ``n_a`` rows are written to tensor A (input); the rest to B (output).
-        A single progress file (keyed to ``name_a``) tracks completed frames so
-        interrupted SLURM jobs can resume with ``resume=True``.
-
-        Parameters
-        ----------
-        name_a, name_b :
-            File stems (without ``.npy``) for the two output tensors.
-        shape_a, shape_b :
-            ``(T, F_a, X)`` and ``(T, F_b, X)`` shapes.
-        frame_fn :
-            Callable returning a ``(F_a + F_b, X)`` array for a given t_idx.
-        n_a :
-            Number of feature rows belonging to tensor A.
-        validate_b :
-            Replace NaN/inf with 0 in tensor B frames when True.
-        """
-        save_path_a  = os.path.join(self.save_folder, f"{name_a}.npy")
-        save_path_b  = os.path.join(self.save_folder, f"{name_b}.npy")
-        progress_path = f"{save_path_a}.progress"
-        dtype = self.build_config.dtype
-
-        # ── Open / create the memory-mapped files ─────────────────────
-        if (
-            self.build_config.resume
-            and os.path.exists(save_path_a)
-            and os.path.exists(save_path_b)
-            and os.path.exists(progress_path)
-        ):
-            done_mask = np.load(progress_path)
-            if done_mask.shape != (self.T,):
-                logger.warning(
-                    "Progress file shape %s != (%d,); restarting from scratch.",
-                    done_mask.shape, self.T,
-                )
-                done_mask = np.zeros(self.T, dtype=bool)
-                arr_a = np.lib.format.open_memmap(save_path_a, mode="w+", dtype=dtype, shape=shape_a)
-                arr_b = np.lib.format.open_memmap(save_path_b, mode="w+", dtype=dtype, shape=shape_b)
-            else:
-                arr_a = np.lib.format.open_memmap(save_path_a, mode="r+", dtype=dtype, shape=shape_a)
-                arr_b = np.lib.format.open_memmap(save_path_b, mode="r+", dtype=dtype, shape=shape_b)
-                logger.info(
-                    "Resuming '%s'+'%s': %d / %d frames done.",
-                    name_a, name_b, int(done_mask.sum()), self.T,
-                )
-        else:
-            done_mask = np.zeros(self.T, dtype=bool)
-            arr_a = np.lib.format.open_memmap(save_path_a, mode="w+", dtype=dtype, shape=shape_a)
-            arr_b = np.lib.format.open_memmap(save_path_b, mode="w+", dtype=dtype, shape=shape_b)
-
-        work_items = [
-            (out_i, t_idx)
-            for out_i, t_idx in enumerate(range(self.initial_iter, self.final_iter))
-            if not done_mask[out_i]
-        ]
-
-        if not work_items:
-            logger.info("'%s' + '%s' already complete — skipping.", name_a, name_b)
-            del arr_a, arr_b
-            return
-
-        # ── Thread-safe write / flush helpers ─────────────────────────
-        _lock = threading.Lock()
-        _n_written = [0]
-
-        def _write_frame(out_i: int, t_idx: int) -> None:
-            combined = frame_fn(t_idx)           # (n_a + n_b, X)
-            frame_a  = combined[:n_a]
-            frame_b  = combined[n_a:]
-            if validate_b:
-                frame_b = _clean_frame(frame_b, name_b, out_i)
-            arr_a[out_i] = frame_a.astype(dtype, copy=False)
-            arr_b[out_i] = frame_b.astype(dtype, copy=False)
-            with _lock:
-                done_mask[out_i] = True
-                _n_written[0] += 1
-                if _n_written[0] % self.build_config.flush_every == 0:
-                    arr_a.flush()
-                    arr_b.flush()
-                    np.save(progress_path, done_mask.copy())
-
-        # ── Warm-up: first frame on main thread ───────────────────────
-        _write_frame(*work_items[0])
-        remaining = work_items[1:]
-
-        # ── Parallel frame building ────────────────────────────────────
-        if remaining:
-            with ThreadPoolExecutor(max_workers=self.build_config.max_workers) as ex:
-                futures = {
-                    ex.submit(_write_frame, out_i, t_idx): (out_i, t_idx)
-                    for out_i, t_idx in remaining
-                }
-                with tqdm.tqdm(total=len(work_items), initial=1, desc=desc) as pbar:
-                    for fut in as_completed(futures):
-                        out_i, t_idx = futures[fut]
-                        try:
-                            fut.result()
-                        except Exception as e:
-                            with _lock:
-                                arr_a.flush()
-                                arr_b.flush()
-                                np.save(progress_path, done_mask.copy())
-                            raise RuntimeError(
-                                f"Failed building '{name_a}'/'{name_b}' at output "
-                                f"index {out_i} (t_idx={t_idx})."
-                            ) from e
-                        pbar.update(1)
-
-        # ── Final flush and cleanup ────────────────────────────────────
-        arr_a.flush()
-        arr_b.flush()
-        del arr_a, arr_b
-
-        if os.path.exists(progress_path):
-            os.remove(progress_path)
-
-        size_a = shape_a[0] * shape_a[1] * shape_a[2] * np.dtype(dtype).itemsize / 1e9
-        size_b = shape_b[0] * shape_b[1] * shape_b[2] * np.dtype(dtype).itemsize / 1e9
-        logger.info(
-            "Saved '%s' (%.2f GB) + '%s' (%.2f GB) → %s",
-            name_a, size_a, name_b, size_b, self.save_folder,
-        )
 
     # ------------------------------------------------------------------
     # Helpers
@@ -401,8 +247,7 @@ class LorentzDatabaseCreator(DatabaseCreator):
             betas = np.load(betas_path)
             if betas.shape != (self.T,):
                 raise ValueError(
-                    f"Existing boost file has shape {betas.shape} but T={self.T}. "
-                    f"Delete the file or set resume=False to restart."
+                    f"Existing boost file has shape {betas.shape} but T={self.T}. Delete the file or set resume=False to restart."
                 )
             logger.info("Resuming: loaded boost velocities from %s", betas_path)
             return betas
@@ -419,81 +264,23 @@ class LorentzDatabaseCreator(DatabaseCreator):
 
     def _load_raw_diagnostics(self) -> dict:
         """Return lazy Diagnostic handles for every field needed by the boost."""
-        sp  = self.species
+        sp = self.species
         sim = self.simulation
         return {
-            "n":    sim[sp]["n"],
-            "e2":   sim["e2"],
-            "e3":   sim["e3"],
-            "b2":   sim["b2"],
-            "b3":   sim["b3"],
+            "n": sim[sp]["n"],
+            "e2": sim["e2"],
+            "e3": sim["e3"],
+            "b2": sim["b2"],
+            "b3": sim["b3"],
             "vfl1": sim[sp]["vfl1"],
             "vfl2": sim[sp]["vfl2"],
             "vfl3": sim[sp]["vfl3"],
-            "P11":  sim[sp]["P11"],
-            "P12":  sim[sp]["P12"],
-            "P00":  sim[sp]["P00"],
+            "P11": sim[sp]["P11"],
+            "P12": sim[sp]["P12"],
+            "P00": sim[sp]["P00"],
             "ufl1": sim[sp]["ufl1"],
             "ufl2": sim[sp]["ufl2"],
         }
-
-
-# ----------------------------------------------------------------------
-# Finite-difference helper
-# ----------------------------------------------------------------------
-
-
-def _grad4(f: np.ndarray, dx: float, axis: int, periodic: bool = False) -> np.ndarray:
-    r"""4th-order finite difference of *f* along *axis*.
-
-    Interior points use the standard 5-point centered stencil:
-
-    .. math::
-        f'_i = \frac{f_{i-2} - 8f_{i-1} + 8f_{i+1} - f_{i+2}}{12\,\Delta x}
-
-    Boundary treatment
-    ------------------
-    periodic=True (transverse / x2 direction)
-        Wrap-around indexing via ``np.roll``; all points use the centered stencil.
-    periodic=False (longitudinal / x1 direction)
-        4th-order one-sided stencils at the four edge points:
-
-        .. math::
-            f'_0     &= \frac{-25f_0 + 48f_1 - 36f_2 + 16f_3 - 3f_4}
-                              {12\,\Delta x}  \\[4pt]
-            f'_1     &= \frac{-3f_0 - 10f_1 + 18f_2 - 6f_3 + f_4}
-                              {12\,\Delta x}  \\[4pt]
-            f'_{N-2} &= \frac{-f_{N-5} + 6f_{N-4} - 18f_{N-3} + 10f_{N-2} + 3f_{N-1}}
-                              {12\,\Delta x}  \\[4pt]
-            f'_{N-1} &= \frac{3f_{N-5} - 16f_{N-4} + 36f_{N-3} - 48f_{N-2} + 25f_{N-1}}
-                              {12\,\Delta x}
-
-    Requires at least 5 points along *axis*.
-    """
-    if periodic:
-        return (
-            np.roll(f,  2, axis=axis)
-            - 8.0 * np.roll(f,  1, axis=axis)
-            + 8.0 * np.roll(f, -1, axis=axis)
-            -       np.roll(f, -2, axis=axis)
-        ) / (12.0 * dx)
-
-    # Move the target axis to front for clean 1-D slicing
-    fm  = np.moveaxis(f, axis, 0)
-    out = np.empty_like(fm)
-
-    # Interior: centered stencil
-    out[2:-2] = (fm[:-4] - 8.0 * fm[1:-3] + 8.0 * fm[3:-1] - fm[4:]) / (12.0 * dx)
-
-    # Left boundary: forward-biased
-    out[0] = (-25.0 * fm[0] + 48.0 * fm[1] - 36.0 * fm[2] + 16.0 * fm[3] -  3.0 * fm[4]) / (12.0 * dx)
-    out[1] = ( -3.0 * fm[0] - 10.0 * fm[1] + 18.0 * fm[2] -  6.0 * fm[3] +        fm[4]) / (12.0 * dx)
-
-    # Right boundary: backward-biased
-    out[-2] = (      -fm[-5] + 6.0 * fm[-4] - 18.0 * fm[-3] + 10.0 * fm[-2] +  3.0 * fm[-1]) / (12.0 * dx)
-    out[-1] = (3.0 * fm[-5] - 16.0 * fm[-4] + 36.0 * fm[-3] - 48.0 * fm[-2] + 25.0 * fm[-1]) / (12.0 * dx)
-
-    return np.moveaxis(out, 0, axis)
 
 
 # ----------------------------------------------------------------------
@@ -508,11 +295,16 @@ def _boost_combined_frame(
     dx: float,
     dx2: float,
     avg_axis: int,
+    filt: SpatialFilter,
 ) -> np.ndarray:
     r"""Compute all 22 input features **and** the output η in a single pass.
 
-    Fields are loaded from disk once and the Lorentz transforms are applied
-    once — no work is duplicated regardless of which tensors are saved.
+    Fields are loaded from disk once, smoothed by *filt* (before the boost —
+    the boost transforms are pointwise, so they stay valid on filtered data),
+    and the Lorentz transforms are applied once — no work is duplicated
+    regardless of which tensors are saved.  All derivatives use
+    ``filt.derivative`` (4th-order finite differences for
+    :class:`~osiris_utils.database.filters.NoFilter`).
 
     Returns a ``(23, X)`` float64 array:
 
@@ -555,31 +347,40 @@ def _boost_combined_frame(
 
     .. math::
         \eta' = \langle e'_{vlasov}\rangle
-              + \langle v'_x\rangle \underbrace{\partial_{x'}\langle v'_x\rangle}_{
+              + \langle v'_x\rangle \underbrace{\langle\partial_{x'} v'_x\rangle}_{
                   \text{input feature 9}}
               + \frac{1}{\langle n'\rangle}
                 \underbrace{\partial_{x'}(\langle n'\rangle\langle T'_{11}\rangle)}_{
                   \text{input feature 22}}
               + \langle v_y\rangle\langle B'_z\rangle
               - \langle v_z\rangle\langle B'_y\rangle
-    """
-    gamma  = 1.0 / np.sqrt(1.0 - beta * beta)
-    x_axis = 1 - avg_axis  # longitudinal axis in 2-D arrays (avg_axis=1 → x_axis=0)
 
-    # ── Load raw 2-D fields ───────────────────────────────────────────
-    n    = np.asarray(raw["n"][t_idx],    dtype=np.float64)
-    e2   = np.asarray(raw["e2"][t_idx],   dtype=np.float64)
-    e3   = np.asarray(raw["e3"][t_idx],   dtype=np.float64)
-    b2   = np.asarray(raw["b2"][t_idx],   dtype=np.float64)
-    b3   = np.asarray(raw["b3"][t_idx],   dtype=np.float64)
-    vfl1 = np.asarray(raw["vfl1"][t_idx], dtype=np.float64)
-    vfl2 = np.asarray(raw["vfl2"][t_idx], dtype=np.float64)
-    vfl3 = np.asarray(raw["vfl3"][t_idx], dtype=np.float64)
-    P11  = np.asarray(raw["P11"][t_idx],  dtype=np.float64)
-    P12  = np.asarray(raw["P12"][t_idx],  dtype=np.float64)
-    P00  = np.asarray(raw["P00"][t_idx],  dtype=np.float64)
-    ufl1 = np.asarray(raw["ufl1"][t_idx], dtype=np.float64)
-    ufl2 = np.asarray(raw["ufl2"][t_idx], dtype=np.float64)
+    All per-field derivatives are taken on the boosted 2-D data **before**
+    the transverse average; only the mean-field composite
+    :math:`\partial_{x'}(\langle n'\rangle\langle T'_{11}\rangle)` is, by
+    definition, computed after it.
+    """
+    gamma = 1.0 / np.sqrt(1.0 - beta * beta)
+    x_axis = 1 - avg_axis  # longitudinal axis in 2-D arrays (avg_axis=1 → x_axis=0)
+    periodic = tuple(ax == avg_axis for ax in range(2))
+
+    # ── Load raw 2-D fields and smooth them (before the boost) ────────
+    def _load(name: str) -> np.ndarray:
+        return filt.smooth(np.asarray(raw[name][t_idx], dtype=np.float64), periodic=periodic)
+
+    n = _load("n")
+    e2 = _load("e2")
+    e3 = _load("e3")
+    b2 = _load("b2")
+    b3 = _load("b3")
+    vfl1 = _load("vfl1")
+    vfl2 = _load("vfl2")
+    vfl3 = _load("vfl3")
+    P11 = _load("P11")
+    P12 = _load("P12")
+    P00 = _load("P00")
+    ufl1 = _load("ufl1")
+    ufl2 = _load("ufl2")
 
     # ── Lorentz transforms ────────────────────────────────────────────
     # $D \equiv 1 - \beta v_x$
@@ -600,94 +401,87 @@ def _boost_combined_frame(
     #          - \beta P_{11}/n - \beta P_{00}]\,/\,D$
     p11_t = (
         gamma**2 * (P11 - 2.0 * beta * n * ufl1 + beta**2 * n * P00)
-        - gamma * n * (vfl1 - beta)
-        * (gamma * ((1.0 + beta**2) * ufl1 - beta * (P11 / n) - beta * P00))
-        / denom
+        - gamma * n * (vfl1 - beta) * (gamma * ((1.0 + beta**2) * ufl1 - beta * (P11 / n) - beta * P00)) / denom
     )
 
     # $P'_{12} = \gamma^2(P_{12} - 2\beta n u_2)
     #            - \gamma n(v_x-\beta)(u_2 - \beta P_{12}/n)\,/\,D$
-    p12_t = (
-        gamma**2 * (P12 - 2.0 * beta * n * ufl2)
-        - gamma * n * (vfl1 - beta) * (ufl2 - beta * (P12 / n)) / denom
-    )
+    p12_t = gamma**2 * (P12 - 2.0 * beta * n * ufl2) - gamma * n * (vfl1 - beta) * (ufl2 - beta * (P12 / n)) / denom
 
     # $T'_{11} = P'_{11}/n'$,  $T'_{12} = P'_{12}/n'$
     T11_t = p11_t / n_t
     T12_t = p12_t / n_t
 
     # ── Transverse average $\langle\cdot\rangle_y$ ───────────────────
-    n_avg    = n_t.mean(axis=avg_axis)
-    b2_avg   = b2_t.mean(axis=avg_axis)
-    b3_avg   = b3_t.mean(axis=avg_axis)
+    n_avg = n_t.mean(axis=avg_axis)
+    b2_avg = b2_t.mean(axis=avg_axis)
+    b3_avg = b3_t.mean(axis=avg_axis)
     vfl1_avg = vfl1_t.mean(axis=avg_axis)
-    vfl2_avg = vfl2.mean(axis=avg_axis)    # untransformed
-    vfl3_avg = vfl3.mean(axis=avg_axis)    # untransformed
-    T11_avg  = T11_t.mean(axis=avg_axis)
-    T12_avg  = T12_t.mean(axis=avg_axis)
+    vfl2_avg = vfl2.mean(axis=avg_axis)  # untransformed
+    vfl3_avg = vfl3.mean(axis=avg_axis)  # untransformed
+    T11_avg = T11_t.mean(axis=avg_axis)
+    T12_avg = T12_t.mean(axis=avg_axis)
 
-    # ── 1-D derivatives on averaged fields (longitudinal, non-periodic) ──
+    # ── Longitudinal derivatives in 2-D (before the transverse average) ──
     # Covariant approximation: $\partial/\partial x' \approx \gamma\,\partial/\partial x$
-    def _d(f: np.ndarray) -> np.ndarray:
-        return gamma * _grad4(f, dx, axis=0)
+    # (order n picks up a $\gamma^n$ factor; non-periodic boundaries)
+    def _d2d(f: np.ndarray, order: int = 1) -> np.ndarray:
+        return gamma**order * filt.derivative(f, dx, axis=x_axis, order=order, periodic=False)
 
-    dvfl1 = _d(vfl1_avg)
-    dvfl2 = _d(vfl2_avg)
-    dvfl3 = _d(vfl3_avg)
-    dn    = _d(n_avg)
-    dT11  = _d(T11_avg)
-    db2   = _d(b2_avg)
-    db3   = _d(b3_avg)
-    dnT11 = _d(n_avg * T11_avg)   # reused in Step 3 below
+    def _d_avg(f: np.ndarray, order: int = 1) -> np.ndarray:
+        return _d2d(f, order).mean(axis=avg_axis)
+
+    dvfl1 = _d_avg(vfl1_t)
+    dvfl2 = _d_avg(vfl2)  # untransformed
+    dvfl3 = _d_avg(vfl3)  # untransformed
+    dn = _d_avg(n_t)
+    dT11 = _d_avg(T11_t)
+    db2 = _d_avg(b2_t)
+    db3 = _d_avg(b3_t)
+    # Mean-field composite ∂x'(⟨n'⟩⟨T'11⟩): by definition the derivative of the
+    # product of the *averaged* profiles — reused in Step 3 below.
+    dnT11 = gamma * filt.derivative(n_avg * T11_avg, dx, axis=0, order=1, periodic=False)
 
     # ── Input features (22, X) ────────────────────────────────────────
-    input_features = np.stack([
-        n_avg,        # 0
-        b2_avg,       # 1
-        b3_avg,       # 2
-        vfl1_avg,     # 3
-        vfl2_avg,     # 4
-        vfl3_avg,     # 5
-        T11_avg,      # 6
-        T12_avg,      # 7
-        dvfl1,        # 8   ∂v'x/∂x'
-        dvfl2,        # 9
-        dvfl3,        # 10
-        dn,           # 11
-        dT11,         # 12
-        db2,          # 13
-        db3,          # 14
-        _d(dvfl1),    # 15  ∂²v'x/∂x'²
-        _d(dvfl2),    # 16
-        _d(dvfl3),    # 17
-        _d(db2),      # 18
-        _d(db3),      # 19
-        _d(dn),       # 20
-        dnT11,        # 21  ∂(n'T'11)/∂x'  — also used in η Step 3
-    ])  # (22, X)
+    input_features = np.stack(
+        [
+            n_avg,  # 0
+            b2_avg,  # 1
+            b3_avg,  # 2
+            vfl1_avg,  # 3
+            vfl2_avg,  # 4
+            vfl3_avg,  # 5
+            T11_avg,  # 6
+            T12_avg,  # 7
+            dvfl1,  # 8   ⟨∂v'x/∂x'⟩
+            dvfl2,  # 9
+            dvfl3,  # 10
+            dn,  # 11
+            dT11,  # 12
+            db2,  # 13
+            db3,  # 14
+            _d_avg(vfl1_t, 2),  # 15  ⟨∂²v'x/∂x'²⟩
+            _d_avg(vfl2, 2),  # 16
+            _d_avg(vfl3, 2),  # 17
+            _d_avg(b2_t, 2),  # 18
+            _d_avg(b3_t, 2),  # 19
+            _d_avg(n_t, 2),  # 20
+            dnT11,  # 21  ∂(⟨n'⟩⟨T'11⟩)/∂x'  — also used in η Step 3
+        ]
+    )  # (22, X)
 
     # ── Output: boosted η (1, X) ──────────────────────────────────────
-    # Longitudinal 2-D derivative: $\partial/\partial x' \approx \gamma\,\partial/\partial x$
-    # (non-periodic boundaries)
-    def _d2d(f: np.ndarray) -> np.ndarray:
-        return gamma * _grad4(f, dx, axis=x_axis, periodic=False)
-
     # Transverse 2-D derivative: $\partial/\partial y' = \partial/\partial y$
     # (no $\gamma$; periodic wrap-around for standard shock-sim BCs)
     def _d2d_y(f: np.ndarray) -> np.ndarray:
-        return _grad4(f, dx2, axis=avg_axis, periodic=True)
+        return filt.derivative(f, dx2, axis=avg_axis, order=1, periodic=True)
 
     # Step 1: 2-D e_vlasov on full boosted field (no E_x)
     # $e'_{vlasov} = -v'_x\,\partial_{x'} v'_x
     #                - \frac{1}{n'}\bigl(\partial_{x'}(n' T'_{11})
     #                                   + \partial_y(n' T'_{12})\bigr)
     #                - v_y B'_z + v_z B'_y$
-    e_vlasov_2d = (
-        -vfl1_t * _d2d(vfl1_t)
-        - (1.0 / n_t) * (_d2d(n_t * T11_t) + _d2d_y(n_t * T12_t))
-        - vfl2 * b3_t
-        + vfl3 * b2_t
-    )
+    e_vlasov_2d = -vfl1_t * _d2d(vfl1_t) - (1.0 / n_t) * (_d2d(n_t * T11_t) + _d2d_y(n_t * T12_t)) - vfl2 * b3_t + vfl3 * b2_t
 
     # Step 2: transverse average
     e_vlasov_avg = e_vlasov_2d.mean(axis=avg_axis)
@@ -699,8 +493,8 @@ def _boost_combined_frame(
     #         + \langle v_y\rangle\langle B'_z\rangle - \langle v_z\rangle\langle B'_y\rangle$
     eta = (
         e_vlasov_avg
-        + vfl1_avg * dvfl1              # dvfl1 = input feature 8
-        + (1.0 / n_avg) * dnT11         # dnT11 = input feature 21
+        + vfl1_avg * dvfl1  # dvfl1 = input feature 8
+        + (1.0 / n_avg) * dnT11  # dnT11 = input feature 21
         + vfl2_avg * b3_avg
         - vfl3_avg * b2_avg
     )
