@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["DatabaseBuildConfig", "DatabaseCreator"]
 
-_VALID_DATABASE_TYPES = {"both", "input", "output", "e_vlasov", "all", "vnT"}
+_VALID_DATABASE_TYPES = {"InOut", "input", "output", "e_vlasov", "all", "vnT"}
 _VALID_ETA_FORMULAS = {"thesis", "lhs"}
 
 # =====================================================================
@@ -281,12 +281,12 @@ def _mean_field_frame_quantities(
     prev_2d = f
     d_2d_by_order: dict[int, dict[str, np.ndarray]] = {}
     for order in (1, 2, 3, 4):
-        cur_2d = {name: d_x1(prev_2d[name]) for name in deriv_fields}
+        cur_2d = {name: d_x1(prev_2d[name]) for name in deriv_fields}  # computes derivative of the previous order
         d_2d_by_order[order] = cur_2d
         for name in deriv_fields:
             q[f"d{order}_{name}_dx1_avg"] = avg(cur_2d[name])
         prev_2d = cur_2d
-    d1_2d = d_2d_by_order[1]
+    d1_2d = d_2d_by_order[1]  # store the first-order derivatives for later use in e_vlasov / eta
 
     # Mean-field composites ⟨n⟩⟨T11⟩, ⟨n⟩⟨vfl1⟩: products of the *averaged*
     # profiles, so their derivatives can only be taken after the average
@@ -403,6 +403,7 @@ def _vnT_frame_quantities(
         raise KeyError(f"VNT_BASE_QUANTITIES {VNT_BASE_QUANTITIES} do not match the computed quantities {sorted(base_2d)}.")
 
     q: dict[str, np.ndarray] = {}
+    # Computes the transverse average of the base quantities and their x1-derivatives up to order 4.
     for name in VNT_BASE_QUANTITIES:
         q[f"{name}_avg"] = base_2d[name].mean(axis=avg_axis)
         d_2d = base_2d[name]
@@ -437,7 +438,7 @@ class DatabaseCreator:
     ``"input"``     — mean-field input tensor (rows = ``INPUT_FEATURE_LABELS``).
     ``"output"``    — eta tensor (formula selected by ``DatabaseBuildConfig.eta_formula``).
     ``"e_vlasov"``  — mean-field Vlasov electric field tensor.
-    ``"both"``      — input + output, computed in a single pass.
+    ``"InOut"``     — input + output, computed in a single pass.
     ``"all"``       — all three tensors above plus vnT, in a single pass.
     ``"vnT"``       — vnT tensor: ``VNT_BASE_QUANTITIES`` and their x1-derivatives
     of orders ``VNT_DERIV_ORDERS``, all transverse-averaged.
@@ -452,7 +453,7 @@ class DatabaseCreator:
     ):
         self.simulation = simulation
         self.species = species
-        self.save_folder = save_folder
+        self.save_folder = Path(save_folder)
         self.build_config = build_config or DatabaseBuildConfig()
 
         # Iteration / spatial limits (set by set_limits)
@@ -474,7 +475,8 @@ class DatabaseCreator:
 
         if final_iter is None:
             try:
-                final_iter = len(self.simulation["e1"])
+                # TODO: Test this
+                final_iter = len(self.simulation["e1"])  # I'm not sure if this works tbh, but I never used it without a final iteration
             except Exception as e:
                 raise ValueError("final_iter=None but could not infer simulation time length from simulation['e1'].") from e
 
@@ -494,7 +496,7 @@ class DatabaseCreator:
 
     def create_database(
         self,
-        database: str = "both",
+        database: str = "InOut",
         name_input: str = "input_tensor",
         name_output: str = "eta_tensor",
         name_vlasov: str = "e_vlasov_tensor",
@@ -513,7 +515,7 @@ class DatabaseCreator:
         ----------
         database :
             Which tensors to build. One of: ``"input"``, ``"output"``,
-            ``"e_vlasov"``, ``"vnT"``, ``"both"`` (input + output), ``"all"`` (all).
+            ``"e_vlasov"``, ``"vnT"``, ``"InOut"`` (input + output), ``"all"`` (all).
         name_input, name_output, name_vlasov, name_vnT :
             File-stem names (without ``.npy``) for each tensor.
         """
@@ -528,14 +530,14 @@ class DatabaseCreator:
         if flags.include_time_derivative:
             raise NotImplementedError("include_time_derivative=True is not supported by the per-frame database pipeline.")
 
-        os.makedirs(self.save_folder, exist_ok=True)
+        self.save_folder.mkdir(parents=True, exist_ok=True)
 
         if self.final_iter is None:
             logger.warning("set_limits() not called; inferring from simulation['e1'].")
             self.set_limits(0, None)
 
-        build_input = database in {"input", "both", "all"}
-        build_output = database in {"output", "both", "all"}
+        build_input = database in {"input", "InOut", "all"}
+        build_output = database in {"output", "InOut", "all"}
         build_vlasov = database in {"e_vlasov", "all"}
         build_vnT = database in {"vnT", "all"}
         need_mean_field = build_input or build_output or build_vlasov
@@ -659,18 +661,18 @@ class DatabaseCreator:
 
         dtype = self.build_config.dtype
         names = [name for name, _, _ in specs]
-        save_paths = [os.path.join(self.save_folder, f"{name}.npy") for name in names]
+        save_paths = [self.save_folder / f"{name}.npy" for name in names]
         shapes = [(self.T, len(labels), self.X) for _, labels, _ in specs]
         validates = [validate for _, _, validate in specs]
         # NOTE: end the progress path in `.npy` so np.save does NOT silently
         # append another `.npy` (it does when the name lacks the extension).
         # Otherwise the checkpoint is written as `<save>.npy.progress.npy` while
-        # np.load / os.remove look for `<save>.npy.progress` — so resume never
+        # loading and cleanup use `<save>.npy.progress.npy` — so resume never
         # finds it (restarts from scratch) and stray files are never cleaned up.
-        progress_path = f"{save_paths[0]}.progress.npy"
+        progress_path = save_paths[0].with_suffix(f"{save_paths[0].suffix}.progress.npy")
 
         # ── Open / create the memory-mapped files ─────────────────────────
-        can_resume = self.build_config.resume and all(os.path.exists(p) for p in save_paths) and os.path.exists(progress_path)
+        can_resume = self.build_config.resume and all(p.exists() for p in save_paths) and progress_path.exists()
         if can_resume:
             done_mask = np.load(progress_path)
             if done_mask.shape != (self.T,):
@@ -749,8 +751,8 @@ class DatabaseCreator:
             arr.flush()
         arrs.clear()  # close memmap handles (does not delete the files)
 
-        if os.path.exists(progress_path):
-            os.remove(progress_path)
+        if progress_path.exists():
+            progress_path.unlink()
 
         for name, shape, save_path in zip(names, shapes, save_paths, strict=True):
             size_gb = (shape[0] * shape[1] * shape[2] * np.dtype(dtype).itemsize) / 1e9
