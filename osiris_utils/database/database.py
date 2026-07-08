@@ -277,16 +277,20 @@ def _mean_field_frame_quantities(
     q: dict[str, np.ndarray] = {f"{name}_avg": avg(arr) for name, arr in f.items()}
 
     # ── x1-derivatives in 2-D (before the transverse average), orders 1-4 ──
+    # Chained per field so at most two full-resolution 2-D derivative arrays
+    # are alive at once; only the order-1 vfl1 derivative is needed downstream,
+    # everything else is averaged and dropped.  Retaining all orders for all
+    # fields (~32 extra 2-D arrays per frame) OOMs multi-worker builds on
+    # large grids.
     deriv_fields = ("vfl1", "vfl2", "vfl3", "n", "T11", "T12", "b2", "b3")
-    prev_2d = f
-    d_2d_by_order: dict[int, dict[str, np.ndarray]] = {}
-    for order in (1, 2, 3, 4):
-        cur_2d = {name: d_x1(prev_2d[name]) for name in deriv_fields}  # computes derivative of the previous order
-        d_2d_by_order[order] = cur_2d
-        for name in deriv_fields:
-            q[f"d{order}_{name}_dx1_avg"] = avg(cur_2d[name])
-        prev_2d = cur_2d
-    d1_2d = d_2d_by_order[1]  # store the first-order derivatives for later use in e_vlasov / eta
+    dvfl1_dx1_2d: np.ndarray | None = None
+    for name in deriv_fields:
+        cur_2d = f[name]
+        for order in (1, 2, 3, 4):
+            cur_2d = d_x1(cur_2d)  # computes derivative of the previous order
+            q[f"d{order}_{name}_dx1_avg"] = avg(cur_2d)
+            if name == "vfl1" and order == 1:
+                dvfl1_dx1_2d = cur_2d
 
     # Mean-field composites ⟨n⟩⟨T11⟩, ⟨n⟩⟨vfl1⟩: products of the *averaged*
     # profiles, so their derivatives can only be taken after the average
@@ -304,7 +308,6 @@ def _mean_field_frame_quantities(
         return q
 
     # ── Remaining 2-D derivatives for e_vlasov / eta ───────────────────
-    dvfl1_dx1_2d = d1_2d["vfl1"]
     dvfl1_dx2_2d = d_x2(vfl1) if flags.include_transverse_advection else None
 
     # ── e_vlasov in 2-D (no E_x), then transverse average ─────────────
