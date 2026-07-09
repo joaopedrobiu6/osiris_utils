@@ -477,7 +477,7 @@ def test_create_database_with_savgol_filter(tmp_path):
     cfg = DatabaseBuildConfig(filters=(SavitzkyGolayFilter(window_length=7, polyorder=4),), eta_formula="lhs")
     db = DatabaseCreator(sim, "electrons", str(tmp_path), build_config=cfg)
     db.set_limits(0, 2)
-    db.create_database(database="both")
+    db.create_database(database="InOut")
 
     input_t = np.load(tmp_path / "input_tensor.npy")
     assert input_t.shape == (2, len(INPUT_FEATURE_LABELS), NX)
