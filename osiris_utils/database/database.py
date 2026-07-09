@@ -144,8 +144,10 @@ class DatabaseBuildConfig:
         Empty (default) = no filtering, 4th-order finite-difference
         derivatives — identical to the historical tensors.  Filters like
         :class:`~osiris_utils.database.filters.SavitzkyGolayFilter` also
-        supply their own analytic derivative scheme, which is then used for
-        every derivative in the pipeline.
+        supply their own analytic derivative scheme, used for every
+        derivative in the pipeline in a single pass per order.  The frame
+        pipeline computes 4th derivatives, so Savitzky-Golay filters need
+        ``polyorder >= 4``.
     eta_formula :
         Which formula the output (eta) tensor uses:
         ``"thesis"`` (default) — 7-term pressure decomposition built from
@@ -277,17 +279,18 @@ def _mean_field_frame_quantities(
     q: dict[str, np.ndarray] = {f"{name}_avg": avg(arr) for name, arr in f.items()}
 
     # ── x1-derivatives in 2-D (before the transverse average), orders 1-4 ──
-    # Chained per field so at most two full-resolution 2-D derivative arrays
-    # are alive at once; only the order-1 vfl1 derivative is needed downstream,
-    # everything else is averaged and dropped.  Retaining all orders for all
-    # fields (~32 extra 2-D arrays per frame) OOMs multi-worker builds on
-    # large grids.
+    # Each order is taken directly from the once-smoothed field with the
+    # filter's native order-th derivative (a single kernel pass), so every
+    # order carries the same effective smoothing — no chained first
+    # derivatives.  Each result is averaged and dropped immediately; only the
+    # order-1 vfl1 derivative is needed downstream in 2-D.  Retaining all
+    # orders for all fields (~32 extra 2-D arrays per frame) OOMs
+    # multi-worker builds on large grids.
     deriv_fields = ("vfl1", "vfl2", "vfl3", "n", "T11", "T12", "b2", "b3")
     dvfl1_dx1_2d: np.ndarray | None = None
     for name in deriv_fields:
-        cur_2d = f[name]
         for order in (1, 2, 3, 4):
-            cur_2d = d_x1(cur_2d)  # computes derivative of the previous order
+            cur_2d = d_x1(f[name], order)
             q[f"d{order}_{name}_dx1_avg"] = avg(cur_2d)
             if name == "vfl1" and order == 1:
                 dvfl1_dx1_2d = cur_2d
@@ -387,10 +390,10 @@ def _vnT_frame_quantities(
 
     Transverse-averaged base quantities (:data:`VNT_BASE_QUANTITIES`) plus
     their x1-derivatives of orders :data:`VNT_DERIV_ORDERS`.  Derivatives are
-    taken on the filtered 2-D data **before** the transverse average, by
-    recursively chaining the filter's first-derivative operator along the
-    longitudinal axis (for :class:`NoFilter` this is repeated 4th-order FD —
-    identical to the historical chained first derivatives).
+    taken on the filtered 2-D data **before** the transverse average, each
+    order in a single pass of the filter's native order-th derivative along
+    the longitudinal axis (for :class:`NoFilter` this is repeated 4th-order
+    FD — identical to the historical chained first derivatives).
     """
     x_axis = 1 - avg_axis  # longitudinal axis in 2-D arrays (avg_axis=1 → x_axis=0)
     f = _load_filtered_fields(raw, ("n", "T11", "vfl1"), t_idx, filt, avg_axis)
@@ -407,13 +410,11 @@ def _vnT_frame_quantities(
 
     q: dict[str, np.ndarray] = {}
     # Computes the transverse average of the base quantities and their x1-derivatives up to order 4.
+    # Each order is taken directly from the base field (single kernel pass), not chained.
     for name in VNT_BASE_QUANTITIES:
         q[f"{name}_avg"] = base_2d[name].mean(axis=avg_axis)
-        d_2d = base_2d[name]
-        prev_order = 0
         for order in VNT_DERIV_ORDERS:
-            d_2d = filt.derivative(d_2d, dx, axis=x_axis, order=order - prev_order, periodic=False)
-            prev_order = order
+            d_2d = filt.derivative(base_2d[name], dx, axis=x_axis, order=order, periodic=False)
             prefix = "d_" if order == 1 else f"d{order}_"
             q[f"{prefix}{name}_dx1_avg"] = d_2d.mean(axis=avg_axis)
     return q

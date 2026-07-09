@@ -112,35 +112,86 @@ def test_savgol_validation():
         filt.derivative(np.zeros(32), 0.1, order=1)
 
 
-def test_derivative_order_beyond_polyorder_via_recursion():
-    # Derivatives of arbitrary order are chained first derivatives, so a
-    # low-polyorder SG fit can still produce high-order derivatives.
-    x = np.linspace(0.0, 2.0 * np.pi, 256, endpoint=False)
-    dx = x[1] - x[0]
+def test_derivative_order_beyond_polyorder_raises():
+    # Single-pass derivatives need the local fit to support the order —
+    # silent chaining (extra smoothing per order) is no longer available.
     filt = SavitzkyGolayFilter(window_length=7, polyorder=2)
-    d4 = filt.derivative(np.sin(x), dx, order=4, periodic=True)
-    assert np.all(np.isfinite(d4))
-    # d4 sin = sin, up to the attenuation of 4 smoothing passes
-    assert np.corrcoef(d4, np.sin(x))[0, 1] > 0.999
+    with pytest.raises(ValueError, match="polyorder"):
+        filt.derivative(np.sin(np.linspace(0, 6, 64)), 0.1, order=4, periodic=True)
+
+
+def test_nofilter_derivative_order_is_repeated_first():
+    # NoFilter has no smoothing kernel: order=n IS n chained first derivatives.
+    rng = np.random.default_rng(4)
+    f = rng.normal(size=(48, 16))
+    filt = NoFilter()
+    d1 = filt.derivative(f, 0.1, axis=0, order=1)
+    assert np.allclose(filt.derivative(f, 0.1, axis=0, order=2), filt.derivative(d1, 0.1, axis=0, order=1))
+    assert np.allclose(filt.derivative(f, 0.1, axis=0, order=3), filt.derivative(d1, 0.1, axis=0, order=2))
 
 
 @pytest.mark.parametrize(
     "filt",
     [
-        NoFilter(),
-        SavitzkyGolayFilter(window_length=7, polyorder=3),
+        SavitzkyGolayFilter(window_length=7, polyorder=4),
         GaussianFilter(sigma=1.5),
-        FilterChain(GaussianFilter(sigma=1.0), SavitzkyGolayFilter(window_length=5, polyorder=2)),
+        FilterChain(GaussianFilter(sigma=1.0), SavitzkyGolayFilter(window_length=7, polyorder=4)),
     ],
-    ids=["nofilter", "savgol", "gaussian", "chain"],
+    ids=["savgol", "gaussian", "chain"],
 )
-def test_derivative_recursion_equivalence(filt):
-    # derivative(order=n) must equal n chained first derivatives.
+def test_smoothing_derivatives_are_single_pass(filt):
     rng = np.random.default_rng(4)
     f = rng.normal(size=(48, 16))
+    # order=1: identical to the old (chained) implementation — one pass either way.
     d1 = filt.derivative(f, 0.1, axis=0, order=1)
-    assert np.allclose(filt.derivative(f, 0.1, axis=0, order=2), filt.derivative(d1, 0.1, axis=0, order=1))
-    assert np.allclose(filt.derivative(f, 0.1, axis=0, order=3), filt.derivative(d1, 0.1, axis=0, order=2))
+    assert np.array_equal(d1, filt._first_derivative(np.asarray(f, dtype=np.float64), 0.1, axis=0, periodic=False))
+    # order=2: a single kernel pass, NOT two chained first derivatives
+    # (chaining smooths twice → visibly more attenuated on noise).
+    d2_native = filt.derivative(f, 0.1, axis=0, order=2)
+    d2_chained = filt.derivative(d1, 0.1, axis=0, order=1)
+    assert not np.allclose(d2_native, d2_chained)
+
+
+def test_gaussian_high_order_attenuation_matches_single_pass():
+    # On sin(kx), one Gaussian pass attenuates by exp(-(k*sigma_phys)^2 / 2).
+    # Native d2 must show ONE pass of attenuation; the old chained scheme
+    # carried two (effective sigma*sqrt(2)) — kept here as the reference for
+    # what the fix removed.
+    n_pts = 256
+    x = np.linspace(0.0, 2.0 * np.pi, n_pts, endpoint=False)
+    dx = x[1] - x[0]
+    k, sigma_pts = 4.0, 4.0
+    sigma_phys = sigma_pts * dx
+    f = np.sin(k * x)
+    filt = GaussianFilter(sigma=sigma_pts)
+    atten1 = np.exp(-0.5 * (k * sigma_phys) ** 2)
+
+    d2_native = filt.derivative(f, dx, order=2, periodic=True)
+    assert np.allclose(d2_native, -(k**2) * atten1 * f, rtol=5e-3, atol=5e-3 * k**2)
+
+    d1 = filt.derivative(f, dx, order=1, periodic=True)
+    d2_chained = filt.derivative(d1, dx, order=1, periodic=True)
+    assert np.allclose(d2_chained, -(k**2) * atten1**2 * f, rtol=5e-3, atol=5e-3 * k**2)
+    # the two schemes differ by exactly one extra smoothing pass
+    assert not np.allclose(d2_native, d2_chained, rtol=1e-2)
+
+
+def test_gaussian_high_order_derivative_accuracy():
+    # d3/d4 kernels are internally widened (truncate >= 8 sigma): with the
+    # smoothing default truncate=4 the kernel truncation tails dominate the
+    # ~k^order low-k response and d4 is orders of magnitude wrong.
+    n_pts = 512
+    x = np.linspace(0.0, 2.0 * np.pi, n_pts, endpoint=False)
+    dx = x[1] - x[0]
+    k, sigma_pts = 3.0, 3.0
+    f = np.sin(k * x)
+    filt = GaussianFilter(sigma=sigma_pts)
+    atten1 = np.exp(-0.5 * (k * sigma_pts * dx) ** 2)
+
+    d3 = filt.derivative(f, dx, order=3, periodic=True)
+    assert np.allclose(d3, -(k**3) * atten1 * np.cos(k * x), rtol=1e-6, atol=1e-6 * k**3)
+    d4 = filt.derivative(f, dx, order=4, periodic=True)
+    assert np.allclose(d4, k**4 * atten1 * f, rtol=1e-6, atol=1e-6 * k**4)
 
 
 def test_savgol_axes_restriction():
@@ -433,17 +484,28 @@ def test_create_database_with_savgol_filter(tmp_path):
     assert np.all(np.isfinite(input_t))
 
 
-def test_vnT_with_low_savgol_polyorder(tmp_path):
-    # 4th derivatives via recursion — no polyorder >= 4 requirement.
+def test_vnT_with_low_savgol_polyorder_raises():
+    # The pipeline computes 4th derivatives in a single pass, so a
+    # Savitzky-Golay filter needs polyorder >= 4 — no silent chaining.
     fields, dx, dx2 = _make_fields()
-    sim = MockSimulation(fields, (dx, dx2))
-    cfg = DatabaseBuildConfig(filters=(SavitzkyGolayFilter(window_length=7, polyorder=2),))
-    db = DatabaseCreator(sim, "electrons", str(tmp_path), build_config=cfg)
-    db.set_limits(0, 2)
-    db.create_database(database="vnT")
-    vnT_t = np.load(tmp_path / "vnT_tensor.npy")
-    assert vnT_t.shape == (2, len(vnT_feature_labels()), NX)
-    assert np.all(np.isfinite(vnT_t))
+    with pytest.raises(ValueError, match="polyorder"):
+        _vnT_frame_quantities(fields, 0, SavitzkyGolayFilter(window_length=7, polyorder=2), dx, avg_axis=1)
+
+
+def test_frame_derivatives_are_single_pass():
+    # The d2/d4 features must be the filter's native order-th derivative of
+    # the once-smoothed field — not chained first derivatives.
+    fields, dx, dx2 = _make_fields()
+    filt = GaussianFilter(sigma=2.0)
+    n_s = filt.smooth(fields["n"][0], periodic=(False, True))
+
+    q = _mean_field_frame_quantities(fields, 0, filt, dx, dx2, avg_axis=1, flags=_default_flags())
+    assert np.allclose(q["d2_n_dx1_avg"], filt.derivative(n_s, dx, axis=0, order=2).mean(axis=1))
+    chained = filt.derivative(filt.derivative(n_s, dx, axis=0, order=1), dx, axis=0, order=1)
+    assert not np.allclose(q["d2_n_dx1_avg"], chained.mean(axis=1))
+
+    q_vnT = _vnT_frame_quantities(fields, 0, filt, dx, avg_axis=1)
+    assert np.allclose(q_vnT["d4_n_dx1_avg"], filt.derivative(n_s, dx, axis=0, order=4).mean(axis=1))
 
 
 def test_time_derivative_flag_not_supported(tmp_path):

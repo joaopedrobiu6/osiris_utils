@@ -9,20 +9,20 @@ Every filter implements the :class:`SpatialFilter` interface:
 
 ``derivative(f, dx, axis, order, periodic)``
     Differentiate *f* along *axis* using the filter's native scheme.
-    An *order*-th derivative is computed **recursively**: the filter's
-    first-derivative operator is applied *order* times, so any filter
-    supports arbitrary derivative order (a Savitzky-Golay fit of
-    polyorder 2 can still produce a 4th derivative by chaining).
-    Savitzky-Golay and Gaussian filters provide analytic first
-    derivatives of the local fit / kernel — no finite differences.
-    :class:`NoFilter` falls back to the 4th-order finite differences in
-    :func:`fd_derivative`.
+    Savitzky-Golay and Gaussian filters compute an *order*-th derivative
+    in a **single pass** (``savgol_filter(deriv=order)`` /
+    ``gaussian_filter1d(order=order)``), so every derivative order
+    carries exactly one smoothing pass along the derivative axis — the
+    effective filter scale is the same for all orders.  Savitzky-Golay
+    therefore requires ``polyorder >= order`` (the derivative of the
+    local fit must exist at that order).  :class:`NoFilter` falls back
+    to the 4th-order finite differences in :func:`fd_derivative`,
+    applied *order* times (repeated first derivatives — the historical
+    scheme; no smoothing kernel is involved so chaining is exact).
 
     ``derivative`` does not assume *f* is raw: in the database pipeline
     fields are smoothed once and derivatives are then taken of the
-    smoothed fields.  Each recursive application of a smoothing filter
-    applies its kernel again along the derivative axis, so an *order*-th
-    derivative carries *order* extra smoothing passes.
+    smoothed fields, each adding the single derivative-kernel pass.
 
 Boundary conventions follow the shock-simulation setup: the
 longitudinal axis (x1) is non-periodic, the transverse axis (x2) is
@@ -170,19 +170,30 @@ class SpatialFilter(ABC):
     def _first_derivative(self, f: np.ndarray, dx: float, axis: int, periodic: bool) -> np.ndarray:
         """Return the first derivative of *f* along *axis* using the filter's native scheme."""
 
-    def derivative(self, f: np.ndarray, dx: float, axis: int = 0, order: int = 1, periodic: bool = False) -> np.ndarray:
-        """Return the *order*-th derivative of *f* along *axis* (spacing *dx*).
+    def _nth_derivative(self, f: np.ndarray, dx: float, axis: int, order: int, periodic: bool) -> np.ndarray:
+        """Return the *order*-th derivative of *f* along *axis*.
 
-        Computed recursively: the filter's first-derivative operator is
-        applied *order* times, so arbitrary derivative orders are supported
-        by every filter.
+        Default: apply the first-derivative operator *order* times.  Exact
+        for :class:`NoFilter` (finite differences have no kernel), but
+        smoothing filters MUST override this with a single-pass scheme —
+        chaining would apply the kernel *order* times, making the effective
+        filter scale depend on the derivative order.
         """
-        if order < 1:
-            raise ValueError(f"order must be >= 1, got {order}.")
-        out = np.asarray(f, dtype=np.float64)
+        out = f
         for _ in range(order):
             out = self._first_derivative(out, dx, axis=axis, periodic=periodic)
         return out
+
+    def derivative(self, f: np.ndarray, dx: float, axis: int = 0, order: int = 1, periodic: bool = False) -> np.ndarray:
+        """Return the *order*-th derivative of *f* along *axis* (spacing *dx*).
+
+        Computed in a single pass by the smoothing filters (one kernel
+        application regardless of *order*); :class:`NoFilter` applies its
+        finite-difference stencil *order* times.
+        """
+        if order < 1:
+            raise ValueError(f"order must be >= 1, got {order}.")
+        return self._nth_derivative(np.asarray(f, dtype=np.float64), dx, axis=axis, order=order, periodic=periodic)
 
     def __call__(self, f: np.ndarray, periodic: bool | Sequence[bool] | None = None) -> np.ndarray:
         return self.smooth(f, periodic=periodic)
@@ -229,11 +240,12 @@ class SavitzkyGolayFilter(SpatialFilter):
 
     Notes
     -----
-    Derivatives chain ``scipy.signal.savgol_filter(deriv=1, delta=dx)``:
-    the derivative of the local polynomial fit, not finite differences.
-    An *order*-th derivative applies the operator *order* times, so any
-    derivative order is available regardless of ``polyorder`` (each
-    application adds one smoothing pass along the derivative axis).
+    Derivatives use ``scipy.signal.savgol_filter(deriv=order, delta=dx)``
+    in a single pass: the *order*-th derivative of the local polynomial
+    fit, not finite differences.  Every derivative order therefore
+    carries exactly one smoothing pass along the derivative axis, and
+    ``polyorder >= order`` is required (the local fit must have a
+    non-trivial derivative at that order).
     Non-periodic boundaries use ``mode="interp"`` (polynomial fit on the
     edge window); periodic ones use ``mode="wrap"``.
     """
@@ -256,14 +268,21 @@ class SavitzkyGolayFilter(SpatialFilter):
         return out
 
     def _first_derivative(self, f: np.ndarray, dx: float, axis: int, periodic: bool) -> np.ndarray:
-        if self._polyorder < 1:
-            raise ValueError(f"Savitzky-Golay derivatives need polyorder >= 1 (got polyorder={self._polyorder}).")
+        return self._nth_derivative(f, dx, axis=axis, order=1, periodic=periodic)
+
+    def _nth_derivative(self, f: np.ndarray, dx: float, axis: int, order: int, periodic: bool) -> np.ndarray:
+        if self._polyorder < order:
+            raise ValueError(
+                f"Savitzky-Golay derivative of order {order} needs polyorder >= {order} "
+                f"(got polyorder={self._polyorder}): the derivative is taken in a single "
+                "pass from the local polynomial fit, so the fit must support that order."
+            )
         mode = "wrap" if periodic else "interp"
         return savgol_filter(
             f,
             self._window_length,
             self._polyorder,
-            deriv=1,
+            deriv=order,
             delta=dx,
             axis=axis,
             mode=mode,
@@ -288,13 +307,16 @@ class GaussianFilter(SpatialFilter):
 
     Notes
     -----
-    Derivatives chain ``scipy.ndimage.gaussian_filter1d(order=1)``
-    (convolution with the analytic Gaussian-derivative kernel) scaled by
-    ``1/dx`` to convert from per-pixel to physical units.  An *order*-th
-    derivative applies the operator *order* times, so any derivative
-    order is available (each application adds one smoothing pass along
-    the derivative axis).  Non-periodic boundaries use ``mode="nearest"``;
-    periodic ones use ``mode="wrap"``.
+    Derivatives use ``scipy.ndimage.gaussian_filter1d(order=order)`` in a
+    single pass (convolution with the analytic *order*-th
+    derivative-of-Gaussian kernel) scaled by ``1/dx**order`` to convert
+    from per-pixel to physical units.  Every derivative order therefore
+    carries exactly one smoothing pass of width ``sigma`` along the
+    derivative axis.  For ``order >= 2`` the kernel truncation radius is
+    internally widened to at least 8 sigma: high-order derivative kernels
+    have a low-k response ~``k^order``, which truncation tails at the
+    default ``truncate=4`` would otherwise swamp.  Non-periodic
+    boundaries use ``mode="nearest"``; periodic ones use ``mode="wrap"``.
     """
 
     def __init__(self, sigma: float, axes: Sequence[int] | None = None, truncate: float = 4.0):
@@ -313,16 +335,28 @@ class GaussianFilter(SpatialFilter):
         return out
 
     def _first_derivative(self, f: np.ndarray, dx: float, axis: int, periodic: bool) -> np.ndarray:
+        return self._nth_derivative(f, dx, axis=axis, order=1, periodic=periodic)
+
+    def _nth_derivative(self, f: np.ndarray, dx: float, axis: int, order: int, periodic: bool) -> np.ndarray:
         mode = "wrap" if periodic else "nearest"
+        # Kernels of order >= 2 need wider support than the smoothing kernel:
+        # the low-k response of an order-m derivative kernel scales as k^m, so
+        # the exp(-truncate^2/2) truncation tails that are negligible for
+        # smoothing and d1 dominate high-order derivatives of smooth fields at
+        # the default truncate=4 (d4 errors of orders of magnitude).  truncate=8
+        # puts the tails at ~1e-14, giving ~1e-9 relative accuracy for d3/d4.
+        # Order 1 keeps the configured truncate — identical to the historical
+        # first-derivative operator.
+        truncate = self._truncate if order == 1 else max(self._truncate, 8.0)
         d = gaussian_filter1d(
             f,
             self._sigma,
             axis=axis,
-            order=1,
+            order=order,
             mode=mode,
-            truncate=self._truncate,
+            truncate=truncate,
         )
-        return d / dx
+        return d / dx**order
 
     def __repr__(self) -> str:
         return f"GaussianFilter(sigma={self._sigma}, axes={self._axes}, truncate={self._truncate})"
@@ -331,10 +365,12 @@ class GaussianFilter(SpatialFilter):
 class FilterChain(SpatialFilter):
     """Apply several filters in sequence.
 
-    ``smooth`` runs every filter in order.  ``derivative`` recursively applies
-    the **last** filter's first-derivative scheme: in the database pipeline
+    ``smooth`` runs every filter in order.  ``derivative`` uses the **last**
+    filter's single-pass derivative scheme: in the database pipeline
     ``derivative`` is always called on data already smoothed by the full
     chain, so re-applying the earlier filters inside it would smooth twice.
+    Order the chain so the filter whose derivative kernel you want comes
+    last.
     """
 
     def __init__(self, *filters: SpatialFilter):
@@ -362,6 +398,9 @@ class FilterChain(SpatialFilter):
 
     def _first_derivative(self, f: np.ndarray, dx: float, axis: int, periodic: bool) -> np.ndarray:
         return self._filters[-1]._first_derivative(f, dx, axis=axis, periodic=periodic)
+
+    def _nth_derivative(self, f: np.ndarray, dx: float, axis: int, order: int, periodic: bool) -> np.ndarray:
+        return self._filters[-1]._nth_derivative(f, dx, axis=axis, order=order, periodic=periodic)
 
     def __repr__(self) -> str:
         return f"FilterChain({', '.join(repr(f) for f in self._filters)})"
