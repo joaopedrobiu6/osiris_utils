@@ -121,11 +121,21 @@ class PressureCorrection_Diagnostic(Diagnostic):
         Lazy per-timestep evaluation, supports spatial slicing.
         data_slice applies to spatial axes only (same convention as Diagnostic).
         """
+        if self._all_loaded and self._data is not None:
+            return self._data[(index,) + data_slice] if data_slice is not None else self._data[index]
+        cache = getattr(self, "_frame_cache", None)
+        if cache is not None:
+            key = (index, data_slice)
+            if key in cache:
+                return cache[key]
         P = self._diag._frame(index, data_slice=data_slice)
         n = self._n._frame(index, data_slice=data_slice)
         u = self._ufl_j._frame(index, data_slice=data_slice)
         v = self._vfl_k._frame(index, data_slice=data_slice)
-        return P - n * u * v
+        result = P - n * u * v
+        if cache is not None:
+            cache[(index, data_slice)] = result
+        return result
 
 
 class PressureCorrection_Species_Handler:

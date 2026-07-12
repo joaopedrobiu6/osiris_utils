@@ -104,7 +104,7 @@ def transverse_average(data: np.ndarray) -> np.ndarray:
     return cast("np.ndarray", np.mean(data, axis=1))
 
 
-def integrate(array: np.ndarray, dx: float, axis: int = None, start_side: str = "left") -> np.ndarray:
+def integrate(array: np.ndarray, dx: float, axis: int = None, start_side: str = "right") -> np.ndarray:
     """
     Integrate a N-D array using the cumulative Simpson's rule, from right to left
     along a given axis
