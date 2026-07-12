@@ -146,18 +146,14 @@ class OsirisData:
         if not filename.endswith(".h5"):
             raise ValueError("The file should be an HDF5 file with the extension .h5")
 
-        # Optimize HDF5 chunk cache for better performance.
-        # H5Pset_cache signature: (mdc_nelmts, rdcc_nelmts, rdcc_nbytes, rdcc_w0)
-        #   rdcc_nelmts : number of chunk-cache hash-table slots (prime; ~10× max chunks in cache)
-        #   rdcc_nbytes : total chunk cache size in bytes
-        #   rdcc_w0     : preemption policy (0.0 = LRU, 1.0 = full preemption)
-        cache_bytes = _hdf5_chunk_cache_bytes()
+        # Optimize HDF5 chunk cache for better performance
+        # Increase cache from default 1MB to 10MB for large file access
         propfaid = h5py.h5p.create(h5py.h5p.FILE_ACCESS)
         propfaid.set_cache(
-            0,           # mdc_nelmts: metadata cache elements (0 = HDF5 default)
-            521,         # rdcc_nelmts: chunk hash-table slots (prime; adequate for typical OSIRIS chunks)
-            cache_bytes, # rdcc_nbytes: chunk cache size in bytes
-            0.75,        # rdcc_w0: preemption policy
+            0,  # Meta cache elements (0 = use default)
+            10485760,  # 10MB chunk cache (default is 1MB)
+            0.75,  # Chunk cache preemption policy (0.75 = aggressive caching)
+            0,  # Hash table size (0 = use default)
         )
 
         # Open file with optimized settings
@@ -317,12 +313,12 @@ class OsirisGridFile(OsirisData):
             data_slice = data_slice[::-1] if data_slice is not None and len(dset.shape) > 1 else data_slice
 
             if data_slice is None and len(dset.shape) > 1:
-                # HDF5 stores data in (nx_last, ..., nx1) C-order (OSIRIS convention).
-                # Read into a plain C-contiguous buffer, then transpose to (nx1, ..., nx_last).
-                # np.ascontiguousarray makes the transposed result C-contiguous in one copy —
-                # the same total allocation as before; the buf.T trick is avoided because
-                # h5py requires a C-contiguous writable target for read_direct.
-                self._data = np.ascontiguousarray(dset[()].T)
+                # Read directly into a pre-allocated transposed buffer to avoid an intermediate copy.
+                # buf.T is Fortran-contiguous with the HDF5 storage shape; h5py writes into it
+                # so buf ends up C-contiguous with the transposed (x1, x2, ...) shape.
+                buf = np.empty(dset.shape[::-1], dtype=dset.dtype)
+                dset.read_direct(buf.T)
+                self._data = buf
             elif data_slice is None:
                 self._data = dset[()]
             else:
