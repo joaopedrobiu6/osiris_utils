@@ -4,14 +4,13 @@ from typing import TYPE_CHECKING, Any
 
 from ..data.diagnostic import Diagnostic
 from .postprocess import PostProcess
-from .pressure_correction import PressureCorrection_Simulation
 
 if TYPE_CHECKING:
     import numpy as np
 
     from ..data.simulation import Simulation
 
-OSIRIS_H = ["q1", "q2", "q3"]
+OSIRIS_H = ["Q111", "Q222", "Q333", "Q112", "Q113", "Q221", "Q223", "Q331", "Q332"]
 
 __all__ = [
     "HeatfluxCorrection_Simulation",
@@ -61,14 +60,7 @@ class HeatfluxCorrection_Simulation(PostProcess):
 
 
 class HeatfluxCorrection_Diagnostic(Diagnostic):
-    def __init__(
-        self,
-        diagnostic: Diagnostic,
-        vfl_i: Diagnostic,
-        Pjj_list: list[Diagnostic],
-        vfl_j_list: list[Diagnostic],
-        Pji_list: list[Diagnostic],
-    ):
+    def __init__(self, diagnostic: Diagnostic, P_list: list[Diagnostic], vfl_list: list[Diagnostic], n: Diagnostic):
         """
         Class to correct the pressure in the simulation.
 
@@ -93,10 +85,9 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         self._diag = diagnostic
 
         # The density and velocities are now passed as arguments (so it can doesn't depend on the simulation)
-        self._vfl_i = vfl_i
-        self._Pjj_list = Pjj_list
-        self._vfl_j_list = vfl_j_list
-        self._Pji_list = Pji_list
+        self._P_list = P_list
+        self._vfl_list = vfl_list
+        self._n = n
 
         for attr in [
             "_dt",
@@ -121,15 +112,19 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
 
     def _compute(
         self,
-        q: np.ndarray,
+        Q: np.ndarray,
         vfl_i: np.ndarray,
-        trace_P: np.ndarray,
-        vfl_dot_Pji: np.ndarray,
+        vfl_j: np.ndarray,
+        vfl_k: np.ndarray,
+        P_ij: np.ndarray,
+        P_jk: np.ndarray,
+        P_ki: np.ndarray,
+        n: np.ndarray,
     ) -> np.ndarray:
         """
         Centralize the correction formula so eager/lazy always match.
         """
-        return 2.0 * q - vfl_i * trace_P - 2.0 * vfl_dot_Pji
+        return Q - (vfl_i * P_jk + vfl_j * P_ki + vfl_k * P_ij) + 2 * vfl_i * vfl_j * vfl_k * n
 
     def load_all(self) -> np.ndarray:
         if self._data is not None:
@@ -140,28 +135,24 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
 
         print(f"Loading {self._species._name} {self._original_name} diagnostic")
 
-        self._vfl_i.load_all()
+        for index in range(len(self._vfl_list)):
+            self._vfl_list[index].load_all()
 
-        for vfl_j in self._vfl_j_list:
-            vfl_j.load_all()
-        for Pji in self._Pji_list:
-            Pji.load_all()
-        for Pjj in self._Pjj_list:
-            Pjj.load_all()
+        for index in range(len(self._P_list)):
+            self._P_list[index].load_all()
 
-        q = self._diag.data
-        vfl_i = self._vfl_i.data
+        self._n.load_all()
 
-        trace_P = None
-        for Pjj in self._Pjj_list:
-            trace_P = Pjj.data if trace_P is None else trace_P + Pjj.data
-
-        vfl_dot_Pji = None
-        for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list, strict=False):
-            term = vfl_j.data * Pji.data
-            vfl_dot_Pji = term if vfl_dot_Pji is None else vfl_dot_Pji + term
-
-        self._data = self._compute(q, vfl_i, trace_P, vfl_dot_Pji)
+        self._data = self._compute(
+            self._diag.data,
+            self._vfl_list[0].data,
+            self._vfl_list[1].data,
+            self._vfl_list[2].data,
+            self._P_list[0].data,
+            self._P_list[1].data,
+            self._P_list[2].data,
+            self._n.data,
+        )
         self._all_loaded = True
         return self._data
 
@@ -171,22 +162,16 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         provided the underlying diagnostics support data_slice.
         """
         # Read one timestep (and only the requested spatial slice)
-        q = self._diag._frame(index, data_slice=data_slice)
-        vfl_i = self._vfl_i._frame(index, data_slice=data_slice)
+        Q = self._diag._frame(index, data_slice=data_slice)
+        vfl_i = self._vfl_list[0]._frame(index, data_slice=data_slice)
+        vfl_j = self._vfl_list[1]._frame(index, data_slice=data_slice)
+        vfl_k = self._vfl_list[2]._frame(index, data_slice=data_slice)
 
-        # trace_P = sum_j Pjj
-        trace_P = None
-        for Pjj in self._Pjj_list:
-            arr = Pjj._frame(index, data_slice=data_slice)
-            trace_P = arr if trace_P is None else trace_P + arr
+        Pij = self._P_list[0]._frame(index, data_slice=data_slice)
+        Pjk = self._P_list[1]._frame(index, data_slice=data_slice)
+        Pki = self._P_list[2]._frame(index, data_slice=data_slice)
 
-        # vfl_dot_Pji = sum_j vfl_j * Pji
-        vfl_dot_Pji = None
-        for vfl_j, Pji in zip(self._vfl_j_list, self._Pji_list, strict=False):
-            term = vfl_j._frame(index, data_slice=data_slice) * Pji._frame(index, data_slice=data_slice)
-            vfl_dot_Pji = term if vfl_dot_Pji is None else vfl_dot_Pji + term
-
-        return self._compute(q, vfl_i, trace_P, vfl_dot_Pji)
+        return self._compute(Q, vfl_i, vfl_j, vfl_k, Pij, Pjk, Pki, self._n._frame(index, data_slice=data_slice))
 
 
 class HeatfluxCorrection_Species_Handler:
@@ -215,17 +200,22 @@ class HeatfluxCorrection_Species_Handler:
 
             # Velocities alwayes depend on the species so this can be done here
 
-            i = int(key[-1])  # Get i from 'q1', 'q2', etc.
+            # Q_ijk
+
+            i = int(key[-3])  # Get i from 'Q111', 'Q222', etc.
+            j = int(key[-2])  # Get j from 'Q111', 'Q222', etc.
+            k = int(key[-1])  # Get k from 'Q111', 'Q222', etc.
 
             vfl_i = self._species_handler[f"vfl{i}"]
+            vfl_j = self._species_handler[f"vfl{j}"]
+            vfl_k = self._species_handler[f"vfl{k}"]
 
-            # Load trace(P): sum over Pjj
-            Pjj_list = [self._species_handler[f"P{j}{j}"] for j in range(1, diag._dim + 1)]
+            # Load Pij, Pjk, Pki
+            Pij = self._species_handler[f"P{i}{j}"]
+            Pjk = self._species_handler[f"P{j}{k}"]
+            Pki = self._species_handler[f"P{k}{i}"]
 
-            # Compute quantities for vfl_j * P_{ji}
-            vfl_j_list = [self._species_handler[f"vfl{j}"] for j in range(1, diag._dim + 1)]
-            pc = PressureCorrection_Simulation(self._simulation)
-            Pji_list = [pc[diag._species._name][f"P{j}{i}"] for j in range(1, diag._dim + 1)]
+            n = self._species_handler["n"]
 
-            self._heatflux_corrected[key] = HeatfluxCorrection_Diagnostic(diag, vfl_i, Pjj_list, vfl_j_list, Pji_list)
+            self._heatflux_corrected[key] = HeatfluxCorrection_Diagnostic(diag, vfl_i, [Pij, Pjk, Pki], [vfl_i, vfl_j, vfl_k], n)
         return self._heatflux_corrected[key]
