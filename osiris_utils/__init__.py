@@ -20,6 +20,7 @@ from .data.data import (
 )
 from .data.diagnostic import Diagnostic
 from .data.simulation import Simulation, Species_Handler
+from .data.track_diagnostic import Track_Diagnostic
 from .database import (
     DatabaseBuildConfig,
     DatabaseCreator,
@@ -94,6 +95,7 @@ __all__ = [
     # Data Diagnostic and Simulation
     "Simulation",
     "Diagnostic",
+    "Track_Diagnostic",
     "Species_Handler",
     # Decks
     "Species",

@@ -192,7 +192,9 @@ class Diagnostic:
     dim : int
         The dimension of the diagnostic.
     ndump : int
-        The number of steps between dumps.
+        The number of steps between dumps (global).
+    iter : int
+        The iteration of the first file after file 000000.
     maxiter : int
         The maximum number of iterations.
     tunits : str
@@ -316,6 +318,10 @@ class Diagnostic:
             if self._species is None:
                 raise ValueError("Species not set.")
             self._get_density(self._species.name, "charge")
+        elif self._quantity == "tracks":
+            raise ValueError("For track diagnostics use class Track_Diagnostic.")
+        elif self._quantity == "raw":
+            raise ValueError("For raw diagnostics use class OsirisRawFile.")
         else:
             raise ValueError(
                 f"Invalid quantity {self._quantity}. Or it's not implemented yet (this may happen for phase space quantities).",
@@ -447,7 +453,7 @@ class Diagnostic:
                     self._name = dump.name
                     self._label = dump.label
                     self._dim = dump.dim
-                    # self._iter = dump.iter
+                    self._iter = dump.iter
                     self._tunits = dump.time[1]
                     self._type = dump.type
                     found_file = True
@@ -1211,6 +1217,10 @@ class Diagnostic:
     @ndump.setter
     def ndump(self, value: int) -> None:
         self._ndump = value
+
+    @ndump.setter
+    def iter(self, value):
+        self._iter = value
 
     @data.setter
     def data(self, value: np.ndarray) -> None:

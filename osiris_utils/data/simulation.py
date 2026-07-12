@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from ..data.diagnostic import Diagnostic
+from ..data.track_diagnostic import Track_Diagnostic
 from ..decks.decks import InputDeckIO
 
 __all__ = ["Simulation", "Species_Handler"]
@@ -78,26 +79,25 @@ class Simulation:
         if key in self._diagnostics:
             return self._diagnostics[key]
 
-        # Create a temporary diagnostic for this quantity - this is for quantities that are not species related
-        diag = Diagnostic(
-            simulation_folder=self._simulation_folder,
-            species=None,
-            input_deck=self._input_deck,
-        )
-        diag.get_quantity(key)
+        if key == "tracks":
+            raise ValueError("Tracks diagnostics require a specie.")
+        else:
+            # Create a temporary diagnostic for this quantity - this is for quantities that are not species related
+            diag = Diagnostic(simulation_folder=self._simulation_folder, species=None, input_deck=self._input_deck)
+            diag.get_quantity(key)
 
-        original_load_all = diag.load_all
+            original_load_all = diag.load_all
 
-        def patched_load_all(*args, **kwargs):
-            result = original_load_all(*args, **kwargs)  # noqa: F841
-            self._diagnostics[key] = diag
+            def patched_load_all(*args, **kwargs):
+                result = original_load_all(*args, **kwargs)  # noqa: F841
+                self._diagnostics[key] = diag
+                return diag
+
+            diag.load_all = patched_load_all
+
             return diag
 
-        diag.load_all = patched_load_all
-
-        return diag
-
-    def add_diagnostic(self, diagnostic: Diagnostic, name: str | None = None) -> str:
+    def add_diagnostic(self, diagnostic, name=None):
         """
         Add a custom diagnostic to the simulation.
 
@@ -159,12 +159,11 @@ class Species_Handler:
             return self._diagnostics[key]
 
         # Create a temporary diagnostic for this quantity
-        diag = Diagnostic(
-            simulation_folder=self._simulation_folder,
-            species=self._species_name,
-            input_deck=self._input_deck,
-        )
-        diag.get_quantity(key)
+        if key == "tracks":
+            diag = Track_Diagnostic(simulation_folder=self._simulation_folder, species=self._species_name, input_deck=self._input_deck)
+        else:
+            diag = Diagnostic(simulation_folder=self._simulation_folder, species=self._species_name, input_deck=self._input_deck)
+            diag.get_quantity(key)
 
         original_load_all = diag.load_all
 

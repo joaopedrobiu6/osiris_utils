@@ -122,10 +122,9 @@ HIST Data
 
 
 TIMINGS Data
-~~~~~~~~~
+~~~~~~~~~~~~
 
-TIMINGS Data
-.. autoclass:: osiris_utils.data.data.Osiris
+.. autoclass:: osiris_utils.data.data.OsirisTIMINGS
    :inherited-members: grid, nx, dx, x, axis, data, units, label
 
    Processes TIMINGS Data file from OSIRIS diagnostics.
