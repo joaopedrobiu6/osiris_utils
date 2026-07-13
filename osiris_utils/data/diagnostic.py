@@ -56,6 +56,12 @@ OSIRIS_SPECIE_REP_UDIST = [
     "T22",
     "T23",
     "T33",
+    "Q111",
+    "Q222",
+    "Q333",
+    "Q112",
+    "Q113",
+    "Q223",
 ]
 OSIRIS_FLD = [
     "e1",
