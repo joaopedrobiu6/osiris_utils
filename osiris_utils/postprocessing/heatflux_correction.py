@@ -217,5 +217,5 @@ class HeatfluxCorrection_Species_Handler:
 
             n = self._species_handler["n"]
 
-            self._heatflux_corrected[key] = HeatfluxCorrection_Diagnostic(diag, vfl_i, [Pij, Pjk, Pki], [vfl_i, vfl_j, vfl_k], n)
+            self._heatflux_corrected[key] = HeatfluxCorrection_Diagnostic(diag, [Pij, Pjk, Pki], [vfl_i, vfl_j, vfl_k], n)
         return self._heatflux_corrected[key]
