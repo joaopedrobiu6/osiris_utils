@@ -194,9 +194,10 @@ def convert_tracks(filename_in: str) -> str:
 
     try:
         file_in = h5py.File(filename_in, "r")
-    except OSError:
-        print("cannot open " + filename_in)
-        exit()
+    except OSError as err:
+        # Never call exit() from a library — it would kill the caller's
+        # interpreter (and any notebook kernel running it).
+        raise OSError(f"Cannot open track file {filename_in}") from err
 
     # read data from file
     data = file_in["data"][:]
@@ -290,6 +291,8 @@ def create_file_tags(filename: str, tags_array: np.ndarray) -> str:
 
     """
 
+    # Copy before touching: the caller's array must not be modified in place.
+    tags_array = np.array(tags_array, copy=True)
     # In case the particles chosen were already being tracked
     tags_array[:, 0] = np.abs(tags_array[:, 0])
     tags_array = tags_array[np.lexsort((tags_array[:, 1], tags_array[:, 0]))]

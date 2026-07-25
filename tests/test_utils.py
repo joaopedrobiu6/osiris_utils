@@ -171,6 +171,44 @@ def test_create_file_tags(tmp_path):
     assert line_3[1] == "1"
 
 
+def test_create_file_tags_does_not_mutate_caller_array(tmp_path):
+    """The abs() applied to node ids must not leak back to the caller's array."""
+    tags = np.array([[-3, 1], [2, 5]])
+    original = tags.copy()
+
+    create_file_tags(str(tmp_path / "tags.txt"), tags)
+
+    np.testing.assert_array_equal(tags, original)
+
+
+def test_create_file_tags_still_writes_absolute_sorted_tags(tmp_path):
+    """Copying the input must not change what lands in the file."""
+    out = tmp_path / "tags.txt"
+
+    create_file_tags(str(out), np.array([[-3, 1], [2, 5]]))
+
+    rows = [line.split() for line in out.read_text().splitlines()[5:]]
+    assert rows == [["2", "5"], ["3", "1"]]
+
+
+def test_create_file_tags_accepts_a_list(tmp_path):
+    """A plain nested list must work — it has no .copy()/fancy indexing of its own."""
+    out = tmp_path / "tags.txt"
+
+    create_file_tags(str(out), [[-3, 1], [2, 5]])
+
+    rows = [line.split() for line in out.read_text().splitlines()[5:]]
+    assert rows == [["2", "5"], ["3", "1"]]
+
+
+def test_convert_tracks_raises_on_unopenable_file(tmp_path):
+    """A library must raise, not kill the interpreter with exit()."""
+    missing = tmp_path / "does_not_exist.h5"
+
+    with pytest.raises(OSError):
+        convert_tracks(str(missing))
+
+
 def test_convert_tracks(tmp_path):
     """Test convert_tracks by writing a minimal IDL-format track h5 file."""
     # Two tracks: track 1 has 3 points, track 2 has 2 points.

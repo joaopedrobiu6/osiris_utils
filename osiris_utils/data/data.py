@@ -483,6 +483,11 @@ class OsirisRawFile(OsirisData):
             }
             self._axis[key] = axis_data
 
+        # Every dataset above is materialised into self._data, so the handle is
+        # no longer needed. Without this, looping over many RAW dumps leaks one
+        # file descriptor per file and eventually hits the open-file limit.
+        self._close_file()
+
     def raw_to_file_tags(self, filename, type: Literal["all", "random"] = "all", n_tags=10, mask=None):
         """
         Function to write a file_tags file from raw data.
