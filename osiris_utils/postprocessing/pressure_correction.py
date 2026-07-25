@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any
 
 from ..data.diagnostic import Diagnostic
@@ -156,11 +157,22 @@ class PressureCorrection_Species_Handler:
             # Density and velocities alwayes depend on the species so this can be done here
 
             n = self._species_handler["n"]
-            self._j, self._k = key[-2], key[-1]
+            j, k = key[-2], key[-1]
             try:
-                ufl = self._species_handler[f"ufl{self._j}"]
-            except Exception:
-                ufl = self._species_handler[f"vfl{self._j}"]
-            vfl = self._species_handler[f"vfl{self._k}"]
+                ufl = self._species_handler[f"ufl{j}"]
+            except (FileNotFoundError, ValueError, KeyError):
+                # ufl is the proper velocity (gamma*v), vfl the fluid velocity —
+                # different quantities, so substituting changes the physics of
+                # P_jk - n*u_j*v_k. Keep the fallback for runs that only dumped
+                # vfl, but never let it happen quietly.
+                warnings.warn(
+                    f"ufl{j} is not available for species '{getattr(self._species_handler, '_species_name', '?')}'; "
+                    f"falling back to vfl{j} when correcting {key}. ufl is the proper velocity (gamma*v) and vfl the "
+                    f"fluid velocity, so the correction P_{j}{k} - n*u_{j}*v_{k} will differ from the intended one. "
+                    f"Dump ufl{j} to avoid this.",
+                    stacklevel=2,
+                )
+                ufl = self._species_handler[f"vfl{j}"]
+            vfl = self._species_handler[f"vfl{k}"]
             self._pressure_corrected[key] = PressureCorrection_Diagnostic(diag, n, ufl, vfl)
         return self._pressure_corrected[key]
