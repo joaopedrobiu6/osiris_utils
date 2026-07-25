@@ -24,6 +24,11 @@ import h5py
 import numpy as np
 import pytest
 
+# Canonical input deck for the test suite. Lives under tests/ so the suite owns
+# its own inputs — it previously read examples/example_data/thermal.1d, which a
+# git history rewrite removed along with the large binaries in that directory.
+DECK_PATH = Path(__file__).resolve().parent / "data" / "thermal.1d"
+
 # --- Parameters of the synthetic run (kept in sync with thermal.1d) --------
 NX = 64  # smaller than the deck's 500: keeps files tiny, schema identical
 XMIN = 0.0
@@ -302,8 +307,7 @@ def build_simulation_tree(root: Path) -> Path:
         root/MS/TRACKS/electrons-tracks.h5
     """
     root.mkdir(parents=True, exist_ok=True)
-    deck_src = Path(__file__).resolve().parents[1] / "examples" / "example_data" / "thermal.1d"
-    shutil.copyfile(deck_src, root / "thermal.1d")
+    shutil.copyfile(DECK_PATH, root / "thermal.1d")
 
     ms = root / "MS"
     write_grid_series(ms / "FLD" / "e3", name="e3", prefix="e3", units="m_e c \\omega_p / e", label="E_3")
