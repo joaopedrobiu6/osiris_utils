@@ -761,18 +761,22 @@ class Derivative_Diagnostic(Diagnostic):
               ``NUMBA_NUM_THREADS`` / ``OMP_NUM_THREADS`` to 1 per worker when
               also using Numba to avoid thread over-subscription.
 
-            Time and mixed derivatives (``"t"``, ``"xx"``, ``"xt"``,
-            ``"tx"``) always run single-process because the stencil spans
-            neighbouring time steps.
+            Only the spatial factor is chunked. A pure time derivative
+            (``"t"``) always runs single-process because its stencil spans
+            neighbouring time steps; the mixed types (``"xx"``, ``"xt"``,
+            ``"tx"``) parallelise their spatial factor(s) only.
         """
-        if self._data is not None:
+        if self._all_loaded and self._data is not None:
             print("Using cached derivative")
             return self._data
 
         if not self._diag._all_loaded:
             self._diag.load_all()
 
-        self._data = self._diag._data
+        # Work off a local. Parking the source array in self._data before the
+        # derivative exists meant any failure below left the *undifferentiated*
+        # input cached, which the guard above then handed back as a result.
+        source = self._diag._data
 
         def dx_for_axis_data(ax: int) -> float:
             # data in load_all includes time axis at 0, spatial axes start at 1
@@ -811,98 +815,67 @@ class Derivative_Diagnostic(Diagnostic):
                 result_chunks = list(executor.map(_spatial_deriv_worker, worker_args))
             return np.concatenate(result_chunks, axis=0)
 
+        # ------------------------------------------------------------------
+        # Both the eager path here and the lazy _frame path must accept the same
+        # configurations and produce the same numbers. Express every deriv_type
+        # as a composition of two primitives so there is one place per axis kind
+        # where the scheme (stencil / periodic / order) is selected.
+        # ------------------------------------------------------------------
         if self._stencil is not None:
             self._validate_stencil(self._stencil, self._deriv_order)
 
-            if self._deriv_type == "t":
-                h = float(self._diag._dt * self._diag._ndump)
-                result = self._fd_apply_along_axis(self._data, h=h, axis=0, deriv_order=self._deriv_order, stencil=self._stencil)
-
-            elif self._deriv_type in ("x1", "x2", "x3"):
-                axis_map = {"x1": 1, "x2": 2, "x3": 3}
-                ax = axis_map[self._deriv_type]
-                dx = dx_for_axis_data(ax)
-                result = _parallel_spatial(self._data, dx, ax)
-
-            else:
-                raise ValueError("Explicit stencil is supported for deriv_type in {'t','x1','x2','x3'} in load_all().")
-
-            self._all_loaded = True
-            self._data = result
-            return self._data
-
-        if self._order == 2:
-            if self._deriv_type == "t":
-                dt = float(self._diag._dt * self._diag._ndump)
-                if self._periodic:
-                    result = self._periodic_first_derivative(self._data, h=dt, axis=0, order=2)
-                else:
-                    result = np.gradient(self._data, dt, axis=0, edge_order=2)
-
-            elif self._deriv_type == "x1":
-                result = _parallel_spatial(self._data, dx_for_axis_data(1), 1)
-
-            elif self._deriv_type == "x2":
-                result = _parallel_spatial(self._data, dx_for_axis_data(2), 2)
-
-            elif self._deriv_type == "x3":
-                result = _parallel_spatial(self._data, dx_for_axis_data(3), 3)
-
-            elif self._deriv_type == "xx":
-                if not isinstance(self._op_axis, (tuple, list)) or len(self._op_axis) != 2:
-                    raise ValueError("Axis must be a tuple with two elements.")
-                ax1 = self._op_axis[0]
-                ax2 = self._op_axis[1]
-                dx1 = float(self._diag._dx[ax1 - 1])
-                dx2 = float(self._diag._dx[ax2 - 1])
-                if self._periodic:
-                    g = self._periodic_first_derivative(self._data, h=dx1, axis=ax1, order=2)
-                    result = self._periodic_first_derivative(g, h=dx2, axis=ax2, order=2)
-                else:
-                    result = np.gradient(
-                        np.gradient(
-                            self._data,
-                            dx1,
-                            axis=ax1,
-                            edge_order=2,
-                        ),
-                        dx2,
-                        axis=ax2,
-                        edge_order=2,
-                    )
-
-            elif self._deriv_type == "tx":
-                if not isinstance(self._op_axis, int):
-                    raise ValueError("Axis must be an integer.")
-                dx = float(self._diag._dx[self._op_axis - 1])
-                dt = float(self._diag._dt * self._diag._ndump)
-                if self._periodic:
-                    gx = self._periodic_first_derivative(self._data, h=dx, axis=self._op_axis, order=2)
-                    result = self._periodic_first_derivative(gx, h=dt, axis=0, order=2)
-                else:
-                    result = np.gradient(
-                        np.gradient(
-                            self._data,
-                            dx,
-                            axis=self._op_axis,
-                            edge_order=2,
-                        ),
-                        dt,
-                        axis=0,
-                        edge_order=2,
-                    )
-            else:
-                raise ValueError("Invalid derivative type.")
-
-        elif self._order == 4:
-            if self._deriv_type in ("x1", "x2", "x3"):
-                axis_map = {"x1": 1, "x2": 2, "x3": 3}
-                ax = axis_map[self._deriv_type]
-                result = _parallel_spatial(self._data, dx_for_axis_data(ax), ax)
-            else:
-                raise ValueError("Order 4 is only implemented for spatial derivatives 'x1', 'x2' and 'x3'.")
-        else:
+        def d_dt(data: np.ndarray) -> np.ndarray:
+            """Configured derivative along the time axis (axis 0)."""
+            h = float(self._diag._dt * self._diag._ndump)
+            if self._stencil is not None:
+                return self._fd_apply_along_axis(data, h=h, axis=0, deriv_order=self._deriv_order, stencil=self._stencil)
+            if self._periodic:
+                return self._periodic_first_derivative(data, h=h, axis=0, order=self._order)
+            if self._order == 4:
+                # Same 4th-order central scheme with 2nd-order one-sided edges
+                # that _frame's d_dt_at applies index-for-index; the helper is
+                # axis-agnostic despite its name.
+                return self._compute_fourth_order_spatial(data, h, 0)
+            if self._order == 2:
+                return np.gradient(data, h, axis=0, edge_order=2)
             raise ValueError("Only order 2 and 4 supported.")
+
+        def d_dx(data: np.ndarray, ax_osiris: int) -> np.ndarray:
+            """Configured derivative along an OSIRIS spatial axis (1..3).
+
+            In the loaded array time occupies axis 0, so x1 -> 1, x2 -> 2, x3 -> 3.
+            """
+            if not isinstance(ax_osiris, (int, np.integer)):
+                raise ValueError("Axis must be an integer for spatial derivatives.")
+            if not (1 <= ax_osiris <= 3):
+                raise ValueError(f"Spatial axis must be 1..3, got {ax_osiris}")
+            if ax_osiris > self._dim:
+                raise ValueError(f"x{ax_osiris} requested but diagnostic dim={self._dim}")
+            if self._order not in (2, 4) and self._stencil is None:
+                raise ValueError("Only order 2 and 4 supported.")
+            return _parallel_spatial(data, dx_for_axis_data(ax_osiris), ax_osiris)
+
+        if self._deriv_type == "t":
+            result = d_dt(source)
+
+        elif self._deriv_type in ("x1", "x2", "x3"):
+            result = d_dx(source, {"x1": 1, "x2": 2, "x3": 3}[self._deriv_type])
+
+        elif self._deriv_type == "xx":
+            if not isinstance(self._op_axis, (tuple, list)) or len(self._op_axis) != 2:
+                raise ValueError("Axis must be a tuple with two elements.")
+            result = d_dx(d_dx(source, self._op_axis[0]), self._op_axis[1])
+
+        elif self._deriv_type == "tx":
+            # d/dt of d/dx
+            result = d_dt(d_dx(source, self._op_axis))
+
+        elif self._deriv_type == "xt":
+            # d/dx of d/dt
+            result = d_dx(d_dt(source), self._op_axis)
+
+        else:
+            raise ValueError("Invalid derivative type.")
 
         self._all_loaded = True
         self._data = result
@@ -910,10 +883,17 @@ class Derivative_Diagnostic(Diagnostic):
 
     def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
         # dimension guards
-        if self._deriv_type in ("x2", "xt", "tx") and self._diag._dim < 2:
+        if self._deriv_type in ("x2",) and self._diag._dim < 2:
             raise ValueError(f"{self._deriv_type} requested but diagnostic dim={self._diag._dim}")
         if self._deriv_type in ("x3",) and self._diag._dim < 3:
             raise ValueError(f"{self._deriv_type} requested but diagnostic dim={self._diag._dim}")
+        if self._deriv_type in ("xt", "tx"):
+            # Check the requested axis, not the dimension: a mixed d/dt d/x1 on
+            # 1D data is legitimate, and load_all() has always allowed it.
+            if not isinstance(self._op_axis, (int, np.integer)):
+                raise ValueError(f"For '{self._deriv_type}', axis must be an OSIRIS spatial axis int (1..3).")
+            if self._op_axis > self._diag._dim:
+                raise ValueError(f"{self._deriv_type} requested for axis x{self._op_axis} but dim={self._diag._dim}")
         if self._deriv_type == "xx":
             if not isinstance(self._op_axis, (tuple, list)) or len(self._op_axis) != 2:
                 raise ValueError("For 'xx', axis must be a tuple/list of two spatial axes (1..3).")

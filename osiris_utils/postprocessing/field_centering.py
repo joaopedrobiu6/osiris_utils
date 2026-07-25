@@ -19,17 +19,16 @@ class FieldCentering_Simulation(PostProcess):
     Works as a wrapper for the FieldCentering_Diagnostic class.
     Inherits from PostProcess to ensure all operation overloads work properly.
 
-    It only works for periodic boundaries.
-
     Parameters
     ----------
     simulation : Simulation
         The simulation object.
-    field : str
-        The field to center.
+    periodic : bool, optional
+        Boundary treatment along the centered axes; see FieldCentering_Diagnostic.
+        Defaults to True (wrap), matching OSIRIS runs with periodic boundaries.
     """
 
-    def __init__(self, simulation: Simulation):
+    def __init__(self, simulation: Simulation, periodic: bool = True):
         """
         Class to center the field in the simulation.
 
@@ -37,15 +36,18 @@ class FieldCentering_Simulation(PostProcess):
         ----------
         simulation : Simulation
             The simulation object.
+        periodic : bool, optional
+            Boundary treatment along the centered axes. Defaults to True.
         """
         super().__init__("FieldCentering Simulation", simulation)
         self._field_centered = {}
+        self._periodic = periodic
 
     def __getitem__(self, key: str) -> FieldCentering_Diagnostic:
         if key not in OSIRIS_FLD:
             raise ValueError(f"Does it make sense to center {key} field? Only {OSIRIS_FLD} are supported.")
         if key not in self._field_centered:
-            self._field_centered[key] = FieldCentering_Diagnostic(self._simulation[key])
+            self._field_centered[key] = FieldCentering_Diagnostic(self._simulation[key], periodic=self._periodic)
         return self._field_centered[key]
 
     def delete_all(self) -> None:
@@ -59,15 +61,20 @@ class FieldCentering_Simulation(PostProcess):
 
 
 class FieldCentering_Diagnostic(Diagnostic):
-    def __init__(self, diagnostic: Diagnostic):
+    def __init__(self, diagnostic: Diagnostic, periodic: bool = True):
         """
         Class to center the field in the simulation. It converts fields from the Osiris yee mesh to the center of the cells.
-        It only works for periodic boundaries.
 
         Parameters
         ----------
         diagnostic : Diagnostic
             The diagnostic object.
+        periodic : bool, optional
+            Boundary treatment along the axes being centered. ``True`` (default)
+            wraps, pairing the first cell with the last — correct for periodic
+            runs. Set ``False`` for open/conducting boundaries, where the first
+            cell along a centered axis keeps its own value instead of borrowing
+            from the opposite edge.
         """
         if hasattr(diagnostic, "_species"):
             super().__init__(
@@ -83,6 +90,7 @@ class FieldCentering_Diagnostic(Diagnostic):
             raise ValueError(f"Does it make sense to center {diagnostic._name} field? Only {OSIRIS_FLD} are supported.")
 
         self._diag = diagnostic
+        self._periodic = periodic
 
         for attr in [
             "_dt",
@@ -152,9 +160,23 @@ class FieldCentering_Diagnostic(Diagnostic):
         raise ValueError(f"Unknown dimension {self._dim}.")
 
     @staticmethod
-    def _center_along_axis(data: np.ndarray, axis: int) -> np.ndarray:
-        """0.5 * (f + roll(f, +1)) along the given numpy axis."""
-        return 0.5 * (data + np.roll(data, shift=1, axis=axis))
+    def _center_along_axis(data: np.ndarray, axis: int, periodic: bool = True) -> np.ndarray:
+        """Average each cell with its left neighbour along the given numpy axis.
+
+        ``periodic=True`` uses ``np.roll``, so the first cell pairs with the last
+        one — correct only when the domain really is periodic. ``periodic=False``
+        replicates the edge value instead, leaving the first cell equal to its
+        own (uncentred) value rather than borrowing from the far boundary.
+        """
+        if periodic:
+            return 0.5 * (data + np.roll(data, shift=1, axis=axis))
+
+        pad_width = [(0, 0)] * data.ndim
+        pad_width[axis] = (1, 0)
+        shifted = np.pad(data, pad_width, mode="edge")
+        take = [slice(None)] * data.ndim
+        take[axis] = slice(0, data.shape[axis])
+        return 0.5 * (data + shifted[tuple(take)])
 
     def _check_slice_safe(self, data_slice: tuple[slice, ...] | None, axes_to_center_osiris: tuple[int, ...]) -> None:
         """
@@ -192,7 +214,7 @@ class FieldCentering_Diagnostic(Diagnostic):
         result = data
         for ax_osiris in axes_to_center:
             np_axis = ax_osiris  # because time is axis 0
-            result = self._center_along_axis(result, axis=np_axis)
+            result = self._center_along_axis(result, axis=np_axis, periodic=self._periodic)
 
         self._data = result
         self._all_loaded = True
@@ -214,6 +236,6 @@ class FieldCentering_Diagnostic(Diagnostic):
         result = f
         for ax_osiris in axes_to_center:
             np_axis = ax_osiris - 1
-            result = self._center_along_axis(result, axis=np_axis)
+            result = self._center_along_axis(result, axis=np_axis, periodic=self._periodic)
 
         return result

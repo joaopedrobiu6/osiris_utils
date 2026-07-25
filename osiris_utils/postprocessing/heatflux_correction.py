@@ -210,12 +210,15 @@ class HeatfluxCorrection_Species_Handler:
             vfl_j = self._species_handler[f"vfl{j}"]
             vfl_k = self._species_handler[f"vfl{k}"]
 
-            # Load Pij, Pjk, Pki
-            Pij = self._species_handler[f"P{i}{j}"]
-            Pjk = self._species_handler[f"P{j}{k}"]
-            Pki = self._species_handler[f"P{k}{i}"]
+            # The pressure tensor is symmetric and OSIRIS only dumps the upper
+            # triangle (P11, P12, P13, P22, P23, P33). Order the index pair, or
+            # mixed components ask for P21/P31/P32 and fail.
+            def P(a: int, b: int) -> Diagnostic:
+                return self._species_handler[f"P{min(a, b)}{max(a, b)}"]
+
+            Pij, Pjk, Pki = P(i, j), P(j, k), P(k, i)
 
             n = self._species_handler["n"]
 
-            self._heatflux_corrected[key] = HeatfluxCorrection_Diagnostic(diag, vfl_i, [Pij, Pjk, Pki], [vfl_i, vfl_j, vfl_k], n)
+            self._heatflux_corrected[key] = HeatfluxCorrection_Diagnostic(diag, [Pij, Pjk, Pki], [vfl_i, vfl_j, vfl_k], n)
         return self._heatflux_corrected[key]

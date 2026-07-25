@@ -112,6 +112,7 @@ _ATTRS_TO_CLONE = [
     "_label",
     "_dim",
     "_ndump",
+    "_iter",
     "_maxiter",
     "_tunits",
     "_type",
@@ -261,8 +262,10 @@ class Diagnostic:
         self._label: str | None = None
         self._dim: int | None = None
         self._ndump: int | None = None
+        self._iter: int | None = None  # iteration number of the reference dump
         self._maxiter: int | None = None
         self._tunits: str | None = None  # time units
+        self._data: np.ndarray | None = None  # populated by load_all()
 
         if simulation_folder:
             self._simulation_folder = simulation_folder
@@ -548,13 +551,27 @@ class Diagnostic:
             cpu = os.cpu_count() or 4
 
             if executor_type == "process":
-                # ProcessPoolExecutor: each worker opens its own HDF5 handle.
-                # Requires _file_list (base Diagnostic only).
-                if not hasattr(self, "_file_list") or self._file_list is None:
+                # ProcessPoolExecutor: each worker opens its own HDF5 handle and
+                # re-reads the file, so it only ever sees raw on-disk data.
+                #
+                # Any diagnostic that overrides _frame carries a transformation that
+                # exists solely in the parent process: post-processing subclasses
+                # (FFT, Derivative, ...) override it on the class, and arithmetic
+                # results from _binary_op attach it to the instance. Dispatching those
+                # to _load_frame_worker would silently return *unprocessed* data, so
+                # refuse rather than corrupt the result.
+                if type(self)._frame is not Diagnostic._frame or "_frame" in self.__dict__:
+                    raise RuntimeError(
+                        "executor_type='process' is only supported on a base Diagnostic that reads "
+                        "files directly. This diagnostic overrides _frame (post-processing such as "
+                        "FFT/Derivative, or the result of an arithmetic operation), and the worker "
+                        "processes would bypass that transformation and return raw file data — "
+                        "use executor_type='thread'."
+                    )
+                if not getattr(self, "_file_list", None):
                     raise RuntimeError(
                         "executor_type='process' requires _file_list to be populated. "
-                        "Post-processing diagnostics (FFT, Derivative, ...) override _frame "
-                        "and cannot be pickled for multiprocessing — use executor_type='thread'."
+                        "Call get_quantity() first, or use executor_type='thread'."
                     )
                 if n_workers is None:
                     n_workers = min(cpu, size - 1)
@@ -911,27 +928,33 @@ class Diagnostic:
             The path to save the HDF5 files. If None, uses the default save path (in simulation folder).
 
         """
-        if path is None:
-            path = self._simulation_folder
-            self._save_path = path + f"/MS/MISC/{self._default_save}/{savename}"
-        else:
-            self._save_path = path
-        # Check if is has attribute created_diagnostic_name or postprocess_name
+        # Resolve the savename first — it feeds both the dataset name and the
+        # default save directory below.
         if savename is None:
+            if self._name is None:
+                raise ValueError("Diagnostic name is not set and no savename was given. Cannot save to HDF5.")
             logger.warning(f"No savename provided. Using {self._name}.")
             savename = self._name
 
+        # Check if it has attribute created_diagnostic_name or postprocess_name
         if hasattr(self, "created_diagnostic_name"):
             self._default_save = self.created_diagnostic_name
         elif hasattr(self, "postprocess_name"):
             self._default_save = self.postprocess_name
         else:
-            self._default_save = "DIR_" + self._name
+            self._default_save = "DIR_" + str(self._name)
 
-        if not Path(self._save_path).exists():
-            Path(self._save_path).mkdir(parents=True)
-            if verbose:
-                logger.info(f"Created folder {self._save_path}")
+        if path is None:
+            if self._simulation_folder is None:
+                raise ValueError("No path given and no simulation folder set. Cannot determine where to save.")
+            path = self._simulation_folder
+            self._save_path = str(Path(path) / "MS" / "MISC" / self._default_save / savename)
+        else:
+            self._save_path = str(path)
+
+        Path(self._save_path).mkdir(parents=True, exist_ok=True)
+        if verbose:
+            logger.info(f"Created folder {self._save_path}")
 
         if verbose:
             logger.info(f"Save Path: {self._save_path}")
@@ -950,8 +973,8 @@ class Diagnostic:
                     [(np.bytes_(self.time(i)[1].encode()) if self.time(i)[1] else np.bytes_(b""))],
                 )
                 f.attrs.create("ITER", [self._ndump * i])
-                f.attrs.create("NAME", [np.bytes_(self._name.encode())])
-                f.attrs.create("TYPE", [np.bytes_(self._type.encode())])
+                f.attrs.create("NAME", [np.bytes_(str(self._name or savename).encode())])
+                f.attrs.create("TYPE", [np.bytes_(str(self._type or "grid").encode())])
                 f.attrs.create(
                     "UNITS",
                     [(np.bytes_(self._units.encode()) if self._units else np.bytes_(b""))],
@@ -967,20 +990,21 @@ class Diagnostic:
                 # Create AXIS group
                 axis_group = f.create_group("AXIS")
 
-                # Create axis datasets
+                # Create axis datasets.
+                # _grid is (2,) for 1D and (ndim, 2) for 2D/3D — normalise to
+                # (ndim, 2) so each axis dataset is written as a [min, max] pair.
+                # Writing the 1D case unnormalised stores a scalar, which makes
+                # the file unreadable by OsirisGridFile.
                 axis_names = ["AXIS1", "AXIS2", "AXIS3"][: self._dim]
-                axis_shortnames = [self._axis[i]["name"] for i in range(self._dim)]
-                axis_longnames = [self._axis[i]["long_name"] for i in range(self._dim)]
-                axis_units = [self._axis[i]["units"] for i in range(self._dim)]
+                bounds = np.atleast_2d(self._grid)
 
-                for i, axis_name in enumerate(axis_names):
-                    # Create axis dataset
-                    axis_dataset = axis_group.create_dataset(axis_name, data=np.array(self._grid[i]))
+                for ax_idx, axis_name in enumerate(axis_names):
+                    axis_dataset = axis_group.create_dataset(axis_name, data=np.asarray(bounds[ax_idx], dtype=float))
 
                     # Set axis attributes
-                    axis_dataset.attrs.create("NAME", [np.bytes_(axis_shortnames[i].encode())])
-                    axis_dataset.attrs.create("UNITS", [np.bytes_(axis_units[i].encode())])
-                    axis_dataset.attrs.create("LONG_NAME", [np.bytes_(axis_longnames[i].encode())])
+                    axis_dataset.attrs.create("NAME", [np.bytes_(self._axis[ax_idx]["name"].encode())])
+                    axis_dataset.attrs.create("UNITS", [np.bytes_(self._axis[ax_idx]["units"].encode())])
+                    axis_dataset.attrs.create("LONG_NAME", [np.bytes_(self._axis[ax_idx]["long_name"].encode())])
                     axis_dataset.attrs.create("TYPE", [np.bytes_(b"linear")])
 
                 if verbose:
@@ -990,28 +1014,21 @@ class Diagnostic:
         logger.info(f"Files will be saved as {savename}-000001.h5, {savename}-000002.h5, etc.")
         logger.info("If you desire a different name, please set it with the 'name' method (setter).")
 
-        if self._name is None:
-            raise ValueError("Diagnostic name is not set. Cannot save to HDF5.")
-        if not Path(path).exists():
-            logger.info(f"Creating folder {path}...")
-            Path(path).mkdir(parents=True)
-        if not Path(path).is_dir():
-            raise ValueError(f"{path} is not a directory.")
+        if not Path(self._save_path).is_dir():
+            raise ValueError(f"{self._save_path} is not a directory.")
 
-        if all is False:
-            if isinstance(index, int):
-                filename = self._save_path + f"/{savename}-{index:06d}.h5"
-                savefile(filename, index)
-            elif isinstance(index, list) or isinstance(index, tuple):
-                for i in index:
-                    filename = self._save_path + f"/{savename}-{i:06d}.h5"
-                    savefile(filename, i)
-        elif all is True:
-            for i in range(self._maxiter):
-                filename = self._save_path + f"/{savename}-{i:06d}.h5"
-                savefile(filename, i)
+        if all:
+            indices: list[int] = list(range(self._maxiter))
+        elif isinstance(index, int):
+            indices = [index]
+        elif isinstance(index, (list, tuple)):
+            indices = list(index)
         else:
-            raise ValueError("index should be an int, slice, or list of ints, or all should be True")
+            # Falling through here used to write nothing and report success.
+            raise ValueError("index should be an int or a list/tuple of ints, or all should be True")
+
+        for i in indices:
+            savefile(self._save_path + f"/{savename}-{i:06d}.h5", i)
 
     def plot_3d(
         self,
@@ -1118,6 +1135,11 @@ class Diagnostic:
         return self._ndump
 
     @property
+    def iter(self) -> int | None:
+        """Iteration number of the reference dump this diagnostic's metadata came from."""
+        return self._iter
+
+    @property
     def all_loaded(self) -> bool:
         return self._all_loaded
 
@@ -1203,8 +1225,8 @@ class Diagnostic:
     def ndump(self, value: int) -> None:
         self._ndump = value
 
-    @ndump.setter
-    def iter(self, value):
+    @iter.setter
+    def iter(self, value: int | None) -> None:
         self._iter = value
 
     @data.setter

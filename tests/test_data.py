@@ -1,4 +1,6 @@
-import os
+from __future__ import annotations
+
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -7,77 +9,92 @@ from osiris_utils.data.data import OsirisGridFile
 from osiris_utils.data.diagnostic import Diagnostic
 from osiris_utils.decks.species import Species
 
-
-@pytest.fixture
-def example_data_dir():
-    # Helper to get the absolute path to example_data
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), "../examples/example_data"))
+from .conftest import DT, N_TIMESTEPS, NDUMP, NX, SPECIES, XMAX, XMIN, grid_values
 
 
-def test_osiris_grid_file(example_data_dir):
-    # Path to a specific file
-    file_path = os.path.join(example_data_dir, "MS/DENSITY/electrons/charge/charge-electrons-000000.h5")
-    assert os.path.exists(file_path), f"Test file not found at {file_path}"
+def test_osiris_grid_file(sim_dir: Path) -> None:
+    file_path = sim_dir / "MS" / "DENSITY" / SPECIES / "charge" / f"charge-{SPECIES}-000000.h5"
+    assert file_path.exists()
 
-    grid_file = OsirisGridFile(file_path)
+    grid_file = OsirisGridFile(str(file_path))
 
-    # Check basic attributes
     assert grid_file.name == "charge"
     assert grid_file.type == "grid"
     assert grid_file.dim == 1
     assert grid_file.iter == 0
-    # Check time: roughly 0.0
     assert np.isclose(grid_file.time[0], 0.0)
 
-    # Check data shape
-    # 1D data
     assert grid_file.data.ndim == 1
-    # Check if data is loaded
-    assert grid_file.data.size > 0
+    assert grid_file.data.shape == (NX,)
+    np.testing.assert_allclose(grid_file.data, grid_values(0), rtol=1e-6)
 
-    # Check grid props
-    assert grid_file.dx is not None
-    assert grid_file.nx is not None
+    assert grid_file.nx == NX
+    assert np.isclose(grid_file.dx, (XMAX - XMIN) / NX)
+    np.testing.assert_allclose(grid_file.grid, [XMIN, XMAX])
 
 
-def test_diagnostic_integration(example_data_dir):
-    # Test loading diagnostic from folder
+def test_osiris_grid_file_metadata_and_axis(sim_dir: Path) -> None:
+    grid_file = OsirisGridFile(str(sim_dir / "MS" / "FLD" / "e3" / "e3-000002.h5"))
 
-    # Create a species object for context
-    elec = Species(name="electrons", rqm=-1.0)
+    assert grid_file.label == "E_3"
+    assert grid_file.units == "m_e c \\omega_p / e"
+    assert grid_file.dt == pytest.approx(DT)
+    assert grid_file.iter == 2 * NDUMP
+    assert grid_file.time[0] == pytest.approx(2 * DT * NDUMP)
+    assert grid_file.time[1] == "1 / \\omega_p"
 
-    # Initialize Diagnostic
-    diag = Diagnostic(simulation_folder=example_data_dir, species=elec)
+    assert len(grid_file.axis) == 1
+    assert grid_file.axis[0]["name"] == "x1"
+    assert grid_file.axis[0]["long_name"] == "x_1"
+    assert grid_file.axis[0]["units"] == "c / \\omega_p"
+    assert grid_file.axis[0]["type"] == "linear"
 
-    # Request "charge" quantity
+
+def test_osiris_grid_file_metadata_only_skips_data(sim_dir: Path) -> None:
+    grid_file = OsirisGridFile(str(sim_dir / "MS" / "FLD" / "e3" / "e3-000000.h5"), load_data=False)
+
+    assert grid_file.data is None
+    assert grid_file.nx == NX
+    assert grid_file.dim == 1
+
+
+def test_diagnostic_integration(sim_dir: Path) -> None:
+    elec = Species(name=SPECIES, rqm=-1.0)
+    diag = Diagnostic(simulation_folder=str(sim_dir), species=elec)
     diag.get_quantity("charge")
 
-    # Check if files were scanned
-    # Don't access private _file_list directly if possible, but for testing internals it might be needed
-    # Or check public properties after scan
-    # _maxiter should be populated
-    assert diag._maxiter > 0
+    assert diag.maxiter == N_TIMESTEPS
 
-    # Load all data
     data = diag.load_all()
-    assert diag._all_loaded
+    assert diag.all_loaded
     assert data is not None
+    assert data.shape == (N_TIMESTEPS, NX)
+    for i in range(N_TIMESTEPS):
+        np.testing.assert_allclose(data[i], grid_values(i), rtol=1e-6)
 
-    # Check shape: (time, local_grid_size)
-    assert data.shape[0] == diag._maxiter
-
-    # Test indexing
-    # Get first timestep
     d0 = diag[0]
     assert d0.shape == data[0].shape
-    assert np.allclose(d0, data[0])
+    np.testing.assert_allclose(d0, data[0])
 
-    # Basic math operations (Lazy evaluation)
-    # diag + diag
     diag_sum = diag + diag
-    # Should result in a new Diagnostic
     assert isinstance(diag_sum, Diagnostic)
+    np.testing.assert_allclose(diag_sum.load_all(), data * 2)
 
-    # Load sum data
-    sum_data = diag_sum.load_all()
-    assert np.allclose(sum_data, data * 2)
+
+def test_diagnostic_density_flips_sign_with_rqm(sim_dir: Path) -> None:
+    """The 'n' quantity is charge scaled by sign(rqm) — negative for electrons."""
+    elec = Species(name=SPECIES, rqm=-1.0)
+
+    charge = Diagnostic(simulation_folder=str(sim_dir), species=elec)
+    charge.get_quantity("charge")
+
+    density = Diagnostic(simulation_folder=str(sim_dir), species=elec)
+    density.get_quantity("n")
+
+    np.testing.assert_allclose(density[0], -charge[0], rtol=1e-6)
+
+
+def test_diagnostic_rejects_unknown_quantity(sim_dir: Path) -> None:
+    diag = Diagnostic(simulation_folder=str(sim_dir), species=Species(name=SPECIES, rqm=-1.0))
+    with pytest.raises(ValueError, match="Invalid quantity"):
+        diag.get_quantity("not_a_quantity")
