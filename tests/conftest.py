@@ -18,6 +18,7 @@ against magic constants copied out of a binary file.
 from __future__ import annotations
 
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 import h5py
@@ -208,12 +209,17 @@ def write_grid_series(
     prefix: str,
     n_timesteps: int = N_TIMESTEPS,
     nx: int = NX,
+    data_fn: Callable[[int, int], np.ndarray] = grid_values,
     **kwargs,
 ) -> list[Path]:
     """Write ``prefix-000000.h5 ... prefix-00000N.h5`` into ``directory``.
 
     The trailing ``NNNNNN.h5`` is required: ``Diagnostic._scan_files`` derives
     its file template by stripping the last 9 characters.
+
+    ``data_fn(iteration, nx)`` supplies the array; override it to give each
+    quantity distinct values, so a test can tell which diagnostic a result was
+    actually built from.
     """
     paths = []
     for i in range(n_timesteps):
@@ -221,12 +227,24 @@ def write_grid_series(
             write_grid_file(
                 directory / f"{prefix}-{i:06d}.h5",
                 name=name,
-                data=grid_values(i, nx),
+                data=data_fn(i, nx),
                 iteration=i,
                 **kwargs,
             )
         )
     return paths
+
+
+def write_species_moment(sim_dir: Path, quantity: str, data_fn, *, species: str = SPECIES) -> list[Path]:
+    """Add a UDIST moment series (vfl1, P12, Q112, ...) to an existing sim tree."""
+    return write_grid_series(
+        sim_dir / "MS" / "UDIST" / species / quantity,
+        name=quantity,
+        prefix=f"{quantity}-{species}",
+        data_fn=data_fn,
+        units="",
+        label=quantity,
+    )
 
 
 def write_raw_file(path: Path, *, species: str = SPECIES, iteration: int = RAW_ITER) -> Path:
