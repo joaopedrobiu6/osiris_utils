@@ -11,20 +11,32 @@ import osiris_utils as ou
 from osiris_utils.data.data import OsirisTrackFile, get_track_indexes, reorder_track_data
 from osiris_utils.data.track_diagnostic import Track_Diagnostic
 
-
-@pytest.fixture
-def example_data_dir() -> Path:
-    return Path(__file__).resolve().parents[1] / "examples" / "example_data"
-
-
-@pytest.fixture
-def example_track_path(example_data_dir: Path) -> Path:
-    return example_data_dir / "MS" / "TRACKS" / "electrons-tracks.h5"
+from .conftest import (
+    DT,
+    NDUMP,
+    SPECIES,
+    TRACK_LABELS,
+    TRACK_N_ITERS,
+    TRACK_N_PARTICLES,
+    TRACK_QUANTS,
+    TRACK_UNITS,
+    XMAX,
+    XMIN,
+    track_value,
+)
 
 
 def _read_file_tags(path: Path) -> np.ndarray:
     rows = [line.split() for line in path.read_text().splitlines()[5:]]
     return np.array(rows, dtype=int)
+
+
+def _expected(quant: str) -> np.ndarray:
+    """Reference (n_particles, n_iters) array for a tracked quantity."""
+    return np.array(
+        [[track_value(quant, p, k) for k in range(TRACK_N_ITERS)] for p in range(1, TRACK_N_PARTICLES + 1)],
+        dtype=float,
+    )
 
 
 def test_track_index_helpers_reorder_idl_track_data() -> None:
@@ -58,40 +70,45 @@ def test_track_index_helpers_reorder_idl_track_data() -> None:
     np.testing.assert_allclose(ordered["x1"], [[10.0, 11.0, 12.0], [20.0, 21.0, 22.0]])
 
 
-def test_osiris_track_file_reads_example_track_data(example_track_path: Path) -> None:
-    track = OsirisTrackFile(str(example_track_path))
+def test_osiris_track_file_reads_track_data(track_path: Path) -> None:
+    track = OsirisTrackFile(str(track_path))
 
-    assert track.name == "electrons"
+    assert track.name == SPECIES
     assert track.type == "tracks-2"
     assert track.dim == 1
-    assert track.dt == pytest.approx(0.0099)
-    assert track.num_particles == 229
-    assert track.num_time_iters == 241
-    assert track.data.shape == (track.num_particles, track.num_time_iters)
-    assert track.quants[:5] == ["t", "q", "ene", "x1", "p1"]
-    assert track.units["x1"] == "c/\\omega_p"
-    assert track.labels["p1"] == "p_1"
-    np.testing.assert_allclose(track.grid, [[0.0, 5.0]])
-    np.testing.assert_allclose(track.data["t"][0, :4], [0.0, 0.0099, 0.0198, 0.0297])
+    assert track.dt == pytest.approx(DT)
+    assert track.num_particles == TRACK_N_PARTICLES
+    assert track.num_time_iters == TRACK_N_ITERS
+    assert track.data.shape == (TRACK_N_PARTICLES, TRACK_N_ITERS)
+    assert track.quants == TRACK_QUANTS[1:]
+    assert track.units["x1"] == TRACK_UNITS["x1"]
+    assert track.labels["p1"] == TRACK_LABELS["p1"]
+    np.testing.assert_allclose(track.grid, [[XMIN, XMAX]])
 
-    with h5py.File(example_track_path, "r") as file:
-        np.testing.assert_allclose(track.data[0, 0].tolist(), file["data"][0])
-        np.testing.assert_allclose(track.data[1, 0].tolist(), file["data"][21])
+    np.testing.assert_allclose(track.data["t"][0], np.arange(TRACK_N_ITERS) * DT)
 
 
-def test_track_diagnostic_lazy_access_and_load_all(example_data_dir: Path, example_track_path: Path) -> None:
-    deck = ou.InputDeckIO(str(example_data_dir / "thermal.1d"), verbose=False)
-    tracks = Track_Diagnostic(str(example_data_dir), species=ou.Species("electrons", -1), input_deck=deck)
-    raw_track = OsirisTrackFile(str(example_track_path))
+def test_osiris_track_file_reorders_interleaved_chunks(track_path: Path) -> None:
+    """Particles are written in interleaved chunks; reading must de-interleave them."""
+    track = OsirisTrackFile(str(track_path))
 
-    assert tracks.path == str(example_track_path)
+    for quant in ["t", "x1", "p1", "ene"]:
+        np.testing.assert_allclose(track.data[quant], _expected(quant), rtol=1e-9)
+
+
+def test_track_diagnostic_lazy_access_and_load_all(sim_dir: Path, track_path: Path) -> None:
+    deck = ou.InputDeckIO(str(sim_dir / "thermal.1d"), verbose=False)
+    tracks = Track_Diagnostic(str(sim_dir), species=ou.Species(SPECIES, -1), input_deck=deck)
+    raw_track = OsirisTrackFile(str(track_path))
+
+    assert tracks.path == str(track_path)
     assert tracks.quantity == "tracks"
-    assert tracks.ndump == 20
+    assert tracks.ndump == NDUMP
     assert tracks.num_particles == raw_track.num_particles
     assert tracks.num_time_iters == raw_track.num_time_iters
     assert tracks.quants == raw_track.quants
 
-    np.testing.assert_allclose(tracks["p1"][0:4, 50], raw_track.data["p1"][0:4, 50])
+    np.testing.assert_allclose(tracks["p1"][0:4, 5], raw_track.data["p1"][0:4, 5])
     with pytest.raises(ValueError, match="Data not loaded"):
         _ = tracks.time
 
@@ -105,30 +122,30 @@ def test_track_diagnostic_lazy_access_and_load_all(example_data_dir: Path, examp
         _ = tracks.data
 
 
-def test_simulation_species_tracks_uses_track_diagnostic(example_data_dir: Path, example_track_path: Path) -> None:
-    sim = ou.Simulation(str(example_data_dir / "thermal.1d"))
+def test_simulation_species_tracks_uses_track_diagnostic(sim_dir: Path, track_path: Path) -> None:
+    sim = ou.Simulation(str(sim_dir / "thermal.1d"))
 
     with pytest.raises(ValueError, match="Tracks diagnostics require a specie"):
         _ = sim["tracks"]
 
-    species = sim["electrons"]
+    species = sim[SPECIES]
     tracks = species["tracks"]
-    raw_track = OsirisTrackFile(str(example_track_path))
+    raw_track = OsirisTrackFile(str(track_path))
 
     assert isinstance(tracks, Track_Diagnostic)
-    assert tracks.path == str(example_track_path)
+    assert tracks.path == str(track_path)
     assert "tracks" not in species.loaded_diagnostics
-    np.testing.assert_allclose(tracks["p1"][0:4, 50], raw_track.data["p1"][0:4, 50])
+    np.testing.assert_allclose(tracks["p1"][0:4, 5], raw_track.data["p1"][0:4, 5])
 
     loaded_tracks = tracks.load_all()
     assert loaded_tracks is tracks
     assert species.loaded_diagnostics["tracks"] is tracks
     assert species["tracks"] is tracks
-    np.testing.assert_allclose(tracks.data["p1"][0:4, 50], raw_track.data["p1"][0:4, 50])
+    np.testing.assert_allclose(tracks.data["p1"][0:4, 5], raw_track.data["p1"][0:4, 5])
 
 
-def test_example_raw_tracks_notebook_raw_to_file_tags(example_data_dir: Path, tmp_path: Path) -> None:
-    raw = ou.OsirisRawFile(str(example_data_dir / "MS" / "RAW" / "electrons" / "RAW-electrons-000050.h5"))
+def test_raw_to_file_tags_from_simulation_tree(raw_path: Path, tmp_path: Path) -> None:
+    raw = ou.OsirisRawFile(str(raw_path))
 
     assert {"x1", "p1", "p2", "p3", "q", "ene", "tag"} <= set(raw.data)
     assert raw.labels["p1"] == "p_1"
@@ -152,19 +169,18 @@ def test_example_raw_tracks_notebook_raw_to_file_tags(example_data_dir: Path, tm
     np.testing.assert_array_equal(masked_tags, expected_tags)
 
 
-def test_example_raw_tracks_notebook_convert_tracks(example_track_path: Path, tmp_path: Path) -> None:
-    track_copy = tmp_path / "electrons-tracks.h5"
-    shutil.copyfile(example_track_path, track_copy)
+def test_convert_tracks_writes_v2_layout(track_path: Path, tmp_path: Path) -> None:
+    track_copy = tmp_path / f"{SPECIES}-tracks.h5"
+    shutil.copyfile(track_path, track_copy)
 
-    converted_path = Path(ou.utils.convert_tracks(str(track_copy)))
-    assert converted_path == tmp_path / "electrons-tracks-v2.h5"
+    converted_path = Path(ou.convert_tracks(str(track_copy)))
+    assert converted_path == tmp_path / f"{SPECIES}-tracks-v2.h5"
     assert converted_path.exists()
 
     track = OsirisTrackFile(str(track_copy))
     with h5py.File(converted_path, "r") as file:
         assert "1" in file
-        assert "229" in file
+        assert str(TRACK_N_PARTICLES) in file
         np.testing.assert_array_equal(file["1"][b"n"][:4], [0, 1, 2, 3])
-        np.testing.assert_allclose(file["1"][b"t"][:4], track.data["t"][0, :4])
-        np.testing.assert_allclose(file["1"][b"x1"][:4], track.data["x1"][0, :4])
-        np.testing.assert_allclose(file["1"][b"p1"][:4], track.data["p1"][0, :4])
+        for quant in ["t", "x1", "p1"]:
+            np.testing.assert_allclose(file["1"][quant.encode()][:], track.data[quant][0])

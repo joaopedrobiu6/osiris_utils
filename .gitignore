@@ -1,7 +1,11 @@
 build/
 osiris_utils.egg-info/
-osiris_utils/__pycache__/
+__pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 .DS_Store
 dist/
 osiris_utils/.DS_Store
