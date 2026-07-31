@@ -9,7 +9,7 @@ from osiris_utils.data.data import OsirisGridFile
 from osiris_utils.data.diagnostic import Diagnostic
 from osiris_utils.decks.species import Species
 
-from .conftest import DT, N_TIMESTEPS, NDUMP, NX, SPECIES, XMAX, XMIN, grid_values
+from .conftest import DT, N_TIMESTEPS, NDUMP, NX, SPECIES, XMAX, XMIN, grid_values, write_grid_file
 
 
 def test_osiris_grid_file(sim_dir: Path) -> None:
@@ -98,3 +98,21 @@ def test_diagnostic_rejects_unknown_quantity(sim_dir: Path) -> None:
     diag = Diagnostic(simulation_folder=str(sim_dir), species=Species(name=SPECIES, rqm=-1.0))
     with pytest.raises(ValueError, match="Invalid quantity"):
         diag.get_quantity("not_a_quantity")
+
+
+# The rest of the suite is 1D, which takes a different branch in OsirisGridFile
+# than multi-dimensional dumps do. These shapes have distinct, >1 extents on
+# every axis: a square or a length-1 axis would hide both a transposition bug
+# and a buffer-contiguity one.
+@pytest.mark.parametrize("shape", [(8, 12), (4, 6, 10)])
+def test_osiris_grid_file_multidim_roundtrip(tmp_path: Path, shape: tuple[int, ...]) -> None:
+    """A 2D/3D dump reads back in (x1, x2, ...) order, exactly as written."""
+    data = np.arange(int(np.prod(shape)), dtype=np.float32).reshape(shape)
+    path = write_grid_file(tmp_path / "b3-000000.h5", name="b3", data=data, iteration=0)
+
+    grid_file = OsirisGridFile(str(path))
+
+    assert grid_file.dim == len(shape)
+    assert grid_file.nx == shape
+    assert grid_file.data.shape == shape
+    np.testing.assert_array_equal(grid_file.data, data)
