@@ -236,6 +236,8 @@ class Diagnostic:
         Divide two diagnostics.
     __pow__(other)
         Power of a diagnostic.
+    __abs__()
+        Element-wise absolute value of a diagnostic.
     plot_3d(idx, scale_type="default", boundaries=None)
         Plot a 3D scatter plot of the diagnostic data.
     time(index)
@@ -865,6 +867,39 @@ class Diagnostic:
         result._all_loaded = False
         result._data = None
         return result
+
+    def _unary_op(self, op_func: Callable) -> Diagnostic:
+        """Universal helper for `op(self)`.  The lazy counterpart of `_binary_op`.
+
+        - If the data is fully loaded, applies op_func eagerly.
+        - Otherwise builds a lazy generator that applies op_func per timestep.
+
+        Parameters
+        ----------
+        op_func : Callable
+            The unary operation function (e.g. np.abs).
+        """
+        result = self._clone_meta()
+        result.created_diagnostic_name = "MISC"
+        result._maxiter = self._maxiter
+
+        if getattr(self, "_all_loaded", False):
+            result._data = op_func(self._data)
+            result._all_loaded = True
+            return result
+
+        def _frame(index: int, data_slice: tuple | None = None) -> np.ndarray:
+            return op_func(self._frame(index, data_slice=data_slice))
+
+        result._frame = _frame
+        result._all_loaded = False
+        result._data = None
+        return result
+
+    def __abs__(self) -> Diagnostic:
+        """Element-wise absolute value, e.g. `abs(sim[species]["n"])` to turn the
+        signed `charge` report into a number density."""
+        return self._unary_op(np.abs)
 
     # Now define each operator in one line:
 
