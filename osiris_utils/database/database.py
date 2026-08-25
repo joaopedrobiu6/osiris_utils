@@ -12,10 +12,11 @@ import tqdm as tqdm
 
 from ..ar import AnomalousResistivityConfig
 from ..profiling import _start_timer, _stop_timer
+from .burst import BurstAxis, BurstConfig, BurstStencil
 from .filters import SpatialFilter, as_filter
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,24 @@ VNT_BASE_QUANTITIES: tuple[str, ...] = ("vfl1", "n", "T11", "nvfl1", "nT11")
 VNT_DERIV_ORDERS: tuple[int, ...] = (1, 2, 3, 4)
 
 
+#: Extra input row contributed by the time-derivative term (burst dumps only).
+TIME_DERIVATIVE_LABEL: str = "dvfl1_dt_avg"
+
+
+def input_feature_labels(flags: AnomalousResistivityConfig | None = None) -> list[str]:
+    """Rows of the input tensor for the given physics flags.
+
+    ``dvfl1_dt_avg`` is appended when the time-derivative term is enabled, so
+    turning the term on changes the tensor's row count.  With the term off the
+    list is exactly :data:`INPUT_FEATURE_LABELS` — existing databases and the
+    models trained on them are unaffected.
+    """
+    labels = list(INPUT_FEATURE_LABELS)
+    if flags is not None and flags.include_time_derivative:
+        labels.append(TIME_DERIVATIVE_LABEL)
+    return labels
+
+
 def vnT_feature_labels() -> list[str]:
     """Ordered rows of the vnT tensor, derived from the parameters above."""
     labels = [f"{q}_avg" for q in VNT_BASE_QUANTITIES]
@@ -136,8 +155,8 @@ class DatabaseBuildConfig:
         AnomalousResistivityConfig whose ``include_*`` flags gate which terms
         enter e_vlasov and eta. If None, the defaults are used (no time
         derivative; convection, pressure and magnetic force included).
-        ``include_time_derivative=True`` is not supported by the per-frame
-        pipeline and raises NotImplementedError.
+        ``include_time_derivative=True`` requires ``burst`` to be set: the
+        derivative is taken inside each burst, not across dumps.
     filters :
         Spatial filters applied, in order, to every raw 2-D frame *before*
         any physics (e_vlasov, mean fields, derivatives) is computed.
@@ -165,6 +184,21 @@ class DatabaseBuildConfig:
         Flush the memory-mapped output to disk and save the progress file every
         *N* completed frames. Lower values protect more data at the cost of extra
         I/O. Default: 128. Set to 1 for maximum safety on unstable HPC jobs.
+    rqm :
+        ``m / q`` of :attr:`DatabaseCreator.species` in OSIRIS units (-1 for
+        electrons, +32 for the shock-deck ions).  It sets the sign and the mass
+        scaling of every inertial and pressure term in e_vlasov and eta — the
+        momentum equation is not the same for the two species.  None (default)
+        reads it from the input deck's ``species`` section; pass a value only to
+        override a deck that cannot be parsed.
+    burst :
+        Set when the run used OSIRIS burst dumps.  Frames are then built on the
+        burst *midpoints* (the ordinary dump iterations) and
+        ``include_time_derivative=True`` becomes available: ∂vfl1/∂t is taken
+        from the two frames flanking the midpoint, so it lands on exactly the
+        same time and grid points as every other term.  ``set_limits`` keeps
+        taking dump indices, so slice tags are unchanged.  None (default) = the
+        historical uniformly-dumped pipeline.
     """
 
     dtype: type = np.float32
@@ -176,6 +210,8 @@ class DatabaseBuildConfig:
     validate_output: bool = True
     resume: bool = False
     flush_every: int = 128
+    rqm: float | None = None
+    burst: BurstConfig | None = None
 
 
 # ----------------------------------------------------------------------
@@ -191,21 +227,51 @@ def _stack_rows(quantities: dict[str, np.ndarray], labels: Sequence[str]) -> np.
         raise KeyError(f"Feature '{e.args[0]}' is not computed by the frame pipeline. Available: {sorted(quantities)}") from e
 
 
+def _frame_index(t_idx: int | Mapping[str, int], name: str) -> int:
+    """Frame index of diagnostic *name*.
+
+    A bare int means "the same index in every diagnostic" (uniform dumps); a
+    mapping carries one index per diagnostic, which is what burst dumps need —
+    a bursted quantity has ~3x as many files as a non-bursted one, so the same
+    physical time sits at different indices.
+    """
+    return int(t_idx) if isinstance(t_idx, (int, np.integer)) else int(t_idx[name])
+
+
 def _load_filtered_fields(
     raw: dict[str, Any],
     names: Sequence[str],
-    t_idx: int,
+    t_idx: int | Mapping[str, int],
     filt: SpatialFilter,
     avg_axis: int,
 ) -> dict[str, np.ndarray]:
     """Load the raw 2-D fields *names* at *t_idx* and smooth each one."""
     periodic = tuple(ax == avg_axis for ax in range(2))
-    return {name: filt.smooth(np.asarray(raw[name][t_idx], dtype=np.float64), periodic=periodic) for name in names}
+    return {name: filt.smooth(np.asarray(raw[name][_frame_index(t_idx, name)], dtype=np.float64), periodic=periodic) for name in names}
+
+
+def _time_derivative_frame(
+    raw: dict[str, Any],
+    quantity: str,
+    stencil: BurstStencil,
+    filt: SpatialFilter,
+    avg_axis: int,
+) -> np.ndarray:
+    """∂*quantity*/∂t at a burst midpoint, as a 2-D frame.
+
+    The two flanking frames are smoothed with the same spatial filter as every
+    other field before differencing, so the derivative carries the same
+    effective smoothing as the terms it is added to.
+    """
+    periodic = tuple(ax == avg_axis for ax in range(2))
+    lo = filt.smooth(np.asarray(raw[quantity][stencil.i_lo], dtype=np.float64), periodic=periodic)
+    hi = filt.smooth(np.asarray(raw[quantity][stencil.i_hi], dtype=np.float64), periodic=periodic)
+    return (hi - lo) / stencil.h
 
 
 def _mean_field_frame_quantities(
     raw: dict[str, Any],
-    t_idx: int,
+    t_idx: int | Mapping[str, int],
     filt: SpatialFilter,
     dx: float,
     dx2: float,
@@ -214,6 +280,8 @@ def _mean_field_frame_quantities(
     eta_formula: str = "thesis",
     compute_e_vlasov: bool = True,
     compute_eta: bool = True,
+    dt_stencil: BurstStencil | None = None,
+    rqm: float = -1.0,
 ) -> dict[str, np.ndarray]:
     r"""Compute all mean-field quantities for one timestep.
 
@@ -307,6 +375,19 @@ def _mean_field_frame_quantities(
     q["d2_nvfl1_dx1_avg"] = filt.derivative(nvfl1_mf, dx, axis=0, order=2, periodic=False)
     q["dnT11_dx1_over_n_avg"] = q["d1_nT11_dx1_avg"] / q["n_avg"]
 
+    # ── Time derivative at the burst midpoint ─────────────────────────
+    # Taken from the frames flanking this one inside the same burst, so it is
+    # centered on *this* timestep rather than on the coarse dump interval.
+    dvfl1_dt_2d: np.ndarray | None = None
+    if flags.include_time_derivative:
+        if dt_stencil is None:
+            raise ValueError(
+                "include_time_derivative=True needs a burst stencil. Set DatabaseBuildConfig(burst=BurstConfig(...)) "
+                "and dump vfl1 with if_use_burst_dump."
+            )
+        dvfl1_dt_2d = _time_derivative_frame(raw, "vfl1", dt_stencil, filt, avg_axis)
+        q["dvfl1_dt_avg"] = avg(dvfl1_dt_2d)
+
     if not (compute_e_vlasov or compute_eta):
         return q
 
@@ -314,14 +395,26 @@ def _mean_field_frame_quantities(
     dvfl1_dx2_2d = d_x2(vfl1) if flags.include_transverse_advection else None
 
     # ── e_vlasov in 2-D (no E_x), then transverse average ─────────────
+    # Momentum equation of the species, solved for E1.  In OSIRIS units
+    # (rqm = m/q, so -1 for electrons and +32 for the shock-deck ions):
+    #
+    #   rqm [ ∂t v1 + v1 ∂1 v1 + v2 ∂2 v1 + (∂1(n T11) + ∂2(n T12)) / n ]
+    #       = E1 + (v × B)_1
+    #
+    # The inertial and pressure terms therefore carry a factor rqm — they flip
+    # sign between electrons and ions and scale with the mass ratio — while the
+    # magnetic term does not: E and v × B are divided by q together.  With
+    # rqm = -1 this is exactly the historical electron expression.
     if compute_e_vlasov:
         e_vlasov = np.zeros_like(n)
+        if flags.include_time_derivative:
+            e_vlasov += rqm * dvfl1_dt_2d
         if flags.include_convection:
-            e_vlasov -= vfl1 * dvfl1_dx1_2d
+            e_vlasov += rqm * (vfl1 * dvfl1_dx1_2d)
         if flags.include_transverse_advection:
-            e_vlasov -= vfl2 * dvfl1_dx2_2d
+            e_vlasov += rqm * (vfl2 * dvfl1_dx2_2d)
         if flags.include_pressure:
-            e_vlasov -= (d_x1(n * T11) + d_x2(n * T12)) / n
+            e_vlasov += rqm * ((d_x1(n * T11) + d_x2(n * T12)) / n)
         if flags.include_magnetic_force:
             e_vlasov += -vfl2 * b3 + vfl3 * b2
         q["e_vlasov_avg"] = avg(e_vlasov)
@@ -331,29 +424,43 @@ def _mean_field_frame_quantities(
 
     # ── eta ────────────────────────────────────────────────────────────
     if eta_formula == "lhs":
-        eta = q["e_vlasov_avg"].copy()
+        # Remove the mean-field momentum equation from ⟨e_vlasov⟩ so eta keeps only
+        # the fluctuation (turbulent) contributions.  Each term is removed with the
+        # same rqm it entered e_vlasov with; the magnetic term again carries none.
+        eta = -np.sign(rqm) * q["e_vlasov_avg"].copy()
+        if flags.include_time_derivative:
+            # ⟨e_vlasov⟩ carries rqm ⟨∂t v1⟩; remove it.  ∂t v1 is linear, so this
+            # cancels exactly and eta_lhs is unchanged by the term — the
+            # subtraction is what makes that true numerically as well.
+            eta += np.abs(rqm) * q["dvfl1_dt_avg"]
         if flags.include_convection:
-            eta += q["vfl1_avg"] * q["d1_vfl1_dx1_avg"]
+            eta += np.abs(rqm) * q["vfl1_avg"] * q["d1_vfl1_dx1_avg"]
         # if flags.include_transverse_advection:
-        #     eta += q["vfl2_avg"] * avg(dvfl1_dx2_2d)
+        #     eta -= rqm * (q["vfl2_avg"] * avg(dvfl1_dx2_2d))
         if flags.include_pressure:
-            eta += q["dnT11_dx1_over_n_avg"]
+            eta += np.abs(rqm) * q["dnT11_dx1_over_n_avg"]
         if flags.include_magnetic_force:
-            eta += q["vfl2_avg"] * q["b3_avg"] - q["vfl3_avg"] * q["b2_avg"]
+            eta -= np.sign(rqm) * (q["vfl2_avg"] * q["b3_avg"] - q["vfl3_avg"] * q["b2_avg"])
 
     elif eta_formula == "thesis":
+        # No time-derivative term here by construction: eta is built from
+        # fluctuation cross-terms ⟨f' g'⟩ and ∂t v1 enters the equation
+        # linearly, so ⟨∂t v1⟩ = ∂t⟨v1⟩ contributes nothing to eta.
 
         def delta(g: np.ndarray) -> np.ndarray:
             return g - g.mean(axis=avg_axis, keepdims=True)
 
+        # Every non-magnetic cross-term inherits the rqm of the species' momentum
+        # equation (see e_vlasov above); with rqm = -1 these reduce to the
+        # historical electron signs.
         eta = np.zeros_like(q["n_avg"])
         if flags.include_convection:
-            eta -= avg(delta(vfl1) * delta(dvfl1_dx1_2d))
+            eta -= np.abs(rqm) * avg(delta(vfl1) * delta(dvfl1_dx1_2d))
         if flags.include_transverse_advection:
-            eta -= avg(delta(vfl2) * delta(dvfl1_dx2_2d))
+            eta -= np.abs(rqm) * avg(delta(vfl2) * delta(dvfl1_dx2_2d))
         if flags.include_magnetic_force:
-            eta -= avg(delta(vfl2) * delta(b3))
-            eta += avg(delta(vfl3) * delta(b2))
+            eta += np.sign(rqm) * avg(delta(vfl2) * delta(b3))
+            eta += -np.sign(rqm) * avg(delta(vfl3) * delta(b2))
         if flags.include_pressure:
             # Thesis decomposition: density-fluctuation correction + 6 pressure
             # cross-terms (avg×delta, delta×avg, delta×delta for xx and xy).
@@ -364,13 +471,13 @@ def _mean_field_frame_quantities(
             T12_avg_kd = T12.mean(axis=avg_axis, keepdims=True)
             T12_d = T12 - T12_avg_kd
 
-            eta += avg((d_x1(n_avg_kd * T11_avg_kd) / n) * (n_d / n_avg_kd))
-            eta -= avg(d_x1(n_avg_kd * T11_d) / n)
-            eta -= avg(d_x1(n_d * T11_avg_kd) / n)
-            eta -= avg(d_x1(n_d * T11_d) / n)
-            eta -= avg(d_x2(n_avg_kd * T12_d) / n)
-            eta -= avg(d_x2(n_d * T12_avg_kd) / n)
-            eta -= avg(d_x2(n_d * T12_d) / n)
+            eta += np.abs(rqm) * avg((d_x1(n_avg_kd * T11_avg_kd) / n) * (n_d / n_avg_kd))
+            eta -= np.abs(rqm) * avg(d_x1(n_avg_kd * T11_d) / n)
+            eta -= np.abs(rqm) * avg(d_x1(n_d * T11_avg_kd) / n)
+            eta -= np.abs(rqm) * avg(d_x1(n_d * T11_d) / n)
+            eta -= np.abs(rqm) * avg(d_x2(n_avg_kd * T12_d) / n)
+            eta -= np.abs(rqm) * avg(d_x2(n_d * T12_avg_kd) / n)
+            eta -= np.abs(rqm) * avg(d_x2(n_d * T12_d) / n)
 
     else:
         raise ValueError(f"Invalid eta_formula '{eta_formula}'. Choose from: {sorted(_VALID_ETA_FORMULAS)}.")
@@ -381,7 +488,7 @@ def _mean_field_frame_quantities(
 
 def _vnT_frame_quantities(
     raw: dict[str, Any],
-    t_idx: int,
+    t_idx: int | Mapping[str, int],
     filt: SpatialFilter,
     dx: float,
     avg_axis: int,
@@ -466,6 +573,10 @@ class DatabaseCreator:
         self.T: int = 0
         self.X: int = 0
 
+        # Burst-dump state, resolved in create_database()
+        self._burst_axis: BurstAxis | None = None
+        self._frame_keys: list[int] = []
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -531,8 +642,12 @@ class DatabaseCreator:
             raise ValueError(f"Invalid eta_formula '{cfg.eta_formula}'. Choose from: {sorted(_VALID_ETA_FORMULAS)}.")
 
         flags = cfg.ar_config or AnomalousResistivityConfig(species=self.species)
-        if flags.include_time_derivative:
-            raise NotImplementedError("include_time_derivative=True is not supported by the per-frame database pipeline.")
+        if flags.include_time_derivative and cfg.burst is None:
+            raise NotImplementedError(
+                "include_time_derivative=True needs burst dumps: a d/dt taken across ordinary dumps "
+                "(dt * ndump apart) is not the derivative at the dump time. Re-run the diagnostic with "
+                "if_use_burst_dump and pass DatabaseBuildConfig(burst=BurstConfig(...))."
+            )
 
         self.save_folder.mkdir(parents=True, exist_ok=True)
 
@@ -556,7 +671,7 @@ class DatabaseCreator:
         # (name, row labels, validate) for each requested tensor, in output order.
         specs: list[tuple[str, list[str], bool]] = []
         if build_input:
-            specs.append((name_input, INPUT_FEATURE_LABELS, False))
+            specs.append((name_input, input_feature_labels(flags), False))
         if build_output:
             specs.append((name_output, OUTPUT_LABELS, cfg.validate_output))
         if build_vlasov:
@@ -564,10 +679,21 @@ class DatabaseCreator:
         if build_vnT:
             specs.append((name_vnT, vnT_labels, False))
 
-        raw = self._load_raw_diagnostics()
+        rqm = self._resolve_rqm()
+        logger.info("Momentum equation for species '%s': rqm = m/q = %g.", self.species, rqm)
 
-        def frame_fn(t_idx: int) -> list[np.ndarray]:
+        raw = self._load_raw_diagnostics()
+        self._burst_axis = self._build_burst_axis(raw) if cfg.burst is not None else None
+        self._frame_keys = self._resolve_frame_keys()
+
+        def frame_fn(key: int) -> list[np.ndarray]:
             frames: list[np.ndarray] = []
+            if self._burst_axis is None:
+                t_idx: int | Mapping[str, int] = key
+                dt_stencil = None
+            else:
+                t_idx = self._burst_axis.indices(key)
+                dt_stencil = self._burst_axis.stencil("vfl1", key) if flags.include_time_derivative else None
             if need_mean_field:
                 q = _mean_field_frame_quantities(
                     raw,
@@ -580,9 +706,11 @@ class DatabaseCreator:
                     eta_formula=cfg.eta_formula,
                     compute_e_vlasov=build_vlasov,
                     compute_eta=build_output,
+                    dt_stencil=dt_stencil,
+                    rqm=rqm,
                 )
                 if build_input:
-                    frames.append(_stack_rows(q, INPUT_FEATURE_LABELS))
+                    frames.append(_stack_rows(q, input_feature_labels(flags)))
                 if build_output:
                     frames.append(_stack_rows(q, OUTPUT_LABELS))
                 if build_vlasov:
@@ -607,6 +735,63 @@ class DatabaseCreator:
     # ------------------------------------------------------------------
     # Raw field access
     # ------------------------------------------------------------------
+
+    def _resolve_rqm(self) -> float:
+        """``m / q`` of :attr:`species`, from the build config or the input deck.
+
+        The momentum equation differs between species: every inertial and
+        pressure term in e_vlasov and eta is multiplied by this, so reading it
+        from the deck is what makes an ion database physically correct rather
+        than an electron database with ion data in it.
+        """
+        if self.build_config.rqm is not None:
+            return float(self.build_config.rqm)
+        try:
+            return float(self.simulation[self.species].species.rqm)
+        except (KeyError, AttributeError, TypeError, ValueError) as e:
+            raise ValueError(
+                f"Could not read rqm for species '{self.species}' from the input deck. "
+                "Pass it explicitly with DatabaseBuildConfig(rqm=...) (-1 for electrons)."
+            ) from e
+
+    def _build_burst_axis(self, raw: dict[str, Any]) -> BurstAxis:
+        """Align every raw diagnostic on the burst midpoints."""
+        cfg = self.build_config
+        ref = self.simulation["e1"]
+        ndump = int(ref.ndump or 1)
+        axis = BurstAxis(raw, dt=float(ref.dt), ndump=ndump, config=cfg.burst)
+        logger.info("Burst dumps: %s", axis.summary())
+        return axis
+
+    def _resolve_frame_keys(self) -> list[int]:
+        """Frames to build, as keys understood by ``frame_fn``.
+
+        Without bursting a key is a frame index and the range is
+        ``[initial_iter, final_iter)`` unchanged.  With bursting a key is a
+        *burst group*, selected so that ``initial_iter`` / ``final_iter`` keep
+        meaning dump indices — the same slice tags therefore cover the same
+        physical times as before, and only the sampling within each dump differs.
+        """
+        if self._burst_axis is None:
+            return list(range(self.initial_iter, int(self.final_iter or 0)))
+
+        keys = self._burst_axis.groups_in_dump_range(self.initial_iter, int(self.final_iter or 0))
+        if not keys:
+            raise ValueError(
+                f"No burst group falls in dump range [{self.initial_iter}, {self.final_iter}). "
+                f"Available dump indices: {int(self._burst_axis.dump_indices[0])}..{int(self._burst_axis.dump_indices[-1])}."
+            )
+        if len(keys) != self.T:
+            logger.info(
+                "Burst axis covers %d of the %d requested dumps in [%d, %d) — tensors will have T=%d.",
+                len(keys),
+                self.T,
+                self.initial_iter,
+                self.final_iter,
+                len(keys),
+            )
+            self.T = len(keys)
+        return keys
 
     def _load_raw_diagnostics(self) -> dict[str, Any]:
         """Return lazy Diagnostic handles for every raw field the pipeline may need."""
@@ -695,7 +880,8 @@ class DatabaseCreator:
             done_mask = np.zeros(self.T, dtype=bool)
             arrs = [np.lib.format.open_memmap(p, mode="w+", dtype=dtype, shape=s) for p, s in zip(save_paths, shapes, strict=True)]
 
-        work_items = [(out_i, t_idx) for out_i, t_idx in enumerate(range(self.initial_iter, self.final_iter)) if not done_mask[out_i]]
+        frame_keys = self._frame_keys or list(range(self.initial_iter, int(self.final_iter or 0)))
+        work_items = [(out_i, key) for out_i, key in enumerate(frame_keys) if not done_mask[out_i]]
 
         if not work_items:
             logger.info("%s already complete — skipping.", names)
@@ -768,8 +954,8 @@ class DatabaseCreator:
 
     @property
     def feature_labels(self) -> list[str]:
-        """Ordered list of input feature labels."""
-        return list(INPUT_FEATURE_LABELS)
+        """Ordered list of input feature labels, for this creator's physics flags."""
+        return input_feature_labels(self.build_config.ar_config)
 
     @property
     def output_labels(self) -> list[str]:

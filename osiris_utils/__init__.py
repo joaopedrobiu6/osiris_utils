@@ -22,6 +22,8 @@ from .data.diagnostic import Diagnostic
 from .data.simulation import Simulation, Species_Handler
 from .data.track_diagnostic import Track_Diagnostic
 from .database import (
+    BurstAxis,
+    BurstConfig,
     DatabaseBuildConfig,
     DatabaseCreator,
     FilterChain,
@@ -77,6 +79,8 @@ __all__ = [
     # Database
     "DatabaseCreator",
     "DatabaseBuildConfig",
+    "BurstAxis",
+    "BurstConfig",
     "LorentzDatabaseCreator",
     "LorentzDatabaseBuildConfig",
     # Database filters

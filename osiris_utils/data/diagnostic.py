@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import operator
+import re
 import threading
 import warnings
 from pathlib import Path
@@ -22,6 +23,10 @@ if TYPE_CHECKING:
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)8s │ %(message)s")
 logger = logging.getLogger(__name__)
+
+#: OSIRIS names every grid dump "<quant>-NNNNNN.h5".  Files that do not end
+#: in six digits are not part of the series.
+_DUMP_INDEX_RE = re.compile(r"(\d{6})$")
 
 """
 The utilities on data.py are cool but not useful when you want to work with whole data of a simulation instead
@@ -113,6 +118,8 @@ _ATTRS_TO_CLONE = [
     "_dim",
     "_ndump",
     "_iter",
+    "_iterations",
+    "_iter_stride",
     "_maxiter",
     "_tunits",
     "_type",
@@ -265,6 +272,11 @@ class Diagnostic:
         self._dim: int | None = None
         self._ndump: int | None = None
         self._iter: int | None = None  # iteration number of the reference dump
+        # True OSIRIS iteration of every frame (see _build_iteration_axis).  With
+        # burst dumps the frames are NOT equally spaced in time, so this is the
+        # only reliable time axis.
+        self._iterations: np.ndarray | None = None
+        self._iter_stride: int | None = None  # iterations per unit of file index
         self._maxiter: int | None = None
         self._tunits: str | None = None  # time units
         self._data: np.ndarray | None = None  # populated by load_all()
@@ -340,11 +352,28 @@ class Diagnostic:
             The glob pattern to search for HDF5 files.
 
         """
-        self._file_list = sorted(str(p) for p in Path(pattern).parent.glob(Path(pattern).name))
+        found = sorted(str(p) for p in Path(pattern).parent.glob(Path(pattern).name))
+        # Keep only real dumps: a stray .h5 in the folder (a hand-made copy, a
+        # merged file) is not part of the series and would corrupt both the
+        # frame count and the iteration axis below.
+        matches = [(f, _DUMP_INDEX_RE.search(Path(f).stem)) for f in found]
+        self._file_list = [f for f, m in matches if m]
+        skipped = [Path(f).name for f, m in matches if not m]
+        if skipped:
+            logger.warning(
+                "Ignoring %d file(s) in %s that do not end in a 6-digit dump index: %s",
+                len(skipped),
+                Path(pattern).parent,
+                ", ".join(skipped[:5]),
+            )
         if not self._file_list:
             raise FileNotFoundError(f"No HDF5 files match {pattern}")
         self._file_template = self._file_list[0][:-9]  # keep old “template” idea
         self._maxiter = len(self._file_list)
+        # The trailing NNNNNN of each filename: the dump counter for a regular
+        # run, the absolute iteration when the report uses burst dumps
+        # (OSIRIS writes n instead of n/ndump in that case).
+        self._file_indices = np.array([int(m.group(1)) for _, m in matches if m], dtype=np.int64)
 
     def _get_moment(self, species: str, moment: str) -> None:
         """Get the moment data for a given species and moment.
@@ -412,6 +441,39 @@ class Diagnostic:
         self._scan_files(str(Path(self._path) / "*.h5"))
         self._load_attributes(self._file_template, self._input_deck)
 
+    def _build_iteration_axis(self, ref_path: Path, ref_iter: int) -> None:
+        """Derive the true OSIRIS iteration of every frame.
+
+        OSIRIS names a grid dump ``<quant>-<NNNNNN>.h5`` where ``NNNNNN`` is
+        ``n / ndump`` normally, but the absolute iteration ``n`` when the report
+        is written with burst dumps (``if_use_burst_dump``).  Both cases satisfy
+        ``iteration = file_index * stride`` for a single integer *stride*
+        (``ndump`` in the first case, ``1`` — or ``burst_dump_nskip`` — in the
+        second), so one reference file whose ``ITER`` attribute is known is
+        enough to pin the whole axis down.
+
+        Sets ``_iter_stride`` and ``_iterations``.  Falls back to the historical
+        ``iteration = index * ndump`` assumption when the stride cannot be
+        determined.
+        """
+        indices = getattr(self, "_file_indices", None)
+        if indices is None or len(indices) == 0:
+            return
+
+        stride: int | None = None
+        try:
+            ref_index = int(Path(ref_path).stem[-6:])
+            if ref_index > 0 and ref_iter is not None and int(ref_iter) % ref_index == 0:
+                stride = int(ref_iter) // ref_index
+        except (ValueError, TypeError):
+            stride = None
+
+        if not stride or stride < 1:
+            stride = int(self._ndump) if self._ndump else 1
+
+        self._iter_stride = stride
+        self._iterations = indices * stride
+
     def _load_attributes(self, file_template: str, input_deck: dict | None) -> None:  # this will be replaced by reading the input deck
         """Load diagnostic attributes from the first available file or input deck.
 
@@ -441,10 +503,15 @@ class Diagnostic:
             self._ndump = 1
 
         try:
-            # Try files 000001, 000002, etc. until one is found
+            # Read metadata from the first file after 000000 (the t=0 dump is
+            # skipped: some quantities are degenerate there).  Iterating over the
+            # actual file list rather than guessing 000001, 000002, ... matters
+            # for burst dumps, whose filenames are absolute iterations and so
+            # skip most integers.
             found_file = False
-            for file_num in range(1, self._maxiter + 1):
-                path_file = Path(file_template + f"{file_num:06d}.h5")
+            candidates = getattr(self, "_file_list", None) or []
+            for path_str in candidates[1:] or candidates[:1]:
+                path_file = Path(path_str)
                 if path_file.exists():
                     dump = OsirisGridFile(str(path_file), load_data=False)
                     self._dx = dump.dx
@@ -460,6 +527,7 @@ class Diagnostic:
                     self._iter = dump.iter
                     self._tunits = dump.time[1]
                     self._type = dump.type
+                    self._build_iteration_axis(path_file, dump.iter)
                     found_file = True
                     break
 
@@ -818,6 +886,8 @@ class Diagnostic:
         # copy it too (harmless for virtual diags).
         if hasattr(self, "_file_list"):
             clone._file_list = self._file_list
+        if hasattr(self, "_file_indices"):
+            clone._file_indices = self._file_indices
         return clone
 
     def _binary_op(self, other: Diagnostic | float | np.ndarray, op_func: Callable) -> Diagnostic:
@@ -1200,7 +1270,39 @@ class Diagnostic:
         return self._file_list
 
     def time(self, index) -> list[float | str]:
+        """Physical time of frame *index*.
+
+        Uses the per-frame iteration axis, so it stays correct for burst dumps
+        (unequally spaced frames).  For a regular run
+        ``iterations[index] == index * ndump`` and this reduces to the historical
+        ``index * dt * ndump``.
+        """
+        iterations = getattr(self, "_iterations", None)
+        if iterations is not None and self._dt is not None:
+            return [float(iterations[index]) * self._dt, self._tunits]
         return [index * self._dt * self._ndump, self._tunits]
+
+    @property
+    def iterations(self) -> np.ndarray:
+        """True OSIRIS iteration number of every frame, in file order."""
+        iterations = getattr(self, "_iterations", None)
+        if iterations is None:
+            ndump = self._ndump if self._ndump else 1
+            return np.arange(self._maxiter or 0, dtype=np.int64) * ndump
+        return iterations
+
+    def index_of_iteration(self, iteration: int) -> int:
+        """Frame index holding OSIRIS iteration *iteration*.
+
+        Raises
+        ------
+        KeyError
+            If that iteration was never dumped for this diagnostic.
+        """
+        matches = np.flatnonzero(self.iterations == int(iteration))
+        if matches.size == 0:
+            raise KeyError(f"Iteration {iteration} is not dumped for diagnostic '{self._quantity}' (path: {getattr(self, '_path', '?')}).")
+        return int(matches[0])
 
     def attributes_to_save(self, index: int = 0) -> None:
         """Prints the attributes of the diagnostic."""

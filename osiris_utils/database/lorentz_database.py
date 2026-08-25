@@ -90,6 +90,10 @@ class LorentzDatabaseBuildConfig:
         If True, reuse the existing boost_velocities file and skip already-written frames.
     flush_every :
         Flush memory-mapped output(s) every N completed frames.
+    rqm :
+        ``m / q`` of the species in OSIRIS units (-1 electrons, +32 the shock-deck
+        ions).  Sets the sign and mass scaling of the inertial and pressure terms
+        of e_vlasov and eta.  None (default) reads it from the input deck.
     """
 
     dtype: type = np.float32
@@ -102,6 +106,7 @@ class LorentzDatabaseBuildConfig:
     validate_output: bool = True
     resume: bool = False
     flush_every: int = 128
+    rqm: float | None = None
 
 
 class LorentzDatabaseCreator(DatabaseCreator):
@@ -206,10 +211,12 @@ class LorentzDatabaseCreator(DatabaseCreator):
         filt = as_filter(self.build_config.filters)
 
         raw = self._load_raw_diagnostics()
+        rqm = self._resolve_rqm()
+        logger.info("Momentum equation for species '%s': rqm = m/q = %g.", self.species, rqm)
 
         def get_combined_frame(t_idx: int) -> np.ndarray:
             beta = float(betas[t_idx - self.initial_iter])
-            return _boost_combined_frame(raw, t_idx, beta, dx, dx2, avg_axis, filt)
+            return _boost_combined_frame(raw, t_idx, beta, dx, dx2, avg_axis, filt, rqm)
 
         specs: list[tuple[str, list[str], bool]] = []
         splits: list[slice] = []
@@ -296,6 +303,7 @@ def _boost_combined_frame(
     dx2: float,
     avg_axis: int,
     filt: SpatialFilter,
+    rqm: float = -1.0,
 ) -> np.ndarray:
     r"""Compute all 22 input features **and** the output η in a single pass.
 
@@ -443,30 +451,32 @@ def _boost_combined_frame(
     dnT11 = gamma * filt.derivative(n_avg * T11_avg, dx, axis=0, order=1, periodic=False)
 
     # ── Input features (22, X) ────────────────────────────────────────
-    input_features = np.stack([
-        n_avg,  # 0
-        b2_avg,  # 1
-        b3_avg,  # 2
-        vfl1_avg,  # 3
-        vfl2_avg,  # 4
-        vfl3_avg,  # 5
-        T11_avg,  # 6
-        T12_avg,  # 7
-        dvfl1,  # 8   ⟨∂v'x/∂x'⟩
-        dvfl2,  # 9
-        dvfl3,  # 10
-        dn,  # 11
-        dT11,  # 12
-        db2,  # 13
-        db3,  # 14
-        _d_avg(vfl1_t, 2),  # 15  ⟨∂²v'x/∂x'²⟩
-        _d_avg(vfl2, 2),  # 16
-        _d_avg(vfl3, 2),  # 17
-        _d_avg(b2_t, 2),  # 18
-        _d_avg(b3_t, 2),  # 19
-        _d_avg(n_t, 2),  # 20
-        dnT11,  # 21  ∂(⟨n'⟩⟨T'11⟩)/∂x'  — also used in η Step 3
-    ])  # (22, X)
+    input_features = np.stack(
+        [
+            n_avg,  # 0
+            b2_avg,  # 1
+            b3_avg,  # 2
+            vfl1_avg,  # 3
+            vfl2_avg,  # 4
+            vfl3_avg,  # 5
+            T11_avg,  # 6
+            T12_avg,  # 7
+            dvfl1,  # 8   ⟨∂v'x/∂x'⟩
+            dvfl2,  # 9
+            dvfl3,  # 10
+            dn,  # 11
+            dT11,  # 12
+            db2,  # 13
+            db3,  # 14
+            _d_avg(vfl1_t, 2),  # 15  ⟨∂²v'x/∂x'²⟩
+            _d_avg(vfl2, 2),  # 16
+            _d_avg(vfl3, 2),  # 17
+            _d_avg(b2_t, 2),  # 18
+            _d_avg(b3_t, 2),  # 19
+            _d_avg(n_t, 2),  # 20
+            dnT11,  # 21  ∂(⟨n'⟩⟨T'11⟩)/∂x'  — also used in η Step 3
+        ]
+    )  # (22, X)
 
     # ── Output: boosted η (1, X) ──────────────────────────────────────
     # Transverse 2-D derivative: $\partial/\partial y' = \partial/\partial y$
@@ -475,11 +485,18 @@ def _boost_combined_frame(
         return filt.derivative(f, dx2, axis=avg_axis, order=1, periodic=True)
 
     # Step 1: 2-D e_vlasov on full boosted field (no E_x)
-    # $e'_{vlasov} = -v'_x\,\partial_{x'} v'_x
-    #                - \frac{1}{n'}\bigl(\partial_{x'}(n' T'_{11})
-    #                                   + \partial_y(n' T'_{12})\bigr)
+    # $e'_{vlasov} = rqm\Bigl(v'_x\,\partial_{x'} v'_x
+    #                + \frac{1}{n'}\bigl(\partial_{x'}(n' T'_{11})
+    #                                  + \partial_y(n' T'_{12})\bigr)\Bigr)
     #                - v_y B'_z + v_z B'_y$
-    e_vlasov_2d = -vfl1_t * _d2d(vfl1_t) - (1.0 / n_t) * (_d2d(n_t * T11_t) + _d2d_y(n_t * T12_t)) - vfl2 * b3_t + vfl3 * b2_t
+    #
+    # rqm = m/q of the species (-1 electrons, +32 the shock-deck ions): the
+    # inertial and pressure terms flip sign and scale with the mass ratio
+    # between species, the magnetic term does not.  rqm = -1 reproduces the
+    # historical electron expression exactly.
+    e_vlasov_2d = (
+        rqm * (vfl1_t * _d2d(vfl1_t)) + rqm * ((1.0 / n_t) * (_d2d(n_t * T11_t) + _d2d_y(n_t * T12_t))) - vfl2 * b3_t + vfl3 * b2_t
+    )
 
     # Step 2: transverse average
     e_vlasov_avg = e_vlasov_2d.mean(axis=avg_axis)
@@ -491,8 +508,8 @@ def _boost_combined_frame(
     #         + \langle v_y\rangle\langle B'_z\rangle - \langle v_z\rangle\langle B'_y\rangle$
     eta = (
         e_vlasov_avg
-        + vfl1_avg * dvfl1  # dvfl1 = input feature 8
-        + (1.0 / n_avg) * dnT11  # dnT11 = input feature 21
+        - rqm * (vfl1_avg * dvfl1)  # dvfl1 = input feature 8
+        - rqm * ((1.0 / n_avg) * dnT11)  # dnT11 = input feature 21
         + vfl2_avg * b3_avg
         - vfl3_avg * b2_avg
     )

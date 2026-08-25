@@ -13,6 +13,29 @@ from ..data.diagnostic import Diagnostic
 from .postprocess import PostProcess
 
 
+def _uniform_frame_dt(diag) -> float:
+    """Spacing in time between consecutive frames of *diag*.
+
+    Every time-derivative scheme in this module assumes a uniformly spaced time
+    axis.  Burst dumps (OSIRIS ``if_use_burst_dump``) break that assumption —
+    frames come in tight clusters around each ordinary dump — so a d/dt computed
+    with ``dt * ndump`` would be wrong by orders of magnitude.  Detect it and
+    refuse rather than return a silently wrong derivative.
+    """
+    iterations = getattr(diag, "_iterations", None)
+    if iterations is not None and len(iterations) > 1:
+        steps = np.diff(np.asarray(iterations, dtype=np.int64))
+        if steps.min() != steps.max():
+            raise ValueError(
+                "Time derivatives require equally spaced frames, but this diagnostic has "
+                f"non-uniform frame spacing (iteration steps {steps.min()}..{steps.max()}). "
+                "This is what burst dumps look like — use osiris_utils.database.BurstAxis "
+                "(or DatabaseCreator with a BurstConfig) to differentiate inside each burst."
+            )
+        return float(diag._dt) * float(steps[0])
+    return float(diag._dt * diag._ndump)
+
+
 def _spatial_deriv_worker(args: tuple) -> np.ndarray:
     """Top-level ProcessPoolExecutor worker for chunked spatial derivatives.
 
@@ -826,7 +849,7 @@ class Derivative_Diagnostic(Diagnostic):
 
         def d_dt(data: np.ndarray) -> np.ndarray:
             """Configured derivative along the time axis (axis 0)."""
-            h = float(self._diag._dt * self._diag._ndump)
+            h = _uniform_frame_dt(self._diag)
             if self._stencil is not None:
                 return self._fd_apply_along_axis(data, h=h, axis=0, deriv_order=self._deriv_order, stencil=self._stencil)
             if self._periodic:
@@ -901,7 +924,7 @@ class Derivative_Diagnostic(Diagnostic):
                 raise ValueError(f"xx requested for axes {self._op_axis} but dim={self._diag._dim}")
 
         n = int(self._diag._maxiter)
-        dt = float(self._diag._dt * self._diag._ndump)
+        dt = _uniform_frame_dt(self._diag) if self._deriv_type in ("t", "xt", "tx") else float(self._diag._dt * self._diag._ndump)
 
         # ---------- helpers ----------
         def spatial_axis_np_from_osiris(ax_osiris: int) -> int:
