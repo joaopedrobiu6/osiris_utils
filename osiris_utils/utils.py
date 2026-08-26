@@ -14,6 +14,7 @@ except ImportError:
     from scipy.integrate import cumulative_trapezoid as _cumulative_integrate
 
 __all__ = [
+    "resolve_rqm",
     "courant2D",
     "time_estimation",
     "filesize_estimation",
@@ -24,6 +25,34 @@ __all__ = [
     "convert_tracks",
     "create_file_tags",
 ]
+
+
+def resolve_rqm(simulation, species: str, override: float | None = None) -> float:
+    """``m / q`` of *species* in OSIRIS units: -1 for electrons, +32 for 32-mass ions.
+
+    The momentum equation is not the same for the two species: every inertial and
+    pressure term of e_vlasov and eta is multiplied by this, flipping sign and
+    scaling with the mass ratio.  Reading it from the input deck is what makes an
+    ion result physically correct rather than an electron result computed on ion
+    data.
+
+    Parameters
+    ----------
+    simulation :
+        A :class:`~osiris_utils.data.simulation.Simulation`.
+    species :
+        Species name as it appears in the deck.
+    override :
+        Use this value instead of the deck's.  For decks that cannot be parsed.
+    """
+    if override is not None:
+        return float(override)
+    try:
+        return float(simulation[species].species.rqm)
+    except (KeyError, AttributeError, TypeError, ValueError) as e:
+        raise ValueError(
+            f"Could not read rqm for species '{species}' from the input deck. Pass it explicitly (rqm=...), -1 for electrons."
+        ) from e
 
 
 def courant2D(dx: float, dy: float) -> float:

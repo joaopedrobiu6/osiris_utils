@@ -12,6 +12,7 @@ import tqdm as tqdm
 
 from ..ar import AnomalousResistivityConfig
 from ..profiling import _start_timer, _stop_timer
+from ..utils import resolve_rqm
 from .burst import BurstAxis, BurstConfig, BurstStencil
 from .filters import SpatialFilter, as_filter
 
@@ -744,15 +745,7 @@ class DatabaseCreator:
         from the deck is what makes an ion database physically correct rather
         than an electron database with ion data in it.
         """
-        if self.build_config.rqm is not None:
-            return float(self.build_config.rqm)
-        try:
-            return float(self.simulation[self.species].species.rqm)
-        except (KeyError, AttributeError, TypeError, ValueError) as e:
-            raise ValueError(
-                f"Could not read rqm for species '{self.species}' from the input deck. "
-                "Pass it explicitly with DatabaseBuildConfig(rqm=...) (-1 for electrons)."
-            ) from e
+        return resolve_rqm(self.simulation, self.species, self.build_config.rqm)
 
     def _build_burst_axis(self, raw: dict[str, Any]) -> BurstAxis:
         """Align every raw diagnostic on the burst midpoints."""

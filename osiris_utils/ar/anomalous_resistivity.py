@@ -7,6 +7,7 @@ from typing import Any
 
 from ..postprocessing.derivative import Derivative_Diagnostic, Derivative_Simulation
 from ..postprocessing.mft import MFT_Diagnostic, MFT_Simulation
+from ..utils import resolve_rqm
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ __all__ = [
 
 _X1_STENCIL = [-2, -1, 0, 1, 2]
 _X2_STENCIL = [-1, 0, 1]
+_T_STENCIL = [-1, 0, 1]
 
 
 @dataclass(frozen=True)
@@ -62,16 +64,38 @@ class AnomalousResistivity(AnomalousResistivityABC):
     - Respects config flags for which terms are included.
     - `eta` uses the thesis pressure decomposition (7 cross-terms).
     - `eta_new` uses the simplified formulation (4 terms) from the research code.
-    - `include_transverse_advection` adds the `- vfl2 * dvfl1_dx2` term to e_vlasov
-      and the `- vfl2' * (dvfl1/dx2)'` fluctuation term to eta / eta_new.
+    - `include_transverse_advection` adds the `rqm * vfl2 * dvfl1_dx2` term to
+      e_vlasov and the corresponding fluctuation term to eta / eta_new.
+
+    Species
+    -------
+    Every inertial and pressure term is multiplied by ``rqm = m/q`` (-1 for
+    electrons, +32 for the shock-deck ions), so it flips sign and scales with the
+    mass ratio between species; the magnetic term carries no ``rqm`` because E and
+    v x B are divided by q together.  ``eta`` is normalised as
+    ``-sign(rqm) * (<e_vlasov> - mean-field)``, matching
+    :mod:`osiris_utils.database.database`, so the non-magnetic fluctuation terms
+    enter with the same negative coefficient for both species.  ``rqm`` is read
+    from the input deck; pass ``rqm=`` only to override a deck that cannot be
+    parsed.  With ``rqm = -1`` every expression reduces to the historical
+    electron form.
     """
 
-    def __init__(self, simulation, species: str = "electrons", config: AnomalousResistivityConfig | None = None):
+    def __init__(
+        self,
+        simulation,
+        species: str = "electrons",
+        config: AnomalousResistivityConfig | None = None,
+        rqm: float | None = None,
+    ):
         self._simulation = simulation
         self.species = species
         self._config = config or AnomalousResistivityConfig(species=species)
 
         self._validate_inputs()
+        self._e_vlasov_key = f"e_vlasov_{species}"
+        self._rqm = resolve_rqm(simulation, species, rqm)
+        logger.info("Momentum equation for species '%s': rqm = m/q = %g.", species, self._rqm)
 
         try:
             self.compute_vlasov_electric_field()
@@ -123,7 +147,7 @@ class AnomalousResistivity(AnomalousResistivityABC):
         logger.info("Computing Vlasov electric field...")
 
         d_dx1 = Derivative_Simulation(self._simulation, "x1", stencil=_X1_STENCIL, deriv_order=1)
-        d_dt = Derivative_Simulation(self._simulation, "t", stencil=_X1_STENCIL, deriv_order=1)
+        d_dt = Derivative_Simulation(self._simulation, "t", stencil=_T_STENCIL, deriv_order=1)
 
         sp = self._simulation[self.species]
 
@@ -148,7 +172,11 @@ class AnomalousResistivity(AnomalousResistivityABC):
             self._ensure_diagnostic(sp, d_dx2[self.species]["vfl1"], "dvfl1_dx2")
 
         E_vlasov = self._compute_vlasov_field_terms()
-        self._ensure_diagnostic(self._simulation, E_vlasov, "e_vlasov")
+        # Namespaced per species: e_vlasov is stored on the simulation-level
+        # container, and _ensure_diagnostic is idempotent by name.  Under a single
+        # shared name a second species would silently reuse the first one's field
+        # — which now matters, since the two momentum equations differ by rqm.
+        self._ensure_diagnostic(self._simulation, E_vlasov, self._e_vlasov_key)
 
         logger.info("Vlasov electric field computed.")
 
@@ -157,17 +185,24 @@ class AnomalousResistivity(AnomalousResistivityABC):
         sp = self.species
         terms = []
 
+        # Momentum equation of the species solved for E1:
+        #   rqm [ dt v1 + v1 d1 v1 + v2 d2 v1 + (d1(n T11) + d2(n T12))/n ]
+        #       = E1 + (v x B)_1
+        # so the inertial and pressure terms carry rqm and the magnetic one does
+        # not.  rqm = -1 reproduces the historical electron expression exactly.
+        rqm = self._rqm
+
         if self._config.include_time_derivative:
-            terms.append(-1 * sim[sp]["dvfl1_dt"])
+            terms.append(rqm * sim[sp]["dvfl1_dt"])
 
         if self._config.include_convection:
-            terms.append(-1 * sim[sp]["vfl1"] * sim[sp]["dvfl1_dx1"])
+            terms.append(rqm * sim[sp]["vfl1"] * sim[sp]["dvfl1_dx1"])
 
         if self._config.include_transverse_advection:
-            terms.append(-1 * sim[sp]["vfl2"] * sim[sp]["dvfl1_dx2"])
+            terms.append(rqm * sim[sp]["vfl2"] * sim[sp]["dvfl1_dx2"])
 
         if self._config.include_pressure:
-            pressure_term = (-1 / sim[sp]["n"]) * (sim[sp]["dnT11_dx1"] + sim[sp]["dnT12_dx2"])
+            pressure_term = (rqm / sim[sp]["n"]) * (sim[sp]["dnT11_dx1"] + sim[sp]["dnT12_dx2"])
             terms.append(pressure_term)
 
         if self._config.include_magnetic_force:
@@ -210,24 +245,41 @@ class AnomalousResistivity(AnomalousResistivityABC):
         return terms_dict
 
     def _compute_lhs(self, dnT11_dx_avg):
-        terms = [self.sim_mft["e_vlasov"]["avg"]]
+        """``-sign(rqm) * (<e_vlasov> - mean-field momentum equation)``.
+
+        Removing the mean-field equation leaves only the fluctuation (turbulent)
+        contributions.  Each mean-field term is removed with the same weight it
+        entered e_vlasov with, then the whole thing is normalised by
+        ``-sign(rqm)`` so the non-magnetic terms carry ``+|rqm|`` for either
+        species.  For electrons (``rqm = -1``) every coefficient below is +1 and
+        this is the historical expression.
+        """
+        rqm = self._rqm
+        sign = 1.0 if rqm > 0 else -1.0
+        mag = abs(rqm)
+
+        terms = [-sign * self.sim_mft[self._e_vlasov_key]["avg"]]
 
         if self._config.include_time_derivative:
-            terms.append(self.sim_mft[self.species]["dvfl1_dt"]["avg"])
+            terms.append(mag * self.sim_mft[self.species]["dvfl1_dt"]["avg"])
 
         if self._config.include_convection:
-            terms.append(self.sim_mft[self.species]["vfl1"]["avg"] * self.sim_mft[self.species]["dvfl1_dx1"]["avg"])
+            terms.append(mag * self.sim_mft[self.species]["vfl1"]["avg"] * self.sim_mft[self.species]["dvfl1_dx1"]["avg"])
 
-        if self._config.include_transverse_advection:
-            terms.append(self.sim_mft[self.species]["vfl2"]["avg"] * self.sim_mft[self.species]["dvfl1_dx2"]["avg"])
+        # This is zero! d/dx2 of a mean term is zero
+        # if self._config.include_transverse_advection:
+        #     terms.append(mag * self.sim_mft[self.species]["vfl2"]["avg"] * self.sim_mft[self.species]["dvfl1_dx2"]["avg"])
 
         if self._config.include_pressure:
-            terms.append((1 / self.sim_mft[self.species]["n"]["avg"]) * dnT11_dx_avg)
+            terms.append(mag * (1 / self.sim_mft[self.species]["n"]["avg"]) * dnT11_dx_avg)
 
         if self._config.include_magnetic_force:
             terms.append(
-                self.sim_mft[self.species]["vfl2"]["avg"] * self.sim_mft["b3"]["avg"]
-                - self.sim_mft[self.species]["vfl3"]["avg"] * self.sim_mft["b2"]["avg"]
+                -sign
+                * (
+                    self.sim_mft[self.species]["vfl2"]["avg"] * self.sim_mft["b3"]["avg"]
+                    - self.sim_mft[self.species]["vfl3"]["avg"] * self.sim_mft["b2"]["avg"]
+                )
             )
 
         return sum(terms)
@@ -294,40 +346,50 @@ class AnomalousResistivity(AnomalousResistivityABC):
         """
         Compute eta (thesis 7-term pressure decomposition) and eta_new (simplified 4-term).
 
-        Sign conventions:
+        The coefficient tables below are written for electrons (``rqm = -1``) and
+        then scaled for the actual species: non-magnetic terms by ``|rqm|`` and
+        magnetic terms by ``-sign(rqm)``.  This is the same normalisation used by
+        :mod:`osiris_utils.database.database`, i.e.
+        ``eta = -|rqm| * (inertial + pressure fluctuations) + sign(rqm) * (magnetic fluctuations)``.
+
+        Electron sign conventions:
           -conv fluct, -v2'b3', +v3'b2', +density_fluct_corr, -(all press cross-terms)/n
         """
         thesis_coeffs: dict[str, float] = {}
         new_coeffs: dict[str, float] = {}
 
+        rqm = self._rqm
+        sign = 1.0 if rqm > 0 else -1.0
+        mag = abs(rqm)
+
         if self._config.include_convection:
-            thesis_coeffs["conv_v1_dv1dx1"] = -1.0
-            new_coeffs["conv_v1_dv1dx1"] = -1.0
+            thesis_coeffs["conv_v1_dv1dx1"] = -mag
+            new_coeffs["conv_v1_dv1dx1"] = -mag
 
         if self._config.include_transverse_advection:
-            thesis_coeffs["conv_v2_dv1dx2"] = -1.0
-            new_coeffs["conv_v2_dv1dx2"] = -1.0
+            thesis_coeffs["conv_v2_dv1dx2"] = -mag
+            new_coeffs["conv_v2_dv1dx2"] = -mag
 
         if self._config.include_magnetic_force:
-            thesis_coeffs["mag_v2_b3"] = -1.0
-            thesis_coeffs["mag_v3_b2"] = +1.0
-            new_coeffs["mag_v2_b3"] = -1.0
-            new_coeffs["mag_v3_b2"] = +1.0
+            thesis_coeffs["mag_v2_b3"] = sign
+            thesis_coeffs["mag_v3_b2"] = -sign
+            new_coeffs["mag_v2_b3"] = sign
+            new_coeffs["mag_v3_b2"] = -sign
 
         if self._config.include_pressure:
             # Thesis: density-fluctuation correction + 6 cross-term derivatives
-            thesis_coeffs["press_density_fluct_corr"] = +1.0
-            thesis_coeffs["press_dnT11_dx_ad_over_n"] = -1.0
-            thesis_coeffs["press_dnT11_dx_da_over_n"] = -1.0
-            thesis_coeffs["press_dnT11_dx_dd_over_n"] = -1.0
-            thesis_coeffs["press_dnT12_dx_ad_over_n"] = -1.0
-            thesis_coeffs["press_dnT12_dx_da_over_n"] = -1.0
-            thesis_coeffs["press_dnT12_dx_dd_over_n"] = -1.0
+            thesis_coeffs["press_density_fluct_corr"] = mag
+            thesis_coeffs["press_dnT11_dx_ad_over_n"] = -mag
+            thesis_coeffs["press_dnT11_dx_da_over_n"] = -mag
+            thesis_coeffs["press_dnT11_dx_dd_over_n"] = -mag
+            thesis_coeffs["press_dnT12_dx_ad_over_n"] = -mag
+            thesis_coeffs["press_dnT12_dx_da_over_n"] = -mag
+            thesis_coeffs["press_dnT12_dx_dd_over_n"] = -mag
             # New: 4-term formulation
-            new_coeffs["press_new_xx_mixed"] = +1.0
-            new_coeffs["press_new_xx_dd"] = -1.0
-            new_coeffs["press_new_xy_mixed"] = +1.0
-            new_coeffs["press_new_xy_dd"] = -1.0
+            new_coeffs["press_new_xx_mixed"] = +mag
+            new_coeffs["press_new_xx_dd"] = -mag
+            new_coeffs["press_new_xy_mixed"] = +mag
+            new_coeffs["press_new_xy_dd"] = -mag
 
         def _weighted_sum(coeffs):
             result = 0.0
@@ -343,7 +405,7 @@ class AnomalousResistivity(AnomalousResistivityABC):
 
     def _get_average_quantities(self, dnT11_dx_avg) -> dict[str, Any]:
         out = {
-            "e_vlasov_avg": self.sim_mft["e_vlasov"]["avg"],
+            "e_vlasov_avg": self.sim_mft[self._e_vlasov_key]["avg"],
             "vfl1_avg": self.sim_mft[self.species]["vfl1"]["avg"],
             "vfl2_avg": self.sim_mft[self.species]["vfl2"]["avg"],
             "vfl3_avg": self.sim_mft[self.species]["vfl3"]["avg"],
@@ -393,8 +455,22 @@ class AnomalousResistivity(AnomalousResistivityABC):
     def available_terms(self) -> list[str]:
         return list(self._terms_dict.keys())
 
+    @property
+    def e_vlasov_key(self) -> str:
+        """Name under which this species' e_vlasov is stored on the Simulation."""
+        return self._e_vlasov_key
 
-def vlasov_electric_field(simulation, species: str = "electrons", config: AnomalousResistivityConfig | None = None):
-    """Convenience function: compute e_vlasov and return simulation['e_vlasov']."""
-    _ = AnomalousResistivity(simulation, species, config=config)
-    return simulation["e_vlasov"]
+
+def vlasov_electric_field(
+    simulation,
+    species: str = "electrons",
+    config: AnomalousResistivityConfig | None = None,
+    rqm: float | None = None,
+):
+    """Compute e_vlasov for *species* and return ``simulation['e_vlasov_<species>']``.
+
+    The diagnostic is namespaced by species so several species can coexist on one
+    Simulation; their momentum equations differ by ``rqm``.
+    """
+    ar = AnomalousResistivity(simulation, species, config=config, rqm=rqm)
+    return simulation[ar.e_vlasov_key]

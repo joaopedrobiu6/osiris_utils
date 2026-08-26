@@ -379,3 +379,118 @@ def test_time_derivative_without_burst_config_is_refused(burst_sim, tmp_path):
     db.set_limits(initial_iter=0, final_iter=N_DUMPS)
     with pytest.raises(NotImplementedError, match="burst dumps"):
         db.create_database(database="input")
+
+
+# --- in-burst time derivatives ---------------------------------------------
+
+
+def test_frame_dt_axis_is_scalar_on_a_uniform_axis(mixed_sim):
+    """A regular series keeps the historical single-step fast path."""
+    from osiris_utils.postprocessing.derivative import _frame_dt_axis
+
+    h, valid = _frame_dt_axis(mixed_sim["b2"], [-1, 0, 1], 1)
+    assert valid is None
+    assert h == pytest.approx(DT * NDUMP)
+
+
+def test_burst_time_derivative_is_exact_at_midpoints(burst_sim):
+    """(v[n+1] - v[n-1]) / (2 dt) on the midpoints, NaN everywhere else.
+
+    The synthetic fields are linear in time, so the centered in-burst difference
+    reproduces d/dt exactly and the midpoints can be checked against the closed
+    form rather than a tolerance.
+    """
+    from osiris_utils.postprocessing.derivative import Derivative_Diagnostic
+
+    vfl1 = burst_sim[SPECIES]["vfl1"]
+    d = Derivative_Diagnostic(vfl1, "t", stencil=[-1, 0, 1], deriv_order=1)
+    d.load_all()
+    got = np.asarray(d.data)
+
+    iterations = np.asarray(vfl1.iterations)
+    # midpoints with both burst neighbours present; n = 0 has no n = -1
+    expected_valid = {n for n in iterations if n % NDUMP == 0 and n - 1 in set(iterations) and n + 1 in set(iterations)}
+    assert expected_valid, "fixture should provide at least one fully-flanked midpoint"
+
+    rate = _rate(float(sum(b"vfl1") % 7))
+    for i, n in enumerate(iterations):
+        if int(n) in expected_valid:
+            # atol as well as rtol: the analytic rate crosses zero, and the
+            # inputs are stored float32, so a pure relative test fails there.
+            assert np.allclose(got[i], rate, rtol=1e-4, atol=1e-5), f"iteration {n} should reproduce dv/dt"
+        else:
+            assert np.isnan(got[i]).all(), f"iteration {n} has no valid stencil and must be NaN"
+
+
+def test_burst_time_derivative_matches_between_eager_and_lazy_paths(burst_sim):
+    from osiris_utils.postprocessing.derivative import Derivative_Diagnostic
+
+    vfl1 = burst_sim[SPECIES]["vfl1"]
+    eager = Derivative_Diagnostic(vfl1, "t", stencil=[-1, 0, 1], deriv_order=1)
+    eager.load_all()
+    lazy = Derivative_Diagnostic(vfl1, "t", stencil=[-1, 0, 1], deriv_order=1)
+    for i in range(len(vfl1.iterations)):
+        np.testing.assert_allclose(np.asarray(lazy[i]), np.asarray(eager.data)[i])
+
+
+def test_burst_stencil_must_fit_inside_the_burst_window(burst_sim):
+    """burst_dump_range = -1, 1 gives one neighbour per side: no 5-point stencil."""
+    from osiris_utils.postprocessing.derivative import _frame_dt_axis
+
+    vfl1 = burst_sim[SPECIES]["vfl1"]
+    _, valid_3 = _frame_dt_axis(vfl1, [-1, 0, 1], 1)
+    _, valid_5 = _frame_dt_axis(vfl1, [-2, -1, 0, 1, 2], 1)
+    assert valid_3.sum() > 0
+    assert valid_5.sum() == 0
+
+
+# --- species-aware momentum equation ---------------------------------------
+
+
+def test_rqm_is_read_from_the_deck(burst_sim):
+    from osiris_utils.utils import resolve_rqm
+
+    assert resolve_rqm(burst_sim, SPECIES) == pytest.approx(-1.0)
+    assert resolve_rqm(burst_sim, SPECIES, override=32.0) == pytest.approx(32.0)
+
+
+def test_e_vlasov_is_linear_in_rqm(mixed_sim):
+    """e_vlasov = rqm * (inertial + pressure) - (v x B); only the first part scales."""
+    import osiris_utils as ou
+
+    def ev(rqm):
+        cfg = ou.AnomalousResistivityConfig(species=SPECIES)
+        ar = ou.AnomalousResistivity(mixed_sim, SPECIES, cfg, rqm=rqm)
+        return np.asarray(ar["e_vlasov_avg"][1], dtype=np.float64).ravel()
+
+    e0, e1 = ev(0.0), ev(1.0)
+    inertial_and_pressure, magnetic = e1 - e0, -e0
+    for rqm in (-1.0, 32.0):
+        np.testing.assert_allclose(ev(rqm), rqm * inertial_and_pressure - magnetic, rtol=1e-9, atol=1e-12)
+
+
+def test_eta_follows_the_species_normalisation(mixed_sim):
+    """eta = -|rqm| * non-magnetic fluctuations + sign(rqm) * magnetic ones."""
+    import osiris_utils as ou
+
+    def eta(rqm, key):
+        cfg = ou.AnomalousResistivityConfig(species=SPECIES)
+        ar = ou.AnomalousResistivity(mixed_sim, SPECIES, cfg, rqm=rqm)
+        return np.asarray(ar[key][1], dtype=np.float64).ravel()
+
+    for key in ("eta", "eta_new"):
+        plus, minus = eta(1.0, key), eta(-1.0, key)
+        magnetic, non_magnetic = (plus - minus) / 2, -(plus + minus) / 2
+        for rqm in (32.0, -32.0):
+            expected = -abs(rqm) * non_magnetic + np.sign(rqm) * magnetic
+            np.testing.assert_allclose(eta(rqm, key), expected, rtol=1e-9, atol=1e-12)
+
+
+def test_e_vlasov_is_namespaced_per_species(mixed_sim):
+    """Two species on one Simulation must not share the e_vlasov diagnostic."""
+    import osiris_utils as ou
+
+    cfg = ou.AnomalousResistivityConfig(species=SPECIES)
+    ar = ou.AnomalousResistivity(mixed_sim, SPECIES, cfg)
+    assert ar.e_vlasov_key == f"e_vlasov_{SPECIES}"
+    assert mixed_sim[ar.e_vlasov_key] is not None

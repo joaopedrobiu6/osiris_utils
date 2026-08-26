@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import logging
 import math
 import multiprocessing
 from collections import OrderedDict
@@ -12,6 +13,8 @@ import numpy as np
 from ..data.diagnostic import Diagnostic
 from .postprocess import PostProcess
 
+logger = logging.getLogger(__name__)
+
 
 def _uniform_frame_dt(diag) -> float:
     """Spacing in time between consecutive frames of *diag*.
@@ -22,18 +25,86 @@ def _uniform_frame_dt(diag) -> float:
     with ``dt * ndump`` would be wrong by orders of magnitude.  Detect it and
     refuse rather than return a silently wrong derivative.
     """
+    h, valid = _frame_dt_axis(diag)
+    if valid is not None:  # pragma: no cover - _frame_dt_axis raises without a stencil
+        raise ValueError("Non-uniform frame axis has no single time step.")
+    return float(h)
+
+
+def _frame_dt_axis(diag, stencil=None, deriv_order: int = 1):
+    """Time step of every frame, and where *stencil* is meaningful.
+
+    Returns ``(h, valid)``.
+
+    * **Uniform axis** (the ordinary case, and any non-burst run): ``h`` is a
+      float and ``valid`` is ``None`` — callers take the historical fast path.
+    * **Burst axis**: the frames are unevenly spaced, so no single step exists.
+      ``h`` is a per-frame array of local steps and ``valid`` marks the frames
+      whose stencil spans *uniformly spaced* iterations — the burst midpoints
+      that carry a full symmetric set of neighbours. Everywhere else the scheme
+      has no meaning at all and the caller must emit NaN rather than a number.
+
+    Concretely, for ``stencil = [-1, 0, 1]`` on ``0, 1, 199, 200, 201, 399, …``
+    only the frames at 200, 400, … are valid, and there ``h = dt`` — the in-burst
+    spacing — instead of ``dt * ndump``.
+    """
+    key = (tuple(int(x) for x in stencil) if stencil is not None else None, int(deriv_order))
+    cache = getattr(diag, "_frame_dt_cache", None)
+    if cache is None:
+        cache = {}
+        diag._frame_dt_cache = cache
+    if key in cache:
+        return cache[key]
+
     iterations = getattr(diag, "_iterations", None)
-    if iterations is not None and len(iterations) > 1:
-        steps = np.diff(np.asarray(iterations, dtype=np.int64))
-        if steps.min() != steps.max():
-            raise ValueError(
-                "Time derivatives require equally spaced frames, but this diagnostic has "
-                f"non-uniform frame spacing (iteration steps {steps.min()}..{steps.max()}). "
-                "This is what burst dumps look like — use osiris_utils.database.BurstAxis "
-                "(or DatabaseCreator with a BurstConfig) to differentiate inside each burst."
-            )
-        return float(diag._dt) * float(steps[0])
-    return float(diag._dt * diag._ndump)
+    dt = float(diag._dt) if diag._dt is not None else 1.0
+    if iterations is None or len(iterations) < 2:
+        cache[key] = (float(diag._dt * diag._ndump), None)
+        return cache[key]
+
+    iters = np.asarray(iterations, dtype=np.int64)
+    steps = np.diff(iters)
+    if steps.min() == steps.max():
+        cache[key] = (dt * float(steps[0]), None)
+        return cache[key]
+
+    if stencil is None:
+        raise ValueError(
+            "Time derivatives require equally spaced frames, but this diagnostic has "
+            f"non-uniform frame spacing (iteration steps {steps.min()}..{steps.max()}). "
+            "This is what burst dumps look like — pass an explicit stencil= to "
+            "differentiate inside each burst (valid only on the midpoints), or use "
+            "osiris_utils.database.BurstAxis / DatabaseCreator with a BurstConfig."
+        )
+
+    s = np.asarray(stencil, dtype=int)
+    span = int(s.max() - s.min())
+    n = int(iters.size)
+    h = np.full(n, np.nan, dtype=np.float64)
+    valid = np.zeros(n, dtype=bool)
+    for i in range(n):
+        lo, hi = i + int(s.min()), i + int(s.max())
+        if lo < 0 or hi >= n or span == 0:
+            continue
+        total = int(iters[hi]) - int(iters[lo])
+        if total <= 0 or total % span:
+            continue
+        step = total // span
+        # every stencil point must sit exactly on the arithmetic progression
+        if np.array_equal(iters[i + s], iters[i] + s * step):
+            h[i] = dt * step
+            valid[i] = True
+
+    logger.warning(
+        "Non-uniform frame axis (burst dumps): the %s stencil is only meaningful on %d of %d "
+        "frames (iterations %s); every other frame of this time derivative is NaN.",
+        [int(x) for x in s],
+        int(valid.sum()),
+        n,
+        [int(v) for v in iters[valid][:6]],
+    )
+    cache[key] = (h, valid)
+    return cache[key]
 
 
 def _spatial_deriv_worker(args: tuple) -> np.ndarray:
@@ -849,9 +920,18 @@ class Derivative_Diagnostic(Diagnostic):
 
         def d_dt(data: np.ndarray) -> np.ndarray:
             """Configured derivative along the time axis (axis 0)."""
-            h = _uniform_frame_dt(self._diag)
+            h, valid = _frame_dt_axis(self._diag, self._stencil, self._deriv_order)
             if self._stencil is not None:
-                return self._fd_apply_along_axis(data, h=h, axis=0, deriv_order=self._deriv_order, stencil=self._stencil)
+                if valid is None:
+                    return self._fd_apply_along_axis(data, h=h, axis=0, deriv_order=self._deriv_order, stencil=self._stencil)
+                # Burst axis: the step differs frame to frame.  h enters the
+                # scheme only as c_unit / h**deriv_order, so applying the stencil
+                # in frame units and rescaling per frame is exact.
+                out = self._fd_apply_along_axis(data, h=1.0, axis=0, deriv_order=self._deriv_order, stencil=self._stencil)
+                scale = np.asarray(h, dtype=np.float64) ** self._deriv_order
+                out = out / scale.reshape((-1,) + (1,) * (out.ndim - 1))
+                out[~np.asarray(valid)] = np.nan
+                return out
             if self._periodic:
                 return self._periodic_first_derivative(data, h=h, axis=0, order=self._order)
             if self._order == 4:
@@ -924,7 +1004,10 @@ class Derivative_Diagnostic(Diagnostic):
                 raise ValueError(f"xx requested for axes {self._op_axis} but dim={self._diag._dim}")
 
         n = int(self._diag._maxiter)
-        dt = _uniform_frame_dt(self._diag) if self._deriv_type in ("t", "xt", "tx") else float(self._diag._dt * self._diag._ndump)
+        if self._deriv_type in ("t", "xt", "tx"):
+            dt, dt_valid = _frame_dt_axis(self._diag, self._stencil, self._deriv_order)
+        else:
+            dt, dt_valid = float(self._diag._dt * self._diag._ndump), None
 
         # ---------- helpers ----------
         def spatial_axis_np_from_osiris(ax_osiris: int) -> int:
@@ -960,6 +1043,16 @@ class Derivative_Diagnostic(Diagnostic):
             raise ValueError("Only order 2 and 4 supported.")
 
         def d_dt_at(i: int) -> np.ndarray:
+            # On a burst axis the step is per-frame and the stencil is only
+            # meaningful on the midpoints; elsewhere there is no right answer,
+            # so return NaN rather than a plausible wrong number.
+            if dt_valid is not None:
+                if not dt_valid[i]:
+                    return self._base(i, data_slice) * np.nan
+                dt_i = float(dt[i])
+            else:
+                dt_i = float(dt)
+
             # stencil overrides legacy order
             if self._stencil is not None:
                 self._validate_stencil(self._stencil, self._deriv_order)
@@ -980,7 +1073,7 @@ class Derivative_Diagnostic(Diagnostic):
                         return i + int(jj)
 
                 c_unit = self._fd_unit_coeffs(s_i_tup, self._deriv_order)
-                c = c_unit / (dt**self._deriv_order)
+                c = c_unit / (dt_i**self._deriv_order)
 
                 acc = 0.0
                 for cj, sj in zip(c, s_i, strict=False):
@@ -991,20 +1084,20 @@ class Derivative_Diagnostic(Diagnostic):
                 if self._periodic:
                     fp = self._base((i + 1) % n, data_slice)
                     fm = self._base((i - 1) % n, data_slice)
-                    return (fp - fm) / (2 * dt)
+                    return (fp - fm) / (2 * dt_i)
                 if i == 0:
                     f0 = self._base(0, data_slice)
                     f1 = self._base(1, data_slice)
                     f2 = self._base(2, data_slice)
-                    return (-3 * f0 + 4 * f1 - f2) / (2 * dt)
+                    return (-3 * f0 + 4 * f1 - f2) / (2 * dt_i)
                 if i == n - 1:
                     f0 = self._base(n - 1, data_slice)
                     f1 = self._base(n - 2, data_slice)
                     f2 = self._base(n - 3, data_slice)
-                    return (3 * f0 - 4 * f1 + f2) / (2 * dt)
+                    return (3 * f0 - 4 * f1 + f2) / (2 * dt_i)
                 fp = self._base(i + 1, data_slice)
                 fm = self._base(i - 1, data_slice)
-                return (fp - fm) / (2 * dt)
+                return (fp - fm) / (2 * dt_i)
 
             if self._order == 4:
                 if self._periodic:
@@ -1012,28 +1105,28 @@ class Derivative_Diagnostic(Diagnostic):
                     f_p1 = self._base((i + 1) % n, data_slice)
                     f_m1 = self._base((i - 1) % n, data_slice)
                     f_m2 = self._base((i - 2) % n, data_slice)
-                    return (-f_p2 + 8 * f_p1 - 8 * f_m1 + f_m2) / (12 * dt)
+                    return (-f_p2 + 8 * f_p1 - 8 * f_m1 + f_m2) / (12 * dt_i)
                 if i < 2 or i > n - 3:
                     # edge fallback to 2nd-order
                     if i == 0:
                         f0 = self._base(0, data_slice)
                         f1 = self._base(1, data_slice)
                         f2 = self._base(2, data_slice)
-                        return (-3 * f0 + 4 * f1 - f2) / (2 * dt)
+                        return (-3 * f0 + 4 * f1 - f2) / (2 * dt_i)
                     if i == n - 1:
                         f0 = self._base(n - 1, data_slice)
                         f1 = self._base(n - 2, data_slice)
                         f2 = self._base(n - 3, data_slice)
-                        return (3 * f0 - 4 * f1 + f2) / (2 * dt)
+                        return (3 * f0 - 4 * f1 + f2) / (2 * dt_i)
                     fp = self._base(min(i + 1, n - 1), data_slice)
                     fm = self._base(max(i - 1, 0), data_slice)
-                    return (fp - fm) / (2 * dt)
+                    return (fp - fm) / (2 * dt_i)
 
                 f_p2 = self._base(i + 2, data_slice)
                 f_p1 = self._base(i + 1, data_slice)
                 f_m1 = self._base(i - 1, data_slice)
                 f_m2 = self._base(i - 2, data_slice)
-                return (-f_p2 + 8 * f_p1 - 8 * f_m1 + f_m2) / (12 * dt)
+                return (-f_p2 + 8 * f_p1 - 8 * f_m1 + f_m2) / (12 * dt_i)
 
             raise ValueError("Only order 2 and 4 supported.")
 
