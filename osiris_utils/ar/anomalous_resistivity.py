@@ -4,12 +4,21 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
+from weakref import WeakKeyDictionary
 
 from ..postprocessing.derivative import Derivative_Diagnostic, Derivative_Simulation
 from ..postprocessing.mft import MFT_Diagnostic, MFT_Simulation
 from ..utils import resolve_rqm
 
 logger = logging.getLogger(__name__)
+
+#: ``Simulation -> {e_vlasov key: the terms that key was built from}``.
+#: ``_ensure_diagnostic`` is idempotent by name, so two AnomalousResistivity
+#: objects on one Simulation would otherwise share whichever e_vlasov was built
+#: first: the second one's LHS would then keep terms it never subtracted (e.g.
+#: ``<dt v1>`` when only the first config enabled the time derivative), while its
+#: eta -- which never touches e_vlasov -- stayed right.
+_E_VLASOV_REGISTRY: WeakKeyDictionary = WeakKeyDictionary()
 
 __all__ = [
     "AnomalousResistivity",
@@ -172,13 +181,66 @@ class AnomalousResistivity(AnomalousResistivityABC):
             self._ensure_diagnostic(sp, d_dx2[self.species]["vfl1"], "dvfl1_dx2")
 
         E_vlasov = self._compute_vlasov_field_terms()
-        # Namespaced per species: e_vlasov is stored on the simulation-level
-        # container, and _ensure_diagnostic is idempotent by name.  Under a single
-        # shared name a second species would silently reuse the first one's field
-        # — which now matters, since the two momentum equations differ by rqm.
-        self._ensure_diagnostic(self._simulation, E_vlasov, self._e_vlasov_key)
+        # Namespaced per species *and* per momentum equation: e_vlasov is stored on
+        # the simulation-level container, and _ensure_diagnostic is idempotent by
+        # name.  Under a single shared name a second species — or a second config
+        # of the same species — would silently reuse the first one's field.
+        self._e_vlasov_key = self._register_e_vlasov(E_vlasov)
 
         logger.info("Vlasov electric field computed.")
+
+    def _e_vlasov_signature(self) -> tuple:
+        """Everything e_vlasov is built from: the enabled terms and rqm."""
+        c = self._config
+        return (
+            c.include_time_derivative,
+            c.include_convection,
+            c.include_transverse_advection,
+            c.include_pressure,
+            c.include_magnetic_force,
+            float(self._rqm),
+        )
+
+    def _e_vlasov_suffix(self) -> str:
+        """Readable tag of the enabled terms, used to disambiguate keys."""
+        c = self._config
+        enabled = [
+            name
+            for name, on in (
+                ("dt", c.include_time_derivative),
+                ("conv", c.include_convection),
+                ("tadv", c.include_transverse_advection),
+                ("press", c.include_pressure),
+                ("mag", c.include_magnetic_force),
+            )
+            if on
+        ]
+        return f"{'-'.join(enabled) or 'empty'}_rqm{self._rqm:g}"
+
+    def _register_e_vlasov(self, E_vlasov) -> str:
+        """Store e_vlasov under a key unique to the terms it contains.
+
+        The plain ``e_vlasov_<species>`` name is kept for the first configuration
+        seen on a Simulation, so single-config use is unchanged.  A second
+        configuration of the same species gets its own key instead of silently
+        inheriting the first one's field.
+        """
+        base = f"e_vlasov_{self.species}"
+        signature = self._e_vlasov_signature()
+        registry = _E_VLASOV_REGISTRY.setdefault(self._simulation, {})
+
+        key = base
+        if registry.get(base, signature) != signature:
+            key = f"{base}__{self._e_vlasov_suffix()}"
+            logger.warning(
+                "Simulation already carries '%s' built from a different momentum equation; "
+                "storing this one as '%s'. Prefer one Simulation per AnomalousResistivity config.",
+                base,
+                key,
+            )
+        registry[key] = signature
+        self._ensure_diagnostic(self._simulation, E_vlasov, key)
+        return key
 
     def _compute_vlasov_field_terms(self):
         sim = self._simulation

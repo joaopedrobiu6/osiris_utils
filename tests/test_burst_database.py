@@ -494,3 +494,68 @@ def test_e_vlasov_is_namespaced_per_species(mixed_sim):
     ar = ou.AnomalousResistivity(mixed_sim, SPECIES, cfg)
     assert ar.e_vlasov_key == f"e_vlasov_{SPECIES}"
     assert mixed_sim[ar.e_vlasov_key] is not None
+
+
+@pytest.fixture
+def regular_sim(tmp_path):
+    """Nothing burst-dumped: an ordinary run, so d/dt spans whole dumps."""
+    build_burst_tree(tmp_path / "sim", burst_quantities=set())
+    return Simulation(str(tmp_path / "sim" / "shock.2d"))
+
+
+def _ar(sim, *, time_derivative: bool):
+    import osiris_utils as ou
+
+    cfg = ou.AnomalousResistivityConfig(
+        species=SPECIES,
+        mft_axis=2,
+        include_time_derivative=time_derivative,
+        include_convection=True,
+        include_transverse_advection=True,
+        include_pressure=True,
+        include_magnetic_force=True,
+    )
+    return ou.AnomalousResistivity(sim, SPECIES, cfg, rqm=-1.0)
+
+
+# LHS = <e_vlasov> minus the mean-field equation, eta = the same thing written as
+# fluctuation cross-terms: the two must agree.  float32 dumps differenced by a
+# 5-point stencil put the floor a few ulps above machine precision.
+_LHS_ETA_RTOL = 1e-5
+
+
+def _lhs_minus_eta(ar, t: int = 2) -> float:
+    edge = 3  # x1 boundary cells the 5-point stencil cannot fill
+    lhs = np.asarray(ar["LHS"][t], dtype=np.float64)[edge:-edge]
+    eta = np.asarray(ar["eta"][t], dtype=np.float64)[edge:-edge]
+    return float(np.abs(lhs - eta).max() / np.abs(eta).max())
+
+
+@pytest.mark.parametrize("time_derivative", [True, False])
+def test_lhs_equals_eta(regular_sim, time_derivative):
+    """The two routes to the turbulent term agree, with or without ∂t v1."""
+    assert _lhs_minus_eta(_ar(regular_sim, time_derivative=time_derivative)) < _LHS_ETA_RTOL
+
+
+def test_two_configs_on_one_simulation_do_not_share_e_vlasov(regular_sim):
+    """The second config must not inherit the first one's e_vlasov.
+
+    It used to: ``_ensure_diagnostic`` is idempotent by name, so the object built
+    second kept a ⟨∂t v1⟩ it never subtracted and its LHS drifted away from its
+    eta while the first object's stayed right.
+    """
+    with_dt = _ar(regular_sim, time_derivative=True)
+    without_dt = _ar(regular_sim, time_derivative=False)
+
+    assert with_dt.e_vlasov_key != without_dt.e_vlasov_key
+    assert _lhs_minus_eta(with_dt) < _LHS_ETA_RTOL
+    assert _lhs_minus_eta(without_dt) < _LHS_ETA_RTOL
+
+    # ...and the shared LHS identity itself: ⟨∂t v1⟩ enters e_vlasov linearly and
+    # is removed with the same weight, so enabling the term cannot move LHS.
+    np.testing.assert_allclose(
+        np.asarray(with_dt["LHS"][2], dtype=np.float64),
+        np.asarray(without_dt["LHS"][2], dtype=np.float64),
+        rtol=1e-5,
+        atol=1e-8,
+    )
