@@ -76,6 +76,22 @@ class AnomalousResistivity(AnomalousResistivityABC):
     - `include_transverse_advection` adds the `rqm * vfl2 * dvfl1_dx2` term to
       e_vlasov and the corresponding fluctuation term to eta / eta_new.
 
+    Terms
+    -----
+    ``terms_dict`` (and ``ar[...]``) holds three groups:
+
+    - plain transverse averages (``*_avg``), unweighted;
+    - ``lhs_*``: the individual contributions to ``LHS``, so ``LHS`` is exactly
+      their sum;
+    - the fluctuation cross-terms (``conv_*``, ``mag_*``, ``press_*``), so
+      ``eta`` / ``eta_new`` are exactly the sums of their respective terms.
+
+    Every term of the last two groups is **already multiplied by its
+    coefficient** — plotting them stacked reproduces ``LHS`` / ``eta`` with no
+    further sign or ``rqm`` bookkeeping.  The coefficients are in
+    :attr:`term_coefficients`, and the unweighted MFT diagnostics in
+    :attr:`mft_terms`.
+
     Species
     -------
     Every inertial and pressure term is multiplied by ``rqm = m/q`` (-1 for
@@ -291,60 +307,74 @@ class AnomalousResistivity(AnomalousResistivityABC):
         )
         self.dnT11_dx_avg = dnT11_dx_avg
 
-        lhs = self._compute_lhs(dnT11_dx_avg)
+        lhs_terms, lhs_coeffs = self._compute_lhs_terms(dnT11_dx_avg)
         mft_terms = self._compute_mft_terms(dnT11_dx_avg)
-        eta_values = self._compute_eta_values(mft_terms)
+        thesis_coeffs, new_coeffs = self._eta_coefficients()
+        weighted_terms, mft_coeffs = self._weighted_mft_terms(mft_terms, (thesis_coeffs, new_coeffs))
+        eta_values = self._compute_eta_values(weighted_terms, thesis_coeffs, new_coeffs)
 
         terms_dict = {
             **self._get_average_quantities(dnT11_dx_avg),
-            "LHS": lhs,
+            **lhs_terms,
+            "LHS": sum(lhs_terms.values()),
             **eta_values,
-            **{name: diag["avg"] for name, diag in mft_terms.items()},
+            **weighted_terms,
         }
 
+        self._mft_terms = mft_terms
+        self._term_coefficients = {**lhs_coeffs, **mft_coeffs}
         self._terms_dict = terms_dict
         logger.info("Mean field terms computed.")
         return terms_dict
 
-    def _compute_lhs(self, dnT11_dx_avg):
-        """``-sign(rqm) * (<e_vlasov> - mean-field momentum equation)``.
+    def _compute_lhs_terms(self, dnT11_dx_avg) -> tuple[dict[str, Any], dict[str, float]]:
+        """The individual, already-weighted contributions to ``LHS``.
 
-        Removing the mean-field equation leaves only the fluctuation (turbulent)
+        ``LHS`` itself is their sum,
+        ``-sign(rqm) * (<e_vlasov> - mean-field momentum equation)``: removing
+        the mean-field equation leaves only the fluctuation (turbulent)
         contributions.  Each mean-field term is removed with the same weight it
         entered e_vlasov with, then the whole thing is normalised by
         ``-sign(rqm)`` so the non-magnetic terms carry ``+|rqm|`` for either
         species.  For electrons (``rqm = -1``) every coefficient below is +1 and
-        this is the historical expression.
+        the sum is the historical expression.
+
+        Returns the weighted terms and the coefficient each one was multiplied
+        by, so the unweighted average can be recovered.
         """
         rqm = self._rqm
         sign = 1.0 if rqm > 0 else -1.0
         mag = abs(rqm)
 
-        terms = [-sign * self.sim_mft[self._e_vlasov_key]["avg"]]
+        sm = self.sim_mft
+        sp = self.species
+
+        terms: dict[str, Any] = {"lhs_e_vlasov": -sign * sm[self._e_vlasov_key]["avg"]}
+        coeffs: dict[str, float] = {"lhs_e_vlasov": -sign}
 
         if self._config.include_time_derivative:
-            terms.append(mag * self.sim_mft[self.species]["dvfl1_dt"]["avg"])
+            terms["lhs_dvfl1_dt"] = mag * sm[sp]["dvfl1_dt"]["avg"]
+            coeffs["lhs_dvfl1_dt"] = mag
 
         if self._config.include_convection:
-            terms.append(mag * self.sim_mft[self.species]["vfl1"]["avg"] * self.sim_mft[self.species]["dvfl1_dx1"]["avg"])
+            terms["lhs_conv_v1_dv1dx1"] = mag * sm[sp]["vfl1"]["avg"] * sm[sp]["dvfl1_dx1"]["avg"]
+            coeffs["lhs_conv_v1_dv1dx1"] = mag
 
         # This is zero! d/dx2 of a mean term is zero
         # if self._config.include_transverse_advection:
-        #     terms.append(mag * self.sim_mft[self.species]["vfl2"]["avg"] * self.sim_mft[self.species]["dvfl1_dx2"]["avg"])
+        #     terms["lhs_conv_v2_dv1dx2"] = mag * sm[sp]["vfl2"]["avg"] * sm[sp]["dvfl1_dx2"]["avg"]
 
         if self._config.include_pressure:
-            terms.append(mag * (1 / self.sim_mft[self.species]["n"]["avg"]) * dnT11_dx_avg)
+            terms["lhs_press_dnT11_dx1"] = mag * (1 / sm[sp]["n"]["avg"]) * dnT11_dx_avg
+            coeffs["lhs_press_dnT11_dx1"] = mag
 
         if self._config.include_magnetic_force:
-            terms.append(
-                -sign
-                * (
-                    self.sim_mft[self.species]["vfl2"]["avg"] * self.sim_mft["b3"]["avg"]
-                    - self.sim_mft[self.species]["vfl3"]["avg"] * self.sim_mft["b2"]["avg"]
-                )
-            )
+            terms["lhs_mag_v2_b3"] = -sign * (sm[sp]["vfl2"]["avg"] * sm["b3"]["avg"])
+            terms["lhs_mag_v3_b2"] = sign * (sm[sp]["vfl3"]["avg"] * sm["b2"]["avg"])
+            coeffs["lhs_mag_v2_b3"] = -sign
+            coeffs["lhs_mag_v3_b2"] = sign
 
-        return sum(terms)
+        return terms, coeffs
 
     def _compute_mft_terms(self, dnT11_dx_avg) -> dict[str, MFT_Diagnostic]:
         """
@@ -404,9 +434,9 @@ class AnomalousResistivity(AnomalousResistivityABC):
 
         return {name: MFT_Diagnostic(expr, mft_axis=self._config.mft_axis) for name, expr in terms.items()}
 
-    def _compute_eta_values(self, mft_terms: dict[str, MFT_Diagnostic]) -> dict[str, Any]:
+    def _eta_coefficients(self) -> tuple[dict[str, float], dict[str, float]]:
         """
-        Compute eta (thesis 7-term pressure decomposition) and eta_new (simplified 4-term).
+        Coefficients of eta (thesis 7-term pressure decomposition) and eta_new (simplified 4-term).
 
         The coefficient tables below are written for electrons (``rqm = -1``) and
         then scaled for the actual species: non-magnetic terms by ``|rqm|`` and
@@ -453,16 +483,60 @@ class AnomalousResistivity(AnomalousResistivityABC):
             new_coeffs["press_new_xy_mixed"] = +mag
             new_coeffs["press_new_xy_dd"] = -mag
 
-        def _weighted_sum(coeffs):
+        return thesis_coeffs, new_coeffs
+
+    @staticmethod
+    def _weighted_mft_terms(
+        mft_terms: dict[str, MFT_Diagnostic],
+        coeff_tables: tuple[dict[str, float], ...],
+    ) -> tuple[dict[str, Any], dict[str, float]]:
+        """Scale each MFT term's average by the coefficient it enters eta with.
+
+        The thesis and the simplified formulation share their inertial and
+        magnetic terms and use disjoint pressure terms, so every term has one
+        unambiguous coefficient; a term appearing in both tables with different
+        signs would make the stored value meaningless, hence the hard error.
+
+        Returns the weighted terms and the coefficients used.
+        """
+        coeffs: dict[str, float] = {}
+        for table in coeff_tables:
+            for name, c in table.items():
+                if coeffs.setdefault(name, c) != c:
+                    raise ValueError(f"MFT term '{name}' has conflicting eta coefficients ({coeffs[name]} vs {c}).")
+
+        weighted: dict[str, Any] = {}
+        used: dict[str, float] = {}
+        for name, diag in mft_terms.items():
+            if name in coeffs:
+                weighted[name] = coeffs[name] * diag["avg"]
+                used[name] = coeffs[name]
+            else:
+                # Should not happen: the same config flags gate both tables.
+                logger.warning("MFT term '%s' has no eta coefficient; storing its unweighted average.", name)
+                weighted[name] = diag["avg"]
+                used[name] = 1.0
+
+        return weighted, used
+
+    @staticmethod
+    def _compute_eta_values(
+        weighted_terms: dict[str, Any],
+        thesis_coeffs: dict[str, float],
+        new_coeffs: dict[str, float],
+    ) -> dict[str, Any]:
+        """Sum the already-weighted terms belonging to each formulation."""
+
+        def _sum(coeffs):
             result = 0.0
-            for name, c in coeffs.items():
-                if name in mft_terms:
-                    result = result + c * mft_terms[name]["avg"]
+            for name in coeffs:
+                if name in weighted_terms:
+                    result = result + weighted_terms[name]
             return result
 
         return {
-            "eta": _weighted_sum(thesis_coeffs),
-            "eta_new": _weighted_sum(new_coeffs),
+            "eta": _sum(thesis_coeffs),
+            "eta_new": _sum(new_coeffs),
         }
 
     def _get_average_quantities(self, dnT11_dx_avg) -> dict[str, Any]:
@@ -512,6 +586,16 @@ class AnomalousResistivity(AnomalousResistivityABC):
     @property
     def terms_dict(self):
         return self._terms_dict.copy()
+
+    @property
+    def mft_terms(self) -> dict[str, MFT_Diagnostic]:
+        """The raw (unweighted) MFT diagnostics behind the fluctuation terms."""
+        return self._mft_terms.copy()
+
+    @property
+    def term_coefficients(self) -> dict[str, float]:
+        """Coefficient already applied to each ``lhs_*`` / fluctuation term."""
+        return self._term_coefficients.copy()
 
     @property
     def available_terms(self) -> list[str]:
