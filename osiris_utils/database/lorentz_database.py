@@ -7,8 +7,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from ..filters import SpatialFilter, as_filter
 from .database import DatabaseCreator
-from .filters import SpatialFilter, as_filter
 
 logger = logging.getLogger(__name__)
 

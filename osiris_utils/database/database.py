@@ -11,10 +11,10 @@ import numpy as np
 import tqdm as tqdm
 
 from ..ar import AnomalousResistivityConfig
+from ..filters import SpatialFilter, as_filter
 from ..profiling import _start_timer, _stop_timer
 from ..utils import resolve_rqm
 from .burst import BurstAxis, BurstConfig, BurstStencil
-from .filters import SpatialFilter, as_filter
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
