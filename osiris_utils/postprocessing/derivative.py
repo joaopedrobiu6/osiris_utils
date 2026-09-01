@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ..data.diagnostic import Diagnostic
+from ..filters import SpatialFilter, as_filter
 from .postprocess import PostProcess
 
 logger = logging.getLogger(__name__)
@@ -114,14 +115,17 @@ def _spatial_deriv_worker(args: tuple) -> np.ndarray:
     slice of the time axis, so spatial derivatives can be computed without any
     cross-chunk communication.
 
-    Handles all spatial-derivative flavours: explicit stencil, order-2 and
-    order-4 (periodic or non-periodic).
+    Handles all spatial-derivative flavours: a filter's native scheme, an
+    explicit stencil, order-2 and order-4 (periodic or non-periodic).
 
     HPC note: launched via ``forkserver`` context (not ``fork``) to avoid
     fork+MPI deadlocks on GPFS/Lustre-connected nodes.
     """
-    data_chunk, h, ax, deriv_order, stencil, periodic, order = args
+    data_chunk, h, ax, deriv_order, stencil, periodic, order, filt = args
     from osiris_utils.postprocessing.derivative import Derivative_Diagnostic  # noqa: PLC0415
+
+    if filt is not None:
+        return filt.derivative(data_chunk, h, axis=ax, order=deriv_order, periodic=periodic)
 
     d = object.__new__(Derivative_Diagnostic)
     d._periodic = periodic
@@ -191,7 +195,7 @@ except ImportError:
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
 
 __all__ = ["Derivative_Diagnostic", "Derivative_Simulation", "Derivative_Species_Handler"]
 
@@ -226,6 +230,9 @@ class Derivative_Simulation(PostProcess):
         Derivative order (1 for first derivative, 2 for second derivative, ...).
     periodic : bool
         If True, derivatives are computed with periodic boundary conditions.
+    filter : SpatialFilter or None
+        If given, spatial derivatives use the filter's own single-pass scheme
+        instead of finite differences (see :class:`Derivative_Diagnostic`).
     """
 
     def __init__(
@@ -237,6 +244,7 @@ class Derivative_Simulation(PostProcess):
         stencil: Iterable[int] | None = None,
         deriv_order: int = 1,
         periodic: bool = False,
+        filter: SpatialFilter | Sequence[SpatialFilter] | None = None,  # noqa: A002
     ):
         super().__init__(f"Derivative({deriv_type})", simulation)
 
@@ -254,6 +262,7 @@ class Derivative_Simulation(PostProcess):
         self._stencil = None if stencil is None else tuple(int(s) for s in stencil)
         self._deriv_order = int(deriv_order)
         self._periodic = periodic
+        self._filter = None if filter is None else as_filter(filter)
 
         self._derivatives_computed: dict[Any, Derivative_Diagnostic] = {}
         self._species_handler: dict[Any, Derivative_Species_Handler] = {}
@@ -271,6 +280,7 @@ class Derivative_Simulation(PostProcess):
                     stencil=self._stencil,
                     deriv_order=self._deriv_order,
                     periodic=self._periodic,
+                    filter=self._filter,
                 )
             return self._species_handler[key]
 
@@ -283,6 +293,7 @@ class Derivative_Simulation(PostProcess):
                 stencil=self._stencil,
                 deriv_order=self._deriv_order,
                 periodic=self._periodic,
+                filter=self._filter,
             )
         return self._derivatives_computed[key]
 
@@ -343,6 +354,24 @@ class Derivative_Diagnostic(Diagnostic):
         Only used if stencil is provided.
     periodic : bool
         If True, derivatives are computed with periodic boundary conditions.
+    filter : SpatialFilter or None
+        A :class:`~osiris_utils.filters.SpatialFilter` whose own derivative
+        scheme replaces finite differences on the **spatial** axes: one pass of
+        the filter's analytic order-``deriv_order`` kernel
+        (``savgol_filter(deriv=...)`` / ``gaussian_filter1d(order=...)``)
+        instead of the stencil, exactly as the database creators compute their
+        derivatives.  ``stencil`` and ``order`` are then unused.  This is the
+        derivative half of filtering; the smoothing half belongs to the input
+        diagnostic (:class:`~osiris_utils.postprocessing.filtering.Filtered_Diagnostic`),
+        and the database pipeline applies both — one smoothing pass on the
+        field, one kernel pass per derivative.
+
+        Time derivatives are never filtered: a spatial kernel has no meaning
+        along the time axis, so ``deriv_type="t"`` with a filter is an error,
+        and the mixed types (``"xt"``, ``"tx"``) filter their spatial factor
+        only.  This matches
+        :func:`osiris_utils.database.database._time_derivative_frame`, which
+        differences two *already smoothed* frames.
 
     Methods
     -------
@@ -362,6 +391,7 @@ class Derivative_Diagnostic(Diagnostic):
         stencil: Iterable[int] | None = None,
         deriv_order: int = 1,
         periodic: bool = False,
+        filter: SpatialFilter | Sequence[SpatialFilter] | None = None,  # noqa: A002
     ) -> None:
         # Initialize using parent's __init__ with the same species
         if hasattr(diagnostic, "_species"):
@@ -384,6 +414,13 @@ class Derivative_Diagnostic(Diagnostic):
         self._stencil = None if stencil is None else tuple(int(s) for s in stencil)
         self._deriv_order = int(deriv_order)
         self._periodic = periodic
+        self._filter = None if filter is None else as_filter(filter)
+        if self._filter is not None and deriv_type == "t":
+            raise ValueError(
+                "A spatial filter has no derivative scheme along the time axis. "
+                "Drop filter= for deriv_type='t' (the frames it differences are "
+                "already smoothed if the input diagnostic is filtered)."
+            )
 
         self._cache = OrderedDict()
         self._cache_max = 6  # Maximum number of items to keep in cache (enough for 4th-order time stencil)
@@ -889,6 +926,8 @@ class Derivative_Diagnostic(Diagnostic):
             n_w = max(1, min(n_w, data.shape[0]))
             if n_w == 1:
                 # Dispatch to the correct single-process variant.
+                if self._filter is not None:
+                    return self._filter.derivative(data, h, axis=ax, order=self._deriv_order, periodic=self._periodic)
                 if self._stencil is not None:
                     return self._fd_apply_along_axis(
                         data,
@@ -903,7 +942,7 @@ class Derivative_Diagnostic(Diagnostic):
                     return self._compute_fourth_order_spatial(data, h, ax)
                 return np.gradient(data, h, axis=ax, edge_order=2)
             chunks = np.array_split(data, n_w, axis=0)
-            worker_args = [(chunk, h, ax, self._deriv_order, self._stencil, self._periodic, self._order) for chunk in chunks]
+            worker_args = [(chunk, h, ax, self._deriv_order, self._stencil, self._periodic, self._order, self._filter) for chunk in chunks]
             ctx = multiprocessing.get_context("forkserver")  # MPI-safe on HPC
             with concurrent.futures.ProcessPoolExecutor(max_workers=n_w, mp_context=ctx) as executor:
                 result_chunks = list(executor.map(_spatial_deriv_worker, worker_args))
@@ -954,7 +993,7 @@ class Derivative_Diagnostic(Diagnostic):
                 raise ValueError(f"Spatial axis must be 1..3, got {ax_osiris}")
             if ax_osiris > self._dim:
                 raise ValueError(f"x{ax_osiris} requested but diagnostic dim={self._dim}")
-            if self._order not in (2, 4) and self._stencil is None:
+            if self._order not in (2, 4) and self._stencil is None and self._filter is None:
                 raise ValueError("Only order 2 and 4 supported.")
             return _parallel_spatial(data, dx_for_axis_data(ax_osiris), ax_osiris)
 
@@ -1026,6 +1065,10 @@ class Derivative_Diagnostic(Diagnostic):
 
         def d_dx_frame(f: np.ndarray, ax_np: int) -> np.ndarray:
             dx = dx_for_np_axis(ax_np)
+
+            # a filter brings its own single-pass scheme and overrides both
+            if self._filter is not None:
+                return self._filter.derivative(f, dx, axis=ax_np, order=self._deriv_order, periodic=self._periodic)
 
             # stencil overrides legacy order
             if self._stencil is not None:
@@ -1228,6 +1271,7 @@ class Derivative_Species_Handler:
         stencil: Iterable[int] | None = None,
         deriv_order: int = 1,
         periodic: bool = False,
+        filter: SpatialFilter | Sequence[SpatialFilter] | None = None,  # noqa: A002
     ) -> None:
         self._species_handler = species_handler
         self._deriv_type = deriv_type
@@ -1236,6 +1280,7 @@ class Derivative_Species_Handler:
         self._stencil = None if stencil is None else tuple(int(s) for s in stencil)
         self._deriv_order = int(deriv_order)
         self._periodic = periodic
+        self._filter = None if filter is None else as_filter(filter)
         self._derivatives_computed: dict[Any, Derivative_Diagnostic] = {}
 
     def __getitem__(self, key: Any) -> Derivative_Diagnostic:
@@ -1249,5 +1294,6 @@ class Derivative_Species_Handler:
                 stencil=self._stencil,
                 deriv_order=self._deriv_order,
                 periodic=self._periodic,
+                filter=self._filter,
             )
         return self._derivatives_computed[key]

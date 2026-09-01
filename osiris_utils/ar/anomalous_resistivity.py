@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from weakref import WeakKeyDictionary
 
+from ..filters import NoFilter, SpatialFilter, as_filter
 from ..postprocessing.derivative import Derivative_Diagnostic, Derivative_Simulation
+from ..postprocessing.filtering import Filtered_Simulation
 from ..postprocessing.mft import MFT_Diagnostic, MFT_Simulation
 from ..utils import resolve_rqm
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +37,36 @@ _X1_STENCIL = [-2, -1, 0, 1, 2]
 _X2_STENCIL = [-1, 0, 1]
 _T_STENCIL = [-1, 0, 1]
 
+_TAG_RE = re.compile(r"[^0-9A-Za-z]+")
+
+
+def _filter_tag(filt: SpatialFilter) -> str:
+    """Short, stable, key-safe tag identifying *filt*.
+
+    Used to namespace diagnostics, so it has to separate two different filter
+    configurations without growing a full repr into the key.
+    """
+    if isinstance(filt, NoFilter):
+        return "nofilter"
+    digest = hashlib.blake2b(_TAG_RE.sub("", repr(filt)).encode(), digest_size=3).hexdigest()
+    return f"{type(filt).__name__.replace('Filter', '').lower() or 'filter'}{digest}"
+
 
 @dataclass(frozen=True)
 class AnomalousResistivityConfig:
-    """Configuration for anomalous resistivity computation."""
+    """Configuration for anomalous resistivity computation.
+
+    Parameters
+    ----------
+    filters :
+        Spatial filters applied to every raw 2-D frame *before* any physics,
+        and whose own derivative scheme then replaces finite differences —
+        the same contract as ``DatabaseBuildConfig.filters``, except that
+        here nothing is precomputed: each frame is smoothed when a timestep
+        is asked for.  Empty (default) = no filtering, 4th-order
+        finite-difference derivatives, i.e. the historical behaviour
+        unchanged.  See :mod:`osiris_utils.filters`.
+    """
 
     species: str = "electrons"
     mft_axis: int = 2
@@ -42,6 +75,7 @@ class AnomalousResistivityConfig:
     include_transverse_advection: bool = False
     include_pressure: bool = True
     include_magnetic_force: bool = True
+    filters: Sequence[SpatialFilter] | SpatialFilter | None = ()
 
 
 class AnomalousResistivityABC(ABC):
@@ -104,6 +138,18 @@ class AnomalousResistivity(AnomalousResistivityABC):
     from the input deck; pass ``rqm=`` only to override a deck that cannot be
     parsed.  With ``rqm = -1`` every expression reduces to the historical
     electron form.
+
+    Filtering
+    ---------
+    ``config.filters`` runs the database's spatial filters
+    (:mod:`osiris_utils.filters`) through the lazy pipeline: every raw frame is
+    smoothed on its way out of disk, and every spatial derivative uses the
+    filter's own single-pass kernel instead of finite differences — the two
+    steps :func:`osiris_utils.database.database._mean_field_frame_quantities`
+    performs per frame, so ``ar["eta"][t]`` reproduces the tensor column the
+    database would have written for that timestep.  Nothing is precomputed:
+    the cost is paid per timestep asked for.  The default (no filters) leaves
+    every number exactly as it was.
     """
 
     def __init__(
@@ -113,11 +159,26 @@ class AnomalousResistivity(AnomalousResistivityABC):
         config: AnomalousResistivityConfig | None = None,
         rqm: float | None = None,
     ):
-        self._simulation = simulation
+        self._raw_simulation = simulation
         self.species = species
         self._config = config or AnomalousResistivityConfig(species=species)
 
         self._validate_inputs()
+
+        # The filter enters in two places, mirroring the database frame pipeline:
+        # Filtered_Simulation smooths every raw frame, and each *spatial*
+        # derivative below is handed the same filter so it uses that filter's
+        # single-pass kernel.  as_filter(()) is a NoFilter, which has to stay a
+        # true no-op — wrapping and switching derivative schemes for it would
+        # perturb the historical (unfiltered) numbers.
+        self._filter = as_filter(self._config.filters)
+        self._deriv_filter: SpatialFilter | None = None if isinstance(self._filter, NoFilter) else self._filter
+        if self._deriv_filter is None:
+            self._simulation = simulation
+        else:
+            self._simulation = Filtered_Simulation(simulation, self._filter, mft_axis=self._config.mft_axis)
+            logger.info("Anomalous resistivity filtered per frame with %r.", self._filter)
+
         self._e_vlasov_key = f"e_vlasov_{species}"
         self._rqm = resolve_rqm(simulation, species, rqm)
         logger.info("Momentum equation for species '%s': rqm = m/q = %g.", species, self._rqm)
@@ -135,7 +196,10 @@ class AnomalousResistivity(AnomalousResistivityABC):
     # ----------------------------
 
     def _validate_inputs(self):
-        sim = self._simulation
+        # Runs on the raw simulation: it is called before the filtered view is
+        # built, and what it checks (which quantities the run dumped) does not
+        # depend on the filter.
+        sim = self._raw_simulation
         sp = self.species
 
         if not hasattr(sim, "species") or sp not in sim.species:
@@ -165,13 +229,28 @@ class AnomalousResistivity(AnomalousResistivityABC):
             container.add_diagnostic(diagnostic, name)
 
     # ----------------------------
+    # Spatial derivatives (one place that knows about the filter)
+    # ----------------------------
+
+    def _d_dx1(self, diagnostic) -> Derivative_Diagnostic:
+        """∂/∂x1 — 5-point FD, or the filter's own kernel when one is configured."""
+        return Derivative_Diagnostic(diagnostic, "x1", stencil=_X1_STENCIL, deriv_order=1, filter=self._deriv_filter)
+
+    def _d_dx2(self, diagnostic) -> Derivative_Diagnostic:
+        """∂/∂x2 — periodic, the transverse direction of the shock setup."""
+        return Derivative_Diagnostic(diagnostic, "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True, filter=self._deriv_filter)
+
+    # ----------------------------
     # Vlasov electric field
     # ----------------------------
 
     def compute_vlasov_electric_field(self):
         logger.info("Computing Vlasov electric field...")
 
-        d_dx1 = Derivative_Simulation(self._simulation, "x1", stencil=_X1_STENCIL, deriv_order=1)
+        d_dx1 = Derivative_Simulation(self._simulation, "x1", stencil=_X1_STENCIL, deriv_order=1, filter=self._deriv_filter)
+        # No filter on d/dt: a spatial kernel means nothing along time.  The
+        # frames it differences are already smoothed, exactly as the database's
+        # _time_derivative_frame differences two smoothed frames.
         d_dt = Derivative_Simulation(self._simulation, "t", stencil=_T_STENCIL, deriv_order=1)
 
         sp = self._simulation[self.species]
@@ -181,10 +260,8 @@ class AnomalousResistivity(AnomalousResistivityABC):
         self._ensure_diagnostic(sp, sp["n"] * sp["T12"], "nT12")
 
         if self._config.include_pressure:
-            self._ensure_diagnostic(sp, Derivative_Diagnostic(sp["nT11"], "x1", stencil=_X1_STENCIL, deriv_order=1), "dnT11_dx1")
-            self._ensure_diagnostic(
-                sp, Derivative_Diagnostic(sp["nT12"], "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True), "dnT12_dx2"
-            )
+            self._ensure_diagnostic(sp, self._d_dx1(sp["nT11"]), "dnT11_dx1")
+            self._ensure_diagnostic(sp, self._d_dx2(sp["nT12"]), "dnT12_dx2")
 
         if self._config.include_time_derivative:
             self._ensure_diagnostic(sp, d_dt[self.species]["vfl1"], "dvfl1_dt")
@@ -193,7 +270,9 @@ class AnomalousResistivity(AnomalousResistivityABC):
             self._ensure_diagnostic(sp, d_dx1[self.species]["vfl1"], "dvfl1_dx1")
 
         if self._config.include_transverse_advection:
-            d_dx2 = Derivative_Simulation(self._simulation, "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True)
+            d_dx2 = Derivative_Simulation(
+                self._simulation, "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True, filter=self._deriv_filter
+            )
             self._ensure_diagnostic(sp, d_dx2[self.species]["vfl1"], "dvfl1_dx2")
 
         E_vlasov = self._compute_vlasov_field_terms()
@@ -206,7 +285,7 @@ class AnomalousResistivity(AnomalousResistivityABC):
         logger.info("Vlasov electric field computed.")
 
     def _e_vlasov_signature(self) -> tuple:
-        """Everything e_vlasov is built from: the enabled terms and rqm."""
+        """Everything e_vlasov is built from: the enabled terms, rqm and the filter."""
         c = self._config
         return (
             c.include_time_derivative,
@@ -215,6 +294,7 @@ class AnomalousResistivity(AnomalousResistivityABC):
             c.include_pressure,
             c.include_magnetic_force,
             float(self._rqm),
+            repr(self._filter),
         )
 
     def _e_vlasov_suffix(self) -> str:
@@ -231,19 +311,23 @@ class AnomalousResistivity(AnomalousResistivityABC):
             )
             if on
         ]
-        return f"{'-'.join(enabled) or 'empty'}_rqm{self._rqm:g}"
+        return f"{'-'.join(enabled) or 'empty'}_rqm{self._rqm:g}_{_filter_tag(self._filter)}"
 
     def _register_e_vlasov(self, E_vlasov) -> str:
         """Store e_vlasov under a key unique to the terms it contains.
 
         The plain ``e_vlasov_<species>`` name is kept for the first configuration
         seen on a Simulation, so single-config use is unchanged.  A second
-        configuration of the same species gets its own key instead of silently
-        inheriting the first one's field.
+        configuration of the same species — different terms, different rqm or a
+        different filter — gets its own key instead of silently inheriting the
+        first one's field.
         """
         base = f"e_vlasov_{self.species}"
         signature = self._e_vlasov_signature()
-        registry = _E_VLASOV_REGISTRY.setdefault(self._simulation, {})
+        # Keyed by the *raw* Simulation: the filtered view is created per
+        # AnomalousResistivity, so registering against it would give every
+        # instance a private registry and detect no collision at all.
+        registry = _E_VLASOV_REGISTRY.setdefault(self._raw_simulation, {})
 
         key = base
         if registry.get(base, signature) != signature:
@@ -256,6 +340,11 @@ class AnomalousResistivity(AnomalousResistivityABC):
             )
         registry[key] = signature
         self._ensure_diagnostic(self._simulation, E_vlasov, key)
+        if self._simulation is not self._raw_simulation:
+            # A filtered view keeps its derived diagnostics to itself, so the
+            # underlying Simulation needs its own registration for sim[key] and
+            # vlasov_electric_field() to keep working.
+            self._ensure_diagnostic(self._raw_simulation, E_vlasov, key)
         return key
 
     def _compute_vlasov_field_terms(self):
@@ -299,12 +388,7 @@ class AnomalousResistivity(AnomalousResistivityABC):
         self.sim_mft = MFT_Simulation(self._simulation, mft_axis=self._config.mft_axis)
 
         # Avg pressure derivative used in multiple places (computed directly)
-        dnT11_dx_avg = Derivative_Diagnostic(
-            self.sim_mft[self.species]["n"]["avg"] * self.sim_mft[self.species]["T11"]["avg"],
-            "x1",
-            stencil=_X1_STENCIL,
-            deriv_order=1,
-        )
+        dnT11_dx_avg = self._d_dx1(self.sim_mft[self.species]["n"]["avg"] * self.sim_mft[self.species]["T11"]["avg"])
         self.dnT11_dx_avg = dnT11_dx_avg
 
         lhs_terms, lhs_coeffs = self._compute_lhs_terms(dnT11_dx_avg)
@@ -403,18 +487,12 @@ class AnomalousResistivity(AnomalousResistivityABC):
             # Thesis decomposition: 7 cross-terms (avg×delta, delta×avg, delta×delta for xx and xy)
             terms["press_density_fluct_corr"] = (dnT11_dx_avg / sim[sp]["n"]) * (sm[sp]["n"]["delta"] / sm[sp]["n"]["avg"])
 
-            dnT11_dx_ad = Derivative_Diagnostic(sm[sp]["n"]["avg"] * sm[sp]["T11"]["delta"], "x1", stencil=_X1_STENCIL, deriv_order=1)
-            dnT11_dx_da = Derivative_Diagnostic(sm[sp]["n"]["delta"] * sm[sp]["T11"]["avg"], "x1", stencil=_X1_STENCIL, deriv_order=1)
-            dnT11_dx_dd = Derivative_Diagnostic(sm[sp]["n"]["delta"] * sm[sp]["T11"]["delta"], "x1", stencil=_X1_STENCIL, deriv_order=1)
-            dnT12_dx_ad = Derivative_Diagnostic(
-                sm[sp]["n"]["avg"] * sm[sp]["T12"]["delta"], "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True
-            )
-            dnT12_dx_da = Derivative_Diagnostic(
-                sm[sp]["n"]["delta"] * sm[sp]["T12"]["avg"], "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True
-            )
-            dnT12_dx_dd = Derivative_Diagnostic(
-                sm[sp]["n"]["delta"] * sm[sp]["T12"]["delta"], "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True
-            )
+            dnT11_dx_ad = self._d_dx1(sm[sp]["n"]["avg"] * sm[sp]["T11"]["delta"])
+            dnT11_dx_da = self._d_dx1(sm[sp]["n"]["delta"] * sm[sp]["T11"]["avg"])
+            dnT11_dx_dd = self._d_dx1(sm[sp]["n"]["delta"] * sm[sp]["T11"]["delta"])
+            dnT12_dx_ad = self._d_dx2(sm[sp]["n"]["avg"] * sm[sp]["T12"]["delta"])
+            dnT12_dx_da = self._d_dx2(sm[sp]["n"]["delta"] * sm[sp]["T12"]["avg"])
+            dnT12_dx_dd = self._d_dx2(sm[sp]["n"]["delta"] * sm[sp]["T12"]["delta"])
 
             terms["press_dnT11_dx_ad_over_n"] = dnT11_dx_ad / sim[sp]["n"]
             terms["press_dnT11_dx_da_over_n"] = dnT11_dx_da / sim[sp]["n"]
@@ -425,8 +503,8 @@ class AnomalousResistivity(AnomalousResistivityABC):
 
             # New decomposition: 4 terms using full-sim pressure minus delta×delta correction
             # d/dx1 (n * T11) / n * (n_delta / n_avg)  -  d/dx1 (n_delta * T11_delta) / n_avg
-            dnT11_full_dx1 = Derivative_Diagnostic(sim[sp]["n"] * sim[sp]["T11"], "x1", stencil=_X1_STENCIL, deriv_order=1)
-            dnT12_full_dx2 = Derivative_Diagnostic(sim[sp]["n"] * sim[sp]["T12"], "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True)
+            dnT11_full_dx1 = self._d_dx1(sim[sp]["n"] * sim[sp]["T11"])
+            dnT12_full_dx2 = self._d_dx2(sim[sp]["n"] * sim[sp]["T12"])
             terms["press_new_xx_mixed"] = (dnT11_full_dx1 / sim[sp]["n"]) * (sm[sp]["n"]["delta"] / sm[sp]["n"]["avg"])
             terms["press_new_xx_dd"] = dnT11_dx_dd / sm[sp]["n"]["avg"]
             terms["press_new_xy_mixed"] = (dnT12_full_dx2 / sim[sp]["n"]) * (sm[sp]["n"]["delta"] / sm[sp]["n"]["avg"])
@@ -569,7 +647,21 @@ class AnomalousResistivity(AnomalousResistivityABC):
 
     @property
     def simulation(self):
+        """The Simulation this was built on (unfiltered)."""
+        return self._raw_simulation
+
+    @property
+    def filtered_simulation(self):
+        """The per-frame filtered view the terms are built from.
+
+        The same object as :attr:`simulation` when no filter is configured.
+        """
         return self._simulation
+
+    @property
+    def filter(self) -> SpatialFilter:
+        """The spatial filter applied to every frame (:class:`NoFilter` if none)."""
+        return self._filter
 
     @property
     def mft(self):
@@ -577,11 +669,11 @@ class AnomalousResistivity(AnomalousResistivityABC):
 
     @property
     def x(self):
-        return self._simulation["b2"].x[0]
+        return self._raw_simulation["b2"].x[0]
 
     @property
     def dx(self):
-        return self._simulation["b2"].dx[0]
+        return self._raw_simulation["b2"].dx[0]
 
     @property
     def terms_dict(self):

@@ -26,22 +26,30 @@ from .database import (
     BurstConfig,
     DatabaseBuildConfig,
     DatabaseCreator,
-    FilterChain,
-    GaussianFilter,
     LorentzDatabaseBuildConfig,
     LorentzDatabaseCreator,
-    NoFilter,
-    SavitzkyGolayFilter,
-    SpatialFilter,
 )
 from .decks.decks import InputDeckIO
 from .decks.species import Species
+from .filters import (
+    FilterChain,
+    GaussianFilter,
+    NoFilter,
+    SavitzkyGolayFilter,
+    SpatialFilter,
+    as_filter,
+)
 from .io.export import export_simulation_to_npy, export_to_npy
 from .postprocessing.derivative import Derivative_Diagnostic, Derivative_Simulation
 from .postprocessing.fft import FFT_Diagnostic, FFT_Simulation
 from .postprocessing.field_centering import (
     FieldCentering_Diagnostic,
     FieldCentering_Simulation,
+)
+from .postprocessing.filtering import (
+    Filtered_Diagnostic,
+    Filtered_Simulation,
+    Filtered_Species_Handler,
 )
 from .postprocessing.heatflux_correction import (
     HeatfluxCorrection_Diagnostic,
@@ -83,12 +91,13 @@ __all__ = [
     "BurstConfig",
     "LorentzDatabaseCreator",
     "LorentzDatabaseBuildConfig",
-    # Database filters
+    # Spatial filters (shared by the databases and the lazy pipeline)
     "SpatialFilter",
     "NoFilter",
     "SavitzkyGolayFilter",
     "GaussianFilter",
     "FilterChain",
+    "as_filter",
     # Data Singles
     "OsirisGridFile",
     "OsirisRawFile",
@@ -116,6 +125,9 @@ __all__ = [
     "MFT_Diagnostic_Fluctuations",
     "FieldCentering_Simulation",
     "FieldCentering_Diagnostic",
+    "Filtered_Simulation",
+    "Filtered_Diagnostic",
+    "Filtered_Species_Handler",
     "PressureCorrection_Simulation",
     "PressureCorrection_Diagnostic",
     "HeatfluxCorrection_Simulation",

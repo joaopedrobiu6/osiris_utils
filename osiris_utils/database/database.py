@@ -11,7 +11,7 @@ import numpy as np
 import tqdm as tqdm
 
 from ..ar import AnomalousResistivityConfig
-from ..filters import SpatialFilter, as_filter
+from ..filters import NoFilter, SpatialFilter, as_filter
 from ..profiling import _start_timer, _stop_timer
 from ..utils import resolve_rqm
 from .burst import BurstAxis, BurstConfig, BurstStencil
@@ -163,11 +163,15 @@ class DatabaseBuildConfig:
         any physics (e_vlasov, mean fields, derivatives) is computed.
         Empty (default) = no filtering, 4th-order finite-difference
         derivatives — identical to the historical tensors.  Filters like
-        :class:`~osiris_utils.database.filters.SavitzkyGolayFilter` also
+        :class:`~osiris_utils.filters.SavitzkyGolayFilter` also
         supply their own analytic derivative scheme, used for every
         derivative in the pipeline in a single pass per order.  The frame
         pipeline computes 4th derivatives, so Savitzky-Golay filters need
         ``polyorder >= 4``.
+        ``AnomalousResistivityConfig.filters`` sets the same thing for the
+        lazy per-frame path; leave this empty to take the filter from
+        ``ar_config``, or set both to the same filter.  Two different
+        filters is an error.
     eta_formula :
         Which formula the output (eta) tensor uses:
         ``"thesis"`` (default) — 7-term pressure decomposition built from
@@ -237,6 +241,28 @@ def _frame_index(t_idx: int | Mapping[str, int], name: str) -> int:
     physical time sits at different indices.
     """
     return int(t_idx) if isinstance(t_idx, (int, np.integer)) else int(t_idx[name])
+
+
+def _resolve_filter(build_filters, ar_filters) -> SpatialFilter:
+    """The one filter the frame pipeline uses, from the two places it can be set.
+
+    ``AnomalousResistivityConfig.filters`` exists so the same config drives the
+    lazy per-frame path (see :mod:`osiris_utils.postprocessing.filtering`).
+    Passing such a config here and forgetting ``DatabaseBuildConfig.filters``
+    would otherwise build *unfiltered* tensors without a word, so either field
+    alone is honoured and a disagreement is refused.
+    """
+    build, ar = as_filter(build_filters), as_filter(ar_filters)
+    if isinstance(build, NoFilter):
+        if not isinstance(ar, NoFilter):
+            logger.info("Taking the spatial filter from ar_config: %r.", ar)
+        return ar
+    if not isinstance(ar, NoFilter) and repr(ar) != repr(build):
+        raise ValueError(
+            f"DatabaseBuildConfig.filters ({build!r}) and ar_config.filters ({ar!r}) disagree. "
+            f"Set the filter in one place, or set both to the same thing."
+        )
+    return build
 
 
 def _load_filtered_fields(
@@ -662,7 +688,7 @@ class DatabaseCreator:
         build_vnT = database in {"vnT", "all"}
         need_mean_field = build_input or build_output or build_vlasov
 
-        filt = as_filter(cfg.filters)
+        filt = _resolve_filter(cfg.filters, flags.filters)
         dx = float(self.simulation["e1"].dx[0])  # longitudinal grid spacing
         dx2 = float(self.simulation["e1"].dx[1])  # transverse grid spacing
         avg_axis = cfg.mft_axis - 1  # 0-indexed numpy axis
