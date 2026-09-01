@@ -48,9 +48,36 @@ Quick-start
 
    pip install osiris_utils              # from PyPI
    python -m pip install matplotlib      # plotting backend (optional)
-   git clone https://github.com/joaopedrobiu6/osiris_utils  # sample data
+   git clone https://github.com/joaopedrobiu6/osiris_utils
    cd osiris_utils
-   python examples/quick_start.py examples/example_data/thermal.1d
+   python examples/scripts/01_simulation_and_diagnostics.py --plot
+
+That first script needs no data -- it writes a small synthetic OSIRIS run for
+itself.  Point ``examples/quick_start.py`` at a run of your own instead::
+
+   python examples/quick_start.py path/to/os-stdin
+
+Example scripts
+---------------
+
+``examples/scripts/`` holds a runnable, annotated tour of every public part of
+the package -- diagnostics and the lazy pipeline, derivatives, FFTs, mean-field
+theory and spatial filters, field centering and moment corrections, RAW and
+track particles, parallel export, anomalous resistivity, the database builders
+and the CLI. See `examples/scripts/README.md
+<https://github.com/joaopedrobiu6/osiris_utils/blob/main/examples/scripts/README.md>`_
+for the full index.
+
+They need **no data**: with no ``--sim`` they build a small synthetic OSIRIS run
+with the real output layout and HDF5 schema::
+
+   python examples/scripts/run_all.py            # every example
+   python examples/scripts/04_derivatives.py     # just one
+   python examples/scripts/10_anomalous_resistivity.py --plot   # and its figures
+
+Point any of them at your own run by passing its input deck::
+
+   python examples/scripts/01_simulation_and_diagnostics.py --sim path/to/os-stdin
 
 Command-Line Interface
 ----------------------

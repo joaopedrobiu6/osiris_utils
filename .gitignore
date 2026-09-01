@@ -13,3 +13,5 @@ osiris_utils/.DS_Store
 *.json
 *.log
 CLAUDE.md
+# Output of the example scripts (examples/scripts/run_all.py --plot)
+examples/scripts/output/

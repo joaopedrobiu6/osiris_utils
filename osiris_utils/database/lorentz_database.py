@@ -153,15 +153,11 @@ class LorentzDatabaseCreator(DatabaseCreator):
         save_folder: str,
         build_config: LorentzDatabaseBuildConfig | None = None,
     ) -> None:
-        self.simulation = simulation
-        self.species = species
-        self.save_folder = save_folder
+        # Delegate: the inherited _build_tensors reads state the parent sets up
+        # (save_folder as a Path, the burst frame-key list), so re-implementing
+        # __init__ here silently drifts out of sync with it.
+        super().__init__(simulation, species, save_folder, build_config=None)
         self.build_config = build_config or LorentzDatabaseBuildConfig()
-
-        self.initial_iter: int = 0
-        self.final_iter: int | None = None
-        self.T: int = 0
-        self.X: int = 0
 
     # ------------------------------------------------------------------
     # Public API

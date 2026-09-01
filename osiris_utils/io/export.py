@@ -522,16 +522,18 @@ def _get_stencil_range(chain: list) -> tuple[int, int]:
 
 
 def _prefetch_into_cache(diag, idx: int) -> None:
-    """Read one frame from a base diagnostic into its ``_frame_cache``.
+    """Warm a base diagnostic's frame cache for time index *idx*.
 
-    Thread-safe in CPython: individual dict ``__setitem__`` calls are
-    atomic under the GIL.  Duplicate concurrent writes of the same key
-    are benign (same value).
+    ``_read_index`` stores what it reads in the diagnostic's own bounded LRU
+    (``Diagnostic.frame_cache_size`` frames), so the lazy evaluation that
+    follows finds the frame there instead of re-reading the file.  The LRU
+    guards itself with a lock, and a duplicate concurrent read is benign — it
+    produces the same array.
+
+    A stencil window wider than ``frame_cache_size`` evicts its own prefetches;
+    that costs a re-read, never a wrong number.
     """
-    key = (idx, None)
-    fc = diag._frame_cache
-    if key not in fc:
-        fc[key] = diag._read_index(idx)
+    diag._read_index(idx)
 
 
 def _clear_frame_caches_selective(chain: list, keep_from: int, keep_to: int) -> None:

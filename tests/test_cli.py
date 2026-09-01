@@ -29,7 +29,13 @@ def test_info_file(mock_grid_file, capsys):
     mock_obj.units = "a.u."
     mock_obj.label = "Electric Field"
     mock_obj.data = np.zeros((100, 100))
-    mock_obj.axis = [{"axis": [0, 10]}, {"axis": [0, 10]}]
+    # Shaped like what OsirisGridFile really returns: bounds on `grid`, and
+    # `axis` holding the per-axis metadata dicts.
+    mock_obj.grid = np.array([[0.0, 10.0], [0.0, 10.0]])
+    mock_obj.axis = [
+        {"name": "x1", "units": "c / \\omega_p", "long_name": "x_1", "type": "linear"},
+        {"name": "x2", "units": "c / \\omega_p", "long_name": "x_2", "type": "linear"},
+    ]
     mock_grid_file.return_value = mock_obj
 
     # Create dummy file path (needs to 'exist' for Path check)
@@ -42,6 +48,8 @@ def test_info_file(mock_grid_file, capsys):
         assert "File: dummy.h5" in captured.out
         assert "Type: grid" in captured.out
         assert "Grid Information:" in captured.out
+        assert "Grid range: [(0.0, 10.0), (0.0, 10.0)]" in captured.out
+        assert "Axes: ['x1', 'x2']" in captured.out
 
 
 @patch("osiris_utils.cli.info.ou.Simulation")

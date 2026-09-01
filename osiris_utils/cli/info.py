@@ -4,6 +4,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import numpy as np
+
 import osiris_utils as ou
 
 
@@ -79,7 +81,11 @@ def show_file_info(filepath: Path, brief: bool = False) -> int:
             print("\nGrid Information:")
             print(f"  nx: {data.nx}")
             print(f"  dx: {data.dx}")
-            print(f"  Grid range: {[tuple(ax['axis']) for ax in data.axis]}")
+            # Bounds live on `grid` ((min, max) per axis); the entries of
+            # `axis` are the metadata dicts (name/units/long_name/type).
+            bounds = np.atleast_2d(data.grid).astype(float).tolist()
+            print(f"  Grid range: {[tuple(b) for b in bounds]}")
+            print(f"  Axes: {[ax['name'] for ax in data.axis]}")
 
             print("\nTime Information:")
             print(f"  Time: {data.time}")

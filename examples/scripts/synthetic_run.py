@@ -5,7 +5,7 @@ of MB), so the examples build their own tree instead.  The layout and the HDF5
 schema are the ones OSIRIS writes, therefore ``osiris_utils`` reads it exactly
 as it reads a real run::
 
-    <root>/shock.2d                                   input deck
+    <root>/os-stdin                                   input deck
     <root>/MS/FLD/<fld>/<fld>-NNNNNN.h5               e1..e3, b1..b3
     <root>/MS/DENSITY/<sp>/charge/charge-<sp>-NNNNNN.h5
     <root>/MS/UDIST/<sp>/<mom>/<mom>-<sp>-NNNNNN.h5   vfl, ufl, T, P, Q
@@ -63,6 +63,7 @@ __all__ = ["build_run", "default_run", "DEFAULTS"]
 # large enough that a 9-point Savitzky-Golay window and a 5-point derivative
 # stencil still fit along x1.
 
+
 class DEFAULTS:
     """Parameters of the synthetic 2-D run."""
 
@@ -83,11 +84,31 @@ class DEFAULTS:
 # Moments written for every species.  OSIRIS only dumps the upper triangle of
 # the symmetric pressure tensor, so P21/P31/P32 are absent here as well.
 MOMENTS = (
-    "vfl1", "vfl2", "vfl3",
-    "ufl1", "ufl2", "ufl3",
-    "T11", "T12", "T13", "T22", "T23", "T33",
-    "P11", "P12", "P13", "P22", "P23", "P33",
-    "Q111", "Q112", "Q113", "Q222", "Q223", "Q333",
+    "vfl1",
+    "vfl2",
+    "vfl3",
+    "ufl1",
+    "ufl2",
+    "ufl3",
+    "T11",
+    "T12",
+    "T13",
+    "T22",
+    "T23",
+    "T33",
+    "P00",
+    "P11",
+    "P12",
+    "P13",
+    "P22",
+    "P23",
+    "P33",
+    "Q111",
+    "Q112",
+    "Q113",
+    "Q222",
+    "Q223",
+    "Q333",
 )
 FIELDS = ("e1", "e2", "e3", "b1", "b2", "b3")
 
@@ -125,6 +146,12 @@ def _label_for(name: str) -> str:
 # --- analytic profile ------------------------------------------------------
 
 
+def _noise(name: str, iteration: int, shape: tuple[int, ...]) -> np.ndarray:
+    """Multiplicative per-cell noise, reproducible for a given (name, iteration)."""
+    rng = np.random.default_rng((sum(name.encode()) * 1000 + iteration) % 2**32)
+    return 1.0 + MOMENT_NOISE * rng.standard_normal(shape)
+
+
 def _mesh(ndims: int) -> list[np.ndarray]:
     """Cell-centred coordinates of each axis (OSIRIS x1, x2, ... ordering)."""
     d = DEFAULTS
@@ -133,28 +160,54 @@ def _mesh(ndims: int) -> list[np.ndarray]:
     return [np.linspace(0.0, L, n, endpoint=False) for L, n in zip(lengths, points, strict=True)]
 
 
-def _amplitudes(name: str) -> tuple[float, float, float]:
-    """(mean level, jump fraction, transverse phase) for a quantity.
+def _amplitudes(name: str) -> tuple[float, float, float, float, int]:
+    """Per-quantity shape parameters, deterministic in the name.
 
-    Deterministic in the name so two quantities differ but a given quantity is
-    reproducible across runs — a test or example can assert on it.
+    ``(level, jump fraction, transverse phase, front width, ripple mode)``.
+    The width and the longitudinal ripple differ from quantity to quantity so
+    the fields are not all multiples of one profile — otherwise every feature
+    of a database tensor would be perfectly correlated with every other, and
+    examples that look for structure would find something meaningless.
     """
     h = sum(name.encode())
-    return 1.0 + 0.1 * (h % 5), 0.2 + 0.05 * (h % 4), 2 * np.pi * (h % 7) / 7
+    return (
+        1.0 + 0.1 * (h % 5),  # mean level
+        0.2 + 0.05 * (h % 4),  # jump fraction across the front
+        2 * np.pi * (h % 7) / 7,  # transverse phase
+        0.6 + 0.25 * (h % 5),  # front width, in units of SHOCK_W
+        1 + (h % 4),  # longitudinal ripple mode
+    )
+
+
+#: Relative amplitude of the particle noise added to species moments.  Fields
+#: are left analytic, so the derivative and FFT examples still have an exact
+#: reference to check themselves against.
+MOMENT_NOISE = 0.02
 
 
 def field(name: str, iteration: int, ndims: int = 2) -> np.ndarray:
-    """Value of *name* at OSIRIS iteration *iteration* on the synthetic grid."""
+    """Value of *name* at OSIRIS iteration *iteration* on the synthetic grid.
+
+    Species moments carry a few percent of per-cell noise, as a real run does:
+    they are estimated from a finite number of macro-particles, which is the
+    whole reason the spatial filters exist.  The fields do not — that keeps an
+    exact reference available for the derivative and FFT examples.
+    """
     d = DEFAULTS
     axes = _mesh(ndims)
     grids = np.meshgrid(*axes, indexing="ij")
     x1 = grids[0]
 
-    amp, jump, phase = _amplitudes(name)
+    amp, jump, phase, width, ripple = _amplitudes(name)
     front = d.SHOCK_X0 + d.SHOCK_V * iteration * d.DT
-    profile = amp * (1.0 + jump * np.tanh((x1 - front) / d.SHOCK_W))
+    profile = amp * (1.0 + jump * np.tanh((x1 - front) / (width * d.SHOCK_W)))
+    # A small longitudinal ripple, at a different wavenumber per quantity.
+    profile = profile * (1.0 + 0.05 * np.sin(2 * np.pi * ripple * x1 / d.XMAX1 + phase))
 
-    if ndims >= 2:  # exactly periodic transverse modulation
+    if ndims >= 2:
+        # Transverse modulation at a fixed integer mode, so it is exactly
+        # periodic in x2 and separable from the x1 structure above; only the
+        # phase changes between quantities.
         x2 = grids[1]
         k2 = 2 * np.pi * d.TRANSVERSE_MODE / d.XMAX2
         profile = profile * (1.0 + d.TRANSVERSE_EPS * np.cos(k2 * x2 + phase))
@@ -162,10 +215,12 @@ def field(name: str, iteration: int, ndims: int = 2) -> np.ndarray:
     if name == "charge":
         # OSIRIS writes charge density; Diagnostic("n") flips it by sign(rqm).
         # Keep |charge| well away from zero: it divides the pressure term.
-        return (-(2.0 + 0.3 * profile)).astype(np.float32)
+        return (-(2.0 + 0.3 * profile) * _noise(name, iteration, profile.shape)).astype(np.float32)
     if name.startswith(("vfl", "ufl")):  # subluminal
-        return (0.3 * np.tanh(profile)).astype(np.float32)
-    return profile.astype(np.float32)
+        return (0.3 * np.tanh(profile) * _noise(name, iteration, profile.shape)).astype(np.float32)
+    if name[0] in "PTQ":  # the other particle moments
+        return (profile * _noise(name, iteration, profile.shape)).astype(np.float32)
+    return profile.astype(np.float32)  # fields: exactly analytic
 
 
 # --- HDF5 writers ----------------------------------------------------------
@@ -230,9 +285,14 @@ def _write_raw(path: Path, species: str, iteration: int, n_particles: int = 512)
     rng = np.random.default_rng(abs(hash(species)) % 2**32)
     quants = ["x1", "x2", "p1", "p2", "p3", "q", "ene", "tag"]
     units = {
-        "x1": "c/\\omega_p", "x2": "c/\\omega_p",
-        "p1": "m_e c", "p2": "m_e c", "p3": "m_e c",
-        "q": "e", "ene": "m_e c^2", "tag": "",
+        "x1": "c/\\omega_p",
+        "x2": "c/\\omega_p",
+        "p1": "m_e c",
+        "p2": "m_e c",
+        "p3": "m_e c",
+        "q": "e",
+        "ene": "m_e c^2",
+        "tag": "",
     }
     labels = {q: f"{q[0]}_{q[1]}" for q in ("x1", "x2", "p1", "p2", "p3")}
     labels.update({"q": "q", "ene": "Ene", "tag": "Tag"})
@@ -250,8 +310,7 @@ def _write_raw(path: Path, species: str, iteration: int, n_particles: int = 512)
     node[::8] *= -1  # already-tracked particles carry a negative node id
     tag = np.stack([node, np.arange(1, n_particles + 1)], axis=1)
 
-    values = {"x1": x1, "x2": x2, "p1": p1, "p2": p2, "p3": p3,
-              "q": np.full(n_particles, -1.0), "ene": gamma - 1.0, "tag": tag}
+    values = {"x1": x1, "x2": x2, "p1": p1, "p2": p2, "p3": p3, "q": np.full(n_particles, -1.0), "ene": gamma - 1.0, "tag": tag}
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(path, "w") as f:
@@ -283,10 +342,17 @@ def _write_tracks(path: Path, species: str, n_particles: int = 12, n_iters: int 
     d = DEFAULTS
     quants = ["n", "t", "q", "ene", "x1", "x2", "p1", "p2", "p3"]
     data_quants = quants[1:]
-    units = {"t": "1/\\omega_p", "q": "e", "ene": "m_e c^2", "x1": "c/\\omega_p",
-             "x2": "c/\\omega_p", "p1": "m_e c", "p2": "m_e c", "p3": "m_e c"}
-    labels = {"t": "t", "q": "q", "ene": "Ene", "x1": "x_1", "x2": "x_2",
-              "p1": "p_1", "p2": "p_2", "p3": "p_3"}
+    units = {
+        "t": "1/\\omega_p",
+        "q": "e",
+        "ene": "m_e c^2",
+        "x1": "c/\\omega_p",
+        "x2": "c/\\omega_p",
+        "p1": "m_e c",
+        "p2": "m_e c",
+        "p3": "m_e c",
+    }
+    labels = {"t": "t", "q": "q", "ene": "Ene", "x1": "x_1", "x2": "x_2", "p1": "p_1", "p2": "p_2", "p3": "p_3"}
 
     def value(quant: str, particle: int, k: int) -> float:
         t = k * d.DT
@@ -298,10 +364,12 @@ def _write_tracks(path: Path, species: str, n_particles: int = 12, n_iters: int 
             return 0.5 * particle + 0.4 * t
         if quant == "x2":
             return (0.3 * particle + 0.1 * t) % d.XMAX2
+        # momentum rotates and grows: the particles gain energy as they go
+        amp = 0.2 * (1.0 + 3.0 * t)
         if quant == "p1":
-            return 0.2 * np.cos(0.5 * particle + t)
+            return amp * np.cos(0.5 * particle + t)
         if quant == "p2":
-            return 0.2 * np.sin(0.5 * particle + t)
+            return amp * np.sin(0.5 * particle + t)
         if quant == "p3":
             return 0.01 * particle
         if quant == "ene":
@@ -525,7 +593,9 @@ def build_run(
         shutil.rmtree(root)
     root.mkdir(parents=True)
 
-    deck = root / f"shock.{ndims}d"
+    # Named "os-stdin" — the usual OSIRIS name, and one of the few the `utils`
+    # CLI recognises as a deck rather than a data file (example 13).
+    deck = root / "os-stdin"
     deck.write_text(_deck_text(ndims, species, burst))
 
     dumps = [m * d.NDUMP for m in range(n_dumps)]
@@ -540,12 +610,20 @@ def build_run(
     for sp in species:
         _write_series(
             ms / "DENSITY" / sp / "charge",
-            name="charge", prefix=f"charge-{sp}", iterations=iters, burst=burst, ndims=ndims,
+            name="charge",
+            prefix=f"charge-{sp}",
+            iterations=iters,
+            burst=burst,
+            ndims=ndims,
         )
         for mom in moments:
             _write_series(
                 ms / "UDIST" / sp / mom,
-                name=mom, prefix=f"{mom}-{sp}", iterations=iters, burst=burst, ndims=ndims,
+                name=mom,
+                prefix=f"{mom}-{sp}",
+                iterations=iters,
+                burst=burst,
+                ndims=ndims,
             )
 
     if ndims == 2:
@@ -566,7 +644,7 @@ def default_run(*, ndims: int = 2, burst: bool = False, rebuild: bool = False) -
     """
     tag = f"osiris_utils_examples/{ndims}d{'_burst' if burst else ''}"
     root = Path(tempfile.gettempdir()) / tag
-    deck = root / f"shock.{ndims}d"
+    deck = root / "os-stdin"
     if rebuild or not deck.exists():
         build_run(root, ndims=ndims, burst=burst)
     return deck
