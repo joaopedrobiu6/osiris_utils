@@ -10,6 +10,26 @@ from ..decks.decks import InputDeckIO
 __all__ = ["Simulation", "Species_Handler"]
 
 
+def _register_on_load(diag: Diagnostic, registry: dict, key: str) -> Diagnostic:
+    """Put *diag* in *registry* once its data is fully loaded.
+
+    ``loaded_diagnostics`` means exactly that -- the diagnostics holding data in
+    memory -- so a diagnostic enters the registry when ``load_all()`` succeeds,
+    not when it is first accessed.  ``load_all()`` then returns the diagnostic
+    itself rather than the array, which is what the Simulation-level API has
+    always handed back.
+    """
+    original = diag.load_all
+
+    def load_all(*args, **kwargs):
+        original(*args, **kwargs)
+        registry[key] = diag
+        return diag
+
+    diag.load_all = load_all
+    return diag
+
+
 class Simulation:
     """
     Class to handle the simulation data. It is a wrapper for the Diagnostic class.'
@@ -47,6 +67,11 @@ class Simulation:
 
         self._simulation_folder = folder_path
         self._diagnostics = {}  # Dictionary to store diagnostics for each quantity
+        # Every quantity ever asked for, loaded or not.  Building a Diagnostic
+        # globs its dump directory and opens a file for the grid metadata, so
+        # handing out a new one per access made `sim["b2"]` in a loop scan the
+        # filesystem again every time.
+        self._opened = {}
         self._species_handler = {}
 
     def delete_all_diagnostics(self):
@@ -54,13 +79,15 @@ class Simulation:
         Delete all diagnostics.
         """
         self._diagnostics = {}
+        self._opened = {}
 
     def delete_diagnostic(self, key):
         """
         Delete a diagnostic."
         """
-        if key in self._diagnostics:
-            del self._diagnostics[key]
+        if key in self._diagnostics or key in self._opened:
+            self._diagnostics.pop(key, None)
+            self._opened.pop(key, None)
         else:
             print(f"Diagnostic {key} not found in simulation")
 
@@ -78,24 +105,17 @@ class Simulation:
 
         if key in self._diagnostics:
             return self._diagnostics[key]
+        if key in self._opened:
+            return self._opened[key]
 
         if key == "tracks":
             raise ValueError("Tracks diagnostics require a specie.")
-        else:
-            # Create a temporary diagnostic for this quantity - this is for quantities that are not species related
-            diag = Diagnostic(simulation_folder=self._simulation_folder, species=None, input_deck=self._input_deck)
-            diag.get_quantity(key)
 
-            original_load_all = diag.load_all
-
-            def patched_load_all(*args, **kwargs):
-                result = original_load_all(*args, **kwargs)  # noqa: F841
-                self._diagnostics[key] = diag
-                return diag
-
-            diag.load_all = patched_load_all
-
-            return diag
+        # Quantities that are not species related
+        diag = Diagnostic(simulation_folder=self._simulation_folder, species=None, input_deck=self._input_deck)
+        diag.get_quantity(key)
+        self._opened[key] = _register_on_load(diag, self._diagnostics, key)
+        return diag
 
     def add_diagnostic(self, diagnostic, name=None):
         """
@@ -153,27 +173,21 @@ class Species_Handler:
         self._species_name = species_name
         self._input_deck = input_deck
         self._diagnostics = {}
+        self._opened = {}  # every quantity ever asked for; see Simulation.__init__
 
     def __getitem__(self, key: str) -> Diagnostic:
         if key in self._diagnostics:
             return self._diagnostics[key]
+        if key in self._opened:
+            return self._opened[key]
 
-        # Create a temporary diagnostic for this quantity
         if key == "tracks":
             diag = Track_Diagnostic(simulation_folder=self._simulation_folder, species=self._species_name, input_deck=self._input_deck)
         else:
             diag = Diagnostic(simulation_folder=self._simulation_folder, species=self._species_name, input_deck=self._input_deck)
             diag.get_quantity(key)
 
-        original_load_all = diag.load_all
-
-        def patched_load_all(*args, **kwargs):
-            result = original_load_all(*args, **kwargs)  # noqa: F841
-            self._diagnostics[key] = diag
-            return diag
-
-        diag.load_all = patched_load_all
-
+        self._opened[key] = _register_on_load(diag, self._diagnostics, key)
         return diag
 
     def add_diagnostic(self, diagnostic: Diagnostic, name: str | None = None) -> str:
@@ -214,8 +228,9 @@ class Species_Handler:
         """
         Delete a diagnostic.
         """
-        if key in self._diagnostics:
-            del self._diagnostics[key]
+        if key in self._diagnostics or key in self._opened:
+            self._diagnostics.pop(key, None)
+            self._opened.pop(key, None)
         else:
             print(f"Diagnostic {key} not found in species {self._species_name}")
             return None
@@ -225,6 +240,7 @@ class Species_Handler:
         Delete all diagnostics.
         """
         self._diagnostics = {}
+        self._opened = {}
 
     @property
     def species(self) -> Any:

@@ -4,7 +4,6 @@ import concurrent.futures
 import logging
 import math
 import multiprocessing
-from collections import OrderedDict
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
@@ -382,6 +381,10 @@ class Derivative_Diagnostic(Diagnostic):
 
     """
 
+    #: Frames of the *input* diagnostic kept per instance: enough for a
+    #: 4th-order time stencil, which asks for five neighbours around a point.
+    frame_cache_size: int = 6
+
     def __init__(
         self,
         diagnostic: Diagnostic,
@@ -421,9 +424,6 @@ class Derivative_Diagnostic(Diagnostic):
                 "Drop filter= for deriv_type='t' (the frames it differences are "
                 "already smoothed if the input diagnostic is filtered)."
             )
-
-        self._cache = OrderedDict()
-        self._cache_max = 6  # Maximum number of items to keep in cache (enough for 4th-order time stencil)
 
         # Copy all relevant attributes from diagnostic
         for attr in [
@@ -1224,25 +1224,13 @@ class Derivative_Diagnostic(Diagnostic):
 
         raise ValueError("Invalid derivative type.")
 
-    def _cache_get(self, key):
-        if key in self._cache:
-            self._cache.move_to_end(key)
-            return self._cache[key]
-        return None
-
-    def _cache_put(self, key, val):
-        self._cache[key] = val
-        self._cache.move_to_end(key)
-        if len(self._cache) > self._cache_max:
-            self._cache.popitem(last=False)
-
     def _base(self, idx: int, data_slice: tuple | None):
-        key = (idx, data_slice)
-        v = self._cache_get(key)
-        if v is None:
-            v = self._diag._frame(idx, data_slice=data_slice)
-            self._cache_put(key, v)
-        return v
+        """One frame of the input, from Diagnostic's LRU (frame_cache_size deep)."""
+        key = ("base", idx, repr(data_slice))
+        cached = self._cache_get(key)
+        if cached is not None:
+            return cached
+        return self._cache_put(key, self._diag._frame(idx, data_slice=data_slice))
 
 
 class Derivative_Species_Handler:

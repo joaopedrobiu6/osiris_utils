@@ -5,6 +5,7 @@ import operator
 import re
 import threading
 import warnings
+from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -148,7 +149,7 @@ def _load_frame_worker(args: tuple) -> tuple[int, np.ndarray]:
         (index, filepath, quantity, species_rqm, data_slice)
     """
     i, filepath, quantity, species_rqm, data_slice = args
-    data_obj = OsirisGridFile(filepath, data_slice=data_slice)
+    data_obj = OsirisGridFile(filepath, data_slice=data_slice, metadata=False)
     arr = data_obj.data
     if quantity in OSIRIS_DENSITY:
         arr = np.sign(species_rqm) * arr
@@ -296,6 +297,8 @@ class Diagnostic:
         self._all_loaded: bool = False  # if the data is already loaded into memory
         self._quantity: str | None = None
         self._load_lock = threading.Lock()  # guards _data and _all_loaded across threads
+        self._cache: OrderedDict = OrderedDict()  # bounded LRU of frames, see _cache_get
+        self._cache_lock = threading.Lock()
 
     #########################################
     #
@@ -694,6 +697,7 @@ class Diagnostic:
 
     def unload(self) -> None:
         """Unload data from memory. This is useful to free memory when the data is not needed anymore."""
+        self._cache_clear()  # the lazy path holds frames too
         with self._load_lock:
             logger.info("Unloading data from memory.")
             if self._all_loaded is False:
@@ -718,25 +722,22 @@ class Diagnostic:
             An iterator that yields the data for the given index or slice.
 
         """
-        if self._simulation_folder is None:
-            raise ValueError("Simulation folder not set.")
-        if self._file_list is None:
-            raise RuntimeError("File list not initialized. Call get_quantity() first.")
-        try:
-            file = self._file_list[index]  # try to get the file at the given index
-        except IndexError as err:
-            raise RuntimeError(
-                f"File index {index} out of range (max {self._maxiter - 1}).",
-            ) from err
-        # Pass data_slice to OsirisGridFile - HDF5 will efficiently read only the requested slice from disk
-        data_object = OsirisGridFile(file, data_slice=data_slice)  # This is were the data is actually being read from disk
-        yield (data_object.data if self._quantity not in OSIRIS_DENSITY else np.sign(self._species.rqm) * data_object.data)
+        # Same read as _frame/_read_index — HDF5 pulls only the requested slice
+        # off disk — kept as a generator for the subclasses that override it.
+        yield self._read_index(index, data_slice=data_slice)
 
     def _read_index(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
         """Read and return the array for a single time index (keeps lazy behavior).
 
         This helper centralizes the single-file read logic so callers avoid generator
         overhead while keeping the operation lazy (we only read requested files).
+
+        The last :attr:`frame_cache_size` frames are kept, so a lazy expression
+        that mentions the same quantity several times (the anomalous-resistivity
+        terms read the density in a dozen of them) reads each file once instead
+        of once per mention.  Like the loaded path (``diag[i]`` is a view into
+        ``diag.data`` once :meth:`load_all` ran), the array handed back is the
+        cached one: do not write into a frame in place.
         """
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set.")
@@ -749,12 +750,57 @@ class Diagnostic:
                 f"File index {index} out of range (max {self._maxiter - 1}).",
             ) from err
 
-        data_object = OsirisGridFile(file, data_slice=data_slice)
-        return data_object.data if self._quantity not in OSIRIS_DENSITY else np.sign(self._species.rqm) * data_object.data
+        key = ("read", index, repr(data_slice))
+        cached = self._cache_get(key)
+        if cached is not None:
+            return cached
+
+        # metadata=False: the grid metadata of this diagnostic already came from
+        # _load_attributes, so re-parsing every axis attribute per frame is pure
+        # overhead (~a third of the cost of reading a frame).
+        data_object = OsirisGridFile(file, data_slice=data_slice, metadata=False)
+        data = data_object.data if self._quantity not in OSIRIS_DENSITY else np.sign(self._species.rqm) * data_object.data
+        return self._cache_put(key, data)
 
     def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
         """Return one timestep (lazy). Overridden by derived diagnostics."""
         return self._read_index(index, data_slice=data_slice)
+
+    ###########################################
+    #
+    # Frame cache
+    #
+    ###########################################
+
+    #: How many frames each diagnostic keeps (per instance).  The default holds
+    #: a centered 3-point time stencil; raise it for wider stencils, set it to 0
+    #: to cache nothing when memory is tighter than I/O.  Assign on the class
+    #: (``ou.Diagnostic.frame_cache_size = 0``) or on a single diagnostic.
+    frame_cache_size: int = 3
+
+    def _cache_get(self, key):
+        """Most-recently-used lookup; None when *key* is not cached."""
+        with self._cache_lock:
+            if key not in self._cache:
+                return None
+            self._cache.move_to_end(key)
+            return self._cache[key]
+
+    def _cache_put(self, key, value):
+        """Store *value* under *key*, evicting the least recently used. Returns *value*."""
+        size = self.frame_cache_size
+        if size <= 0:
+            return value
+        with self._cache_lock:
+            self._cache[key] = value
+            self._cache.move_to_end(key)
+            while len(self._cache) > size:
+                self._cache.popitem(last=False)
+        return value
+
+    def _cache_clear(self) -> None:
+        with self._cache_lock:
+            self._cache.clear()
 
     ###########################################
     #

@@ -134,7 +134,13 @@ class Filtered_Diagnostic(Diagnostic):
         return self._filter.smooth(f, periodic=_periodic_flags(f.ndim, self._periodic_axes))
 
     def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
-        return self._smooth(self._diag._frame(index, data_slice=data_slice))
+        # Cached like a raw read (Diagnostic._read_index): the density is
+        # smoothed once per frame, not once per term that mentions it.
+        key = ("smooth", index, repr(data_slice))
+        cached = self._cache_get(key)
+        if cached is not None:
+            return cached
+        return self._cache_put(key, self._smooth(self._diag._frame(index, data_slice=data_slice)))
 
     def load_all(self) -> np.ndarray:
         """Smooth every timestep eagerly.

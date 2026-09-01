@@ -250,17 +250,28 @@ class OsirisGridFile(OsirisData):
         Field label/name (LaTeX formatted, e.g., r'$E_x$')
     """
 
-    def __init__(self, filename, data_slice: slice | None = None, load_data: bool = True):
+    def __init__(self, filename, data_slice: slice | None = None, load_data: bool = True, metadata: bool = True):
         super().__init__(filename)
 
         variable_key = self._get_variable_key(self._file)
-
-        self._units = self._file.attrs["UNITS"][0].decode("utf-8")
-        self._label = self._file.attrs["LABEL"][0].decode("utf-8")
         self._FFTdata = None
 
         # Use dataset.shape to obtain sizes without loading full data when possible
         dset = self._file[variable_key]
+
+        if not metadata:
+            # Data-only read.  Parsing UNITS/LABEL/AXIS costs ~30 attribute reads
+            # per file — a third of the time of a frame read — and a caller that
+            # only wants the array (Diagnostic._read_index, whose grid metadata
+            # already came from _load_attributes) throws every one of them away.
+            self._units = self._label = None
+            self._grid = self._nx = self._dx = self._x = self._axis = None
+            self._data = self._read_dataset(dset, data_slice) if load_data else None
+            self._close_file()
+            return
+
+        self._units = self._file.attrs["UNITS"][0].decode("utf-8")
+        self._label = self._file.attrs["LABEL"][0].decode("utf-8")
 
         axis = list(self._file["AXIS"].keys())
         if len(axis) == 1:
@@ -298,37 +309,38 @@ class OsirisGridFile(OsirisData):
 
         # Only load data if explicitly requested. Otherwise keep a placeholder so metadata-only
         # initializations are cheap for large files.
-        if load_data:
-            # Handle partial slicing by padding with (slice(None),)
-            if data_slice is not None:
-                if not isinstance(data_slice, tuple):
-                    data_slice = (data_slice,)
-
-                # Check if we need to pad
-                ndims = len(dset.shape)
-                if len(data_slice) < ndims:
-                    data_slice = data_slice + (slice(None),) * (ndims - len(data_slice))
-
-            # data slice should be transposed to match data storage order [x, y, z] to [z, y, x]
-            data_slice = data_slice[::-1] if data_slice is not None and len(dset.shape) > 1 else data_slice
-
-            if data_slice is None and len(dset.shape) > 1:
-                # HDF5 stores data in (nx_last, ..., nx1) C-order (OSIRIS convention).
-                # Read into a plain C-contiguous buffer, then transpose to (nx1, ..., nx_last).
-                # np.ascontiguousarray makes the transposed result C-contiguous in one copy —
-                # the same total allocation as before. Do NOT try to save that copy by reading
-                # straight into a transposed view: read_direct(buf.T) raises "Array must be
-                # C-contiguous and writable", since buf.T is Fortran-contiguous whenever more
-                # than one axis has extent > 1.
-                self._data = np.ascontiguousarray(dset[()].T)
-            elif data_slice is None:
-                self._data = dset[()]
-            else:
-                self._data = np.ascontiguousarray(dset[data_slice].T)
-        else:
-            self._data = None
+        self._data = self._read_dataset(dset, data_slice) if load_data else None
 
         self._close_file()
+
+    @staticmethod
+    def _read_dataset(dset, data_slice):
+        """Read *dset* (optionally sliced) in OSIRIS axis order (nx1, ..., nx_last)."""
+        # Handle partial slicing by padding with (slice(None),)
+        if data_slice is not None:
+            if not isinstance(data_slice, tuple):
+                data_slice = (data_slice,)
+
+            # Check if we need to pad
+            ndims = len(dset.shape)
+            if len(data_slice) < ndims:
+                data_slice = data_slice + (slice(None),) * (ndims - len(data_slice))
+
+        # data slice should be transposed to match data storage order [x, y, z] to [z, y, x]
+        data_slice = data_slice[::-1] if data_slice is not None and len(dset.shape) > 1 else data_slice
+
+        if data_slice is None and len(dset.shape) > 1:
+            # HDF5 stores data in (nx_last, ..., nx1) C-order (OSIRIS convention).
+            # Read into a plain C-contiguous buffer, then transpose to (nx1, ..., nx_last).
+            # np.ascontiguousarray makes the transposed result C-contiguous in one copy —
+            # the same total allocation as before. Do NOT try to save that copy by reading
+            # straight into a transposed view: read_direct(buf.T) raises "Array must be
+            # C-contiguous and writable", since buf.T is Fortran-contiguous whenever more
+            # than one axis has extent > 1.
+            return np.ascontiguousarray(dset[()].T)
+        if data_slice is None:
+            return dset[()]
+        return np.ascontiguousarray(dset[data_slice].T)
 
     def _load_basic_attributes(self, f: h5py.File) -> None:
         """Load common attributes from HDF5 file"""
