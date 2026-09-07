@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-
+    
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])

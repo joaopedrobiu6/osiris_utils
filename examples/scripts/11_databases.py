@@ -213,6 +213,12 @@ def main() -> None:
     # A random x-boost is drawn per timestep and every field is transformed
     # before the transverse average, multiplying the training set without
     # running another simulation.  beta is saved, so a resumed job reuses it.
+    #
+    # d/dx' mixes in d/dt (McGrae-Menge note, Eq. 36), so this build always
+    # needs each frame's two flanking frames and always emits a dvfl1_dt_avg
+    # row.  Frames without both flanks are dropped, so T is smaller than
+    # n_dumps -- with plain dumps, by the first and last.  Burst-dumping every
+    # field the boost reads makes d/dt fine-grained instead of coarse.
     lcfg = ou.LorentzDatabaseBuildConfig(
         boost_min=0.0,
         boost_max=0.5,  # boost_max must stay < 1 (gamma diverges)
