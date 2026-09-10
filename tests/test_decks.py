@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import pytest
 
@@ -27,6 +28,24 @@ def test_species_defaults():
     # Default q is 1
     assert s.q == 1
     assert s.m == 1.0
+
+
+@pytest.mark.parametrize(("rqm", "q_in"), [(-1.0, 1.0), (-1.0, -1.0), (-1.0, 2.0), (-1.0, -2.0)])
+def test_species_takes_the_charge_sign_from_rqm(rqm, q_in):
+    """Only |q| is taken from the argument; rqm = m/q (m > 0) fixes the sign.
+
+    Otherwise q and rqm can disagree — and they did: ``Species(rqm=-1)`` used
+    the default q = +1, so the density of an electron species came out positive.
+    """
+    s = Species(name="electron", rqm=rqm, q=q_in)
+    assert s.q == -abs(q_in)
+    assert s.m > 0
+    assert s.m / s.q == pytest.approx(rqm)
+
+
+def test_species_rejects_zero_charge():
+    with pytest.raises(ValueError, match="q = 0"):
+        Species(name="neutral", rqm=1.0, q=0)
 
 
 # --- InputDeckIO Tests ---
@@ -60,12 +79,8 @@ def test_input_deck_io_species(sample_deck_file):
     elec = species["electrons"]
     assert elec.name == "electrons"
     assert elec.rqm == -1.0
-    # No q_real specified in thermal.1d for electrons.
-    # Code: if q_real not provided, assumes ones.
-    # q calculation: q = int(s_qreal[0]) * np.sign(float(s_rqm[i]))
-    # s_qreal defaults to np.ones(len(s_names)). So s_qreal[0] = 1.
-    # rqm = -1.0. sign is -1.
-    # q = 1 * -1 = -1.
+    # thermal.1d gives no q_real, so the magnitude defaults to 1; Species takes
+    # the sign from rqm = -1.
     assert elec.q == -1
 
 
@@ -98,3 +113,30 @@ def test_input_deck_io_write(sample_deck_file, tmp_path):
     # Read back
     deck2 = InputDeckIO(str(out_file))
     assert deck2.get_param("time_step", "dt") == ["0.99"]
+
+
+def test_species_q_real_is_read_per_species(tmp_path, sample_deck_file):
+    """Each species gets its OWN q_real.
+
+    ``s_qreal[0]`` handed every species the first one's charge, so in a
+    two-species deck the ions inherited the electrons' q and their mass
+    (m = rqm * q) came out wrong with it.
+    """
+    src = Path(sample_deck_file).read_text()
+    src = src.replace("num_species = 1,", "num_species = 2,")
+    electrons = src[src.index("species\n{") : src.index("}", src.index("species\n{")) + 2]
+    src = src.replace(
+        electrons,
+        electrons.replace("\trqm = -1.0,\n", "\trqm = -1.0,\n\tq_real = 1.0,\n")
+        + '\nspecies\n{\n\tname = "ions",\n\trqm = 16.0,\n\tq_real = 2.0,\n\tnum_par_x(1:1) = 64,\n}\n',
+        1,
+    )
+    deck_path = tmp_path / "two_species.1d"
+    deck_path.write_text(src)
+
+    species = InputDeckIO(str(deck_path)).species
+    assert species["electrons"].q == -1.0
+    assert species["ions"].q == 2.0  # its own q_real, not the electrons' 1.0
+    assert species["ions"].m == 32.0  # m = rqm * q = 16 * 2
+    for sp in species.values():
+        assert sp.m / sp.q == pytest.approx(sp.rqm)

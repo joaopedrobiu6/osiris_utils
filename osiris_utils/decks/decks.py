@@ -183,7 +183,11 @@ class InputDeckIO:
             ast.literal_eval(s_names[i]): Species(
                 name=ast.literal_eval(s_names[i]),
                 rqm=float(s_rqm[i]),
-                q=int(s_qreal[0]) * np.sign(float(s_rqm[i])),
+                # Per species: s_qreal[0] gave every species the FIRST one's
+                # charge.  Kept as a float -- q_real is a real in OSIRIS, and
+                # truncating it silently rescales the number density (charge/q).
+                # Species applies the sign of rqm; passing it here would square it.
+                q=float(s_qreal[i]),
             )
             for i in range(self.n_species)
         }

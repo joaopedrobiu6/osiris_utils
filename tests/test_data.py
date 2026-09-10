@@ -82,7 +82,7 @@ def test_diagnostic_integration(sim_dir: Path) -> None:
 
 
 def test_diagnostic_density_flips_sign_with_rqm(sim_dir: Path) -> None:
-    """The 'n' quantity is charge scaled by sign(rqm) — negative for electrons."""
+    """'n' is charge / q, and q is negative for electrons (rqm = m/q < 0)."""
     elec = Species(name=SPECIES, rqm=-1.0)
 
     charge = Diagnostic(simulation_folder=str(sim_dir), species=elec)
@@ -92,6 +92,46 @@ def test_diagnostic_density_flips_sign_with_rqm(sim_dir: Path) -> None:
     density.get_quantity("n")
 
     np.testing.assert_allclose(density[0], -charge[0], rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("rqm", "q_real", "q"),
+    [
+        (-1.0, 1.0, -1.0),  # electrons
+        (32.0, 1.0, 1.0),  # the shock-deck ions
+        (3672.0, 2.0, 2.0),  # alpha: |q| != 1, where sign(rqm) alone is wrong
+        (-1.0, 2.0, -2.0),  # and with the other sign
+    ],
+)
+def test_diagnostic_density_divides_charge_by_q(sim_dir: Path, rqm: float, q_real: float, q: float) -> None:
+    """'n' is the NUMBER density: the OSIRIS charge dump holds rho = q n.
+
+    Scaling by sign(q) instead of dividing by it leaves n a factor |q_real| too
+    large, which is invisible for the singly charged species this package is
+    usually pointed at and wrong for every other one.
+    """
+    sp = Species(name=SPECIES, rqm=rqm, q=q_real)
+    assert sp.q == q
+    assert sp.m / sp.q == pytest.approx(rqm)  # q and rqm cannot disagree
+
+    charge = Diagnostic(simulation_folder=str(sim_dir), species=sp)
+    charge.get_quantity("charge")
+    density = Diagnostic(simulation_folder=str(sim_dir), species=sp)
+    density.get_quantity("n")
+
+    np.testing.assert_allclose(density[0], charge[0] / q, rtol=1e-6)
+    np.testing.assert_allclose(density[0], grid_values(0) / q, rtol=1e-6)
+
+
+def test_diagnostic_density_load_all_matches_lazy_reads(sim_dir: Path) -> None:
+    """load_all and __getitem__ must apply the same 1/q, |q| != 1 included."""
+    sp = Species(name=SPECIES, rqm=3672.0, q=2.0)
+    density = Diagnostic(simulation_folder=str(sim_dir), species=sp)
+    density.get_quantity("n")
+
+    lazy = np.stack([density[i] for i in range(N_TIMESTEPS)])
+    density.unload()
+    np.testing.assert_allclose(density.load_all(use_parallel=False), lazy, rtol=1e-6)
 
 
 def test_diagnostic_rejects_unknown_quantity(sim_dir: Path) -> None:

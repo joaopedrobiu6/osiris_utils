@@ -146,13 +146,13 @@ def _load_frame_worker(args: tuple) -> tuple[int, np.ndarray]:
     Parameters
     ----------
     args : tuple
-        (index, filepath, quantity, species_rqm, data_slice)
+        (index, filepath, quantity, species_q, data_slice)
     """
-    i, filepath, quantity, species_rqm, data_slice = args
+    i, filepath, quantity, species_q, data_slice = args
     data_obj = OsirisGridFile(filepath, data_slice=data_slice, metadata=False)
     arr = data_obj.data
     if quantity in OSIRIS_DENSITY:
-        arr = np.sign(species_rqm) * arr
+        arr = arr / species_q  # charge dump holds rho = q n; see Diagnostic._read_index
     return i, arr
 
 
@@ -649,8 +649,8 @@ class Diagnostic:
                 if n_workers is None:
                     n_workers = min(cpu, size - 1)
 
-                species_rqm = getattr(self._species, "rqm", 1.0) if hasattr(self, "_species") and self._species is not None else 1.0
-                worker_args = [(i, self._file_list[i], self._quantity, species_rqm, None) for i in range(1, size)]
+                species_q = getattr(self._species, "q", 1.0) if hasattr(self, "_species") and self._species is not None else 1.0
+                worker_args = [(i, self._file_list[i], self._quantity, species_q, None) for i in range(1, size)]
                 with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
                     futures = {executor.submit(_load_frame_worker, args): args[0] for args in worker_args}
                     with tqdm.tqdm(total=size - 1, desc="Loading data (parallel, process)") as pbar:
@@ -759,7 +759,11 @@ class Diagnostic:
         # _load_attributes, so re-parsing every axis attribute per frame is pure
         # overhead (~a third of the cost of reading a frame).
         data_object = OsirisGridFile(file, data_slice=data_slice, metadata=False)
-        data = data_object.data if self._quantity not in OSIRIS_DENSITY else np.sign(self._species.rqm) * data_object.data
+        # "n" is read from the OSIRIS *charge* dump, which holds rho = q n.  So
+        # the number density is rho / q, not rho * sign(q): the sign alone is
+        # right only for singly charged species and leaves n a factor |q_real|
+        # too large for anything else.
+        data = data_object.data if self._quantity not in OSIRIS_DENSITY else data_object.data / self._species.q
         return self._cache_put(key, data)
 
     def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
