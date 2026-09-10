@@ -149,6 +149,16 @@ class LorentzDatabaseBuildConfig:
         derivative needs the midpoint as well).  On a run without burst dumps this
         still works: the flanking frames are then the neighbouring ordinary dumps
         and the time derivative is correspondingly coarse.
+    frame_budget_gb :
+        Target peak working set of ONE frame builder, in GiB.  A frame build
+        costs ``FRAME_BYTES_PER_CELL`` bytes per grid cell, so on a long grid
+        the whole-frame build is many GB and ``max_workers`` of them do not fit
+        on a node.  Set this and the longitudinal axis is processed in slabs
+        sized to the budget (see :func:`_boost_frame_chunked`); the rows are
+        identical either way — the slabs carry the halo their stencils need.
+        Budget for the process as a whole: ``max_workers * frame_budget_gb``
+        must fit alongside the HDF5 caches and the output memmaps.  ``None``
+        (default) loads whole frames.
     resume :
         If True, reuse the existing boost_velocities file and skip already-written frames.
     flush_every :
@@ -170,6 +180,7 @@ class LorentzDatabaseBuildConfig:
     eta_formula: str = "lhs"
     validate_output: bool = True
     burst: BurstConfig | None = None
+    frame_budget_gb: float | None = None
     resume: bool = False
     flush_every: int = 128
     rqm: float | None = None
@@ -318,23 +329,26 @@ class LorentzDatabaseCreator(DatabaseCreator):
         # _frame_keys in order, so group -> β is the same map as output row -> β.
         beta_of = dict(zip(self._frame_keys, betas, strict=True))
 
+        x_chunk = self._resolve_x_chunk(filt)
+
         def frame_fn(key: int) -> list[np.ndarray]:
             idx, h = self._group_frames(key, raw)
-            q = _boost_frame_quantities(
-                raw,
-                idx,
-                h,
-                float(beta_of[key]),
-                filt,
-                dx,
-                dx2,
-                avg_axis,
-                flags,
+            kw = dict(
+                raw=raw,
+                idx=idx,
+                h=h,
+                beta=float(beta_of[key]),
+                filt=filt,
+                dx=dx,
+                dx2=dx2,
+                avg_axis=avg_axis,
+                flags=flags,
                 eta_formula=cfg.eta_formula,
                 compute_e_vlasov=build_vlasov,
                 compute_eta=build_output,
                 rqm=rqm,
             )
+            q = _boost_frame_quantities(**kw) if x_chunk is None else _boost_frame_chunked(self.X, x_chunk, **kw)
             frames: list[np.ndarray] = []
             if build_input:
                 frames.append(_stack_rows(q, LORENTZ_FEATURE_LABELS))
@@ -434,6 +448,45 @@ class LorentzDatabaseCreator(DatabaseCreator):
         idx = {name: (st.i_lo, mid[name], st.i_hi) for name, st in stencils.items()}
         return idx, float(next(iter(steps.values())))
 
+    def _resolve_x_chunk(self, filt: SpatialFilter) -> int | None:
+        """Longitudinal slab width for ``build_config.frame_budget_gb``, or None.
+
+        Returns None when the budget already covers a whole frame, so a run that
+        fits keeps reading whole frames and pays no halo or re-open overhead.
+        """
+        budget_gb = self.build_config.frame_budget_gb
+        if budget_gb is None:
+            return None
+        if budget_gb <= 0:
+            raise ValueError(f"frame_budget_gb must be > 0, got {budget_gb}.")
+
+        nx2 = int(np.asarray(self.simulation["e1"].nx)[self.build_config.mft_axis - 1])
+        x_chunk = int(budget_gb * 1024**3 / (FRAME_BYTES_PER_CELL * nx2))
+
+        # Below ~4 halos per slab the halo dominates: a slab computes
+        # (x_chunk + 2*halo)/x_chunk of the points it keeps.
+        halo = _x_halo(filt)
+        min_chunk = max(4 * halo, 64)
+        if x_chunk < min_chunk:
+            raise ValueError(
+                f"frame_budget_gb={budget_gb:g} allows only {x_chunk} longitudinal points per slab on a "
+                f"grid with nx2={nx2}, below the {min_chunk} that {filt!r} (halo {halo}) needs to be worth "
+                f"chunking. Raise frame_budget_gb to at least "
+                f"{min_chunk * FRAME_BYTES_PER_CELL * nx2 / 1024**3:.1f}."
+            )
+
+        if x_chunk >= self.X:
+            return None
+        logger.info(
+            "Frame budget %.1f GiB: x1 in %d slabs of %d points (+%d halo), %.1f GiB each.",
+            budget_gb,
+            -(-self.X // x_chunk),
+            x_chunk,
+            halo,
+            FRAME_BYTES_PER_CELL * (x_chunk + 2 * halo) * nx2 / 1024**3,
+        )
+        return x_chunk
+
     def _load_or_generate_betas(self, name_boosts: str) -> np.ndarray:
         r"""Load existing :math:`\beta` array when resuming, otherwise sample and save a new one."""
         betas_path = self.save_folder / f"{name_boosts}.npy"
@@ -481,6 +534,22 @@ class LorentzDatabaseCreator(DatabaseCreator):
 # ----------------------------------------------------------------------
 # Per-frame computation (module-level for clean stack traces)
 # ----------------------------------------------------------------------
+
+#: Peak bytes of working set per grid cell of one frame build, measured by
+#: ``tests/test_lorentz_database.py::test_frame_working_set_is_bounded``.  A
+#: frame builder holds the burst triple of all 13 lab fields, the boost's
+#: intermediates and the 9 boosted fields, all ``(3, nx1, nx2)`` float64, so its
+#: footprint is this times the number of cells it processes at once.
+FRAME_BYTES_PER_CELL = 432
+
+
+def _x_halo(filt: SpatialFilter) -> int:
+    """Longitudinal halo that makes a slab's interior identical to the whole frame.
+
+    The pipeline smooths each field once and then takes x1-derivatives of
+    orders 1 and 2 of the smoothed field, so the reaches add.
+    """
+    return filt.stencil_radius(0) + max(filt.stencil_radius(1), filt.stencil_radius(2))
 
 
 def _boost_fields(f: dict[str, np.ndarray], beta: float, gamma: float) -> dict[str, np.ndarray]:
@@ -587,6 +656,21 @@ def _boost_fields(f: dict[str, np.ndarray], beta: float, gamma: float) -> dict[s
     }
 
 
+def _boost_frame_chunked(nx1: int, x_chunk: int, **kwargs: Any) -> dict[str, np.ndarray]:
+    """:func:`_boost_frame_quantities` over x1 slabs of *x_chunk* points.
+
+    Loop over slabs, not over grid points: each call reads and boosts a
+    ``(3, x_chunk + 2*halo, nx2)`` slab and returns the 1-D rows for its
+    interior, which concatenate into the whole-frame rows.  Peak memory becomes
+    ``FRAME_BYTES_PER_CELL * (x_chunk + 2*halo) * nx2`` — independent of nx1,
+    which is the point: a 40960-point grid does not fit in a frame builder
+    otherwise.  Prefer few large slabs: each one re-opens the same 39 HDF5 files
+    (13 fields x 3 time levels), and the halo is recomputed per slab.
+    """
+    parts = [_boost_frame_quantities(x_range=(x0, min(x0 + x_chunk, nx1)), **kwargs) for x0 in range(0, nx1, x_chunk)]
+    return {label: np.concatenate([part[label] for part in parts]) for label in parts[0]}
+
+
 def _boost_frame_quantities(
     raw: dict[str, Any],
     idx: dict[str, tuple[int, int, int]],
@@ -601,6 +685,7 @@ def _boost_frame_quantities(
     compute_e_vlasov: bool = True,
     compute_eta: bool = True,
     rqm: float = -1.0,
+    x_range: tuple[int, int] | None = None,
 ) -> dict[str, np.ndarray]:
     r"""Compute all boosted mean-field quantities for one timestep.
 
@@ -621,6 +706,14 @@ def _boost_frame_quantities(
         ``t(i_hi) - t(i_lo)``, the full width of the centered stencil.
     beta :
         Boost velocity :math:`\beta = v/c` for this frame.
+    x_range :
+        ``(x0, x1)`` — compute only this slice of the longitudinal axis, reading
+        a slab padded by :func:`_x_halo` points from disk instead of the whole
+        frame.  Everything in the pipeline is either pointwise, an average or a
+        derivative along the *transverse* axis (complete in every slab), or an
+        x1-derivative, whose stencil the halo covers, so the returned rows are
+        identical to the ``x_range=None`` ones restricted to ``[x0, x1)``.
+        ``None`` (default) reads the whole frame.
 
     Derivatives
     -----------
@@ -670,11 +763,33 @@ def _boost_frame_quantities(
     x_axis = 1 - avg_axis  # longitudinal axis in 2-D arrays (avg_axis=1 -> x_axis=0)
     periodic = tuple(ax == avg_axis for ax in range(2))
 
+    # ── Longitudinal slab, if one was asked for ───────────────────────
+    # The slab carries a halo so the x1-derivative stencils (and the filter's
+    # own kernel) see real neighbours instead of this slab's edges; the halo is
+    # discarded from the 1-D rows on the way out.  At the global edges the halo
+    # is clipped, which is what leaves the one-sided stencils in place there.
+    if x_range is None:
+        read_slice: tuple | None = None
+
+        def out(rows: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+            return rows
+    else:
+        x0, x1 = x_range
+        halo = _x_halo(filt)
+        lo = max(0, x0 - halo)
+        read_slice = (slice(lo, x1 + halo), slice(None)) if x_axis == 0 else (slice(None), slice(lo, x1 + halo))
+        keep = slice(x0 - lo, x0 - lo + (x1 - x0))
+
+        def out(rows: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+            return {label: row[keep] for label, row in rows.items()}
+
     # ── Load the three time levels of every lab field and smooth them ──
     # Smoothing precedes the boost: the transforms are pointwise, so they stay
     # valid on filtered data.
     def _load3(name: str) -> np.ndarray:
-        return np.stack([filt.smooth(np.asarray(raw[name][i], dtype=np.float64), periodic=periodic) for i in idx[name]])
+        # HDF5 reads only the requested slab off disk (Diagnostic.__getitem__).
+        keys = idx[name] if read_slice is None else [(i, *read_slice) for i in idx[name]]
+        return np.stack([filt.smooth(np.asarray(raw[name][k], dtype=np.float64), periodic=periodic) for k in keys])
 
     b = _boost_fields({name: _load3(name) for name in raw}, beta, gamma)  # each (3, nx, ny)
 
@@ -726,7 +841,7 @@ def _boost_frame_quantities(
     q["dufl1_dt_avg"] = avg(dt_p(b["ufl1"]))
 
     if not (compute_e_vlasov or compute_eta):
-        return q
+        return out(q)
 
     # 2-D boosted midpoint fields and the derivatives eta / e_vlasov reuse.
     n_t, T11_t, T12_t = b["n"], b["T11"], b["T12"]
@@ -768,7 +883,7 @@ def _boost_frame_quantities(
         q["e_vlasov_avg"] = avg(e_vlasov)
 
     if not compute_eta:
-        return q
+        return out(q)
 
     # ── eta ────────────────────────────────────────────────────────────
     if eta_formula == "lhs":
@@ -835,4 +950,4 @@ def _boost_frame_quantities(
         raise ValueError(f"Invalid eta_formula '{eta_formula}'. Choose from: {sorted(_VALID_ETA_FORMULAS)}.")
 
     q["eta_avg"] = eta
-    return q
+    return out(q)

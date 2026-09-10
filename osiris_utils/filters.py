@@ -180,6 +180,21 @@ class SpatialFilter(ABC):
     def _first_derivative(self, f: np.ndarray, dx: float, axis: int, periodic: bool) -> np.ndarray:
         """Return the first derivative of *f* along *axis* using the filter's native scheme."""
 
+    @abstractmethod
+    def stencil_radius(self, order: int = 0) -> int:
+        """Grid points on each side that influence one output point.
+
+        ``order=0`` is :meth:`smooth`; ``order>=1`` is
+        :meth:`derivative` at that order.  Callers that evaluate the
+        filter on a *slab* of a larger array use this to size the halo:
+        pad the slab by ``stencil_radius`` points, filter, then discard
+        the pad, and the retained points are exactly what the filter
+        would have produced on the whole array.  It is also the width of
+        the region where a non-periodic boundary rule (the one-sided
+        finite-difference stencils, ``mode="interp"``, ``mode="nearest"``)
+        replaces the interior scheme.
+        """
+
     def _nth_derivative(self, f: np.ndarray, dx: float, axis: int, order: int, periodic: bool) -> np.ndarray:
         """Return the *order*-th derivative of *f* along *axis*.
 
@@ -230,6 +245,11 @@ class NoFilter(SpatialFilter):
 
     def _first_derivative(self, f: np.ndarray, dx: float, axis: int, periodic: bool) -> np.ndarray:
         return _grad4(f, dx, axis=axis, periodic=periodic)
+
+    def stencil_radius(self, order: int = 0) -> int:
+        # No smoothing kernel; the 5-point stencil reaches 2 points and higher
+        # orders are repeated applications of it (see fd_derivative).
+        return 2 * int(order)
 
     def __repr__(self) -> str:
         return "NoFilter()"
@@ -297,6 +317,11 @@ class SavitzkyGolayFilter(SpatialFilter):
             axis=axis,
             mode=mode,
         )
+
+    def stencil_radius(self, order: int = 0) -> int:  # noqa: ARG002
+        # Every order is one pass of the same window, so the reach is the same
+        # for smoothing and for any derivative.
+        return (self._window_length - 1) // 2
 
     def __repr__(self) -> str:
         return f"SavitzkyGolayFilter(window_length={self._window_length}, polyorder={self._polyorder}, axes={self._axes})"
@@ -368,6 +393,12 @@ class GaussianFilter(SpatialFilter):
         )
         return d / dx**order
 
+    def stencil_radius(self, order: int = 0) -> int:
+        # scipy's gaussian_filter1d kernel radius, with the same widened
+        # truncation _nth_derivative uses for order >= 2.
+        truncate = self._truncate if order < 2 else max(self._truncate, 8.0)
+        return int(truncate * self._sigma + 0.5)
+
     def __repr__(self) -> str:
         return f"GaussianFilter(sigma={self._sigma}, axes={self._axes}, truncate={self._truncate})"
 
@@ -411,6 +442,13 @@ class FilterChain(SpatialFilter):
 
     def _nth_derivative(self, f: np.ndarray, dx: float, axis: int, order: int, periodic: bool) -> np.ndarray:
         return self._filters[-1]._nth_derivative(f, dx, axis=axis, order=order, periodic=periodic)
+
+    def stencil_radius(self, order: int = 0) -> int:
+        # smooth() runs the whole chain, so the reaches add; derivative() runs
+        # only the last filter (see the class docstring).
+        if order == 0:
+            return sum(filt.stencil_radius(0) for filt in self._filters)
+        return self._filters[-1].stencil_radius(order)
 
     def __repr__(self) -> str:
         return f"FilterChain({', '.join(repr(f) for f in self._filters)})"

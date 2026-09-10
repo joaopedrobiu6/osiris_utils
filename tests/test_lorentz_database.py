@@ -31,6 +31,7 @@ import pytest
 from osiris_utils.data.simulation import Simulation
 from osiris_utils.database import BurstConfig, LorentzDatabaseBuildConfig, LorentzDatabaseCreator
 from osiris_utils.database.lorentz_database import LORENTZ_FEATURE_LABELS
+from osiris_utils.filters import GaussianFilter, NoFilter, SavitzkyGolayFilter
 
 from .conftest import write_grid_file
 
@@ -583,3 +584,134 @@ def test_frame_working_set_is_bounded(nx, ny):
 
     per_cell = (peak - start) / (nx * ny)
     assert per_cell < _MAX_BYTES_PER_CELL, f"{per_cell:.0f} B/cell ({per_cell / 8:.0f} float64 frames) at {nx}x{ny}"
+
+
+# ----------------------------------------------------------------------
+# Longitudinal chunking
+# ----------------------------------------------------------------------
+# A frame builder's footprint is FRAME_BYTES_PER_CELL x nx1 x nx2, which a
+# production grid (nx1 ~ 4e4) cannot afford.  ``_boost_frame_chunked`` walks x1
+# in slabs padded by ``_x_halo`` so the derivative stencils see real neighbours;
+# these tests are the reason that is allowed to be believed.
+
+_FILTERS = [NoFilter(), SavitzkyGolayFilter(7, 4), GaussianFilter(1.5)]
+_FILTER_IDS = ["nofilter", "savgol", "gaussian"]
+
+
+def _frame_kwargs(raw, **over):
+    from osiris_utils.ar import AnomalousResistivityConfig
+
+    kw = dict(
+        raw=raw,
+        idx={name: (0, 1, 2) for name in raw},
+        h=1.0,
+        beta=0.6,
+        filt=NoFilter(),
+        dx=0.1,
+        dx2=0.1,
+        avg_axis=1,
+        flags=AnomalousResistivityConfig(),
+        eta_formula="lhs",
+        compute_e_vlasov=True,
+        compute_eta=True,
+        rqm=-1.0,
+    )
+    kw.update(over)
+    return kw
+
+
+@pytest.mark.parametrize("eta_formula", ["lhs", "thesis"])
+@pytest.mark.parametrize("filt", _FILTERS, ids=_FILTER_IDS)
+def test_chunked_frame_matches_whole_frame(filt, eta_formula):
+    """Every row, every filter, every eta formula: slabs reproduce the whole frame."""
+    from osiris_utils.database.lorentz_database import _boost_frame_chunked, _boost_frame_quantities
+
+    nx1, nx2 = 320, 16
+    raw = _synthetic_triples(nx1, nx2)
+
+    whole = _boost_frame_quantities(**_frame_kwargs(raw, filt=filt, eta_formula=eta_formula))
+    chunked = _boost_frame_chunked(nx1, 96, **_frame_kwargs(raw, filt=filt, eta_formula=eta_formula))
+
+    assert whole.keys() == chunked.keys()
+    for label, want in whole.items():
+        assert chunked[label].shape == want.shape, label
+        # Identical arithmetic on identical values, so this is exact, not approximate.
+        assert np.array_equal(chunked[label], want), f"{label}: max |diff| {np.abs(chunked[label] - want).max():.3e}"
+
+
+def test_chunked_frame_reads_slabs_from_disk(sim):
+    """The HDF5 hyperslab path: same rows as whole-frame reads on a real tree.
+
+    Catches a slab taken along the wrong axis, which is silent — the shapes
+    still line up when nx1 and nx2 are both free.
+    """
+    from osiris_utils.database.lorentz_database import _boost_frame_chunked, _boost_frame_quantities
+
+    creator = LorentzDatabaseCreator(sim, SPECIES, "unused", LorentzDatabaseBuildConfig())
+    creator.set_limits(0, N_DUMPS)
+    raw = creator._load_raw_diagnostics()
+    creator._burst_axis = creator._build_burst_axis(raw)
+    idx, h = creator._group_frames(creator._resolve_frame_keys()[0], raw)
+
+    kw = _frame_kwargs(raw, idx=idx, h=h)
+    whole = _boost_frame_quantities(**kw)
+    chunked = _boost_frame_chunked(NX1, 8, **kw)  # 3 slabs of 8 with a halo of 4
+
+    for label, want in whole.items():
+        assert want.shape == (NX1,), label
+        assert np.array_equal(chunked[label], want), label
+
+
+def test_chunked_working_set_scales_with_the_slab():
+    """Chunking is only worth anything if the peak follows the slab, not nx1."""
+    import tracemalloc
+
+    from osiris_utils.database.lorentz_database import _boost_frame_chunked, _x_halo
+
+    nx1, nx2, x_chunk = 1024, 32, 128
+    raw = _synthetic_triples(nx1, nx2)
+
+    tracemalloc.start()
+    try:
+        start = tracemalloc.get_traced_memory()[0]
+        _boost_frame_chunked(nx1, x_chunk, **_frame_kwargs(raw))
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+    # One slab, plus the 1-D rows accumulated over all slabs (nx1 * 8 B each).
+    slab_cells = (x_chunk + 2 * _x_halo(NoFilter())) * nx2
+    budget = _MAX_BYTES_PER_CELL * slab_cells + 8 * nx1 * (len(LORENTZ_FEATURE_LABELS) + 2) * (nx1 // x_chunk)
+    assert peak - start < budget, f"peak {(peak - start) / 1e6:.1f} MB over the {budget / 1e6:.1f} MB slab budget"
+
+
+def test_build_with_slabs_matches_whole_frame_build(sim, tmp_path, monkeypatch):
+    """The creator's chunked branch writes exactly the whole-frame tensors."""
+    ref = tmp_path / "ref"
+    _build(sim, ref, seed=0)
+
+    # NX1 = 24 here, orders of magnitude below any sane frame budget, so force
+    # the slab width instead of going through _resolve_x_chunk's floor.
+    monkeypatch.setattr(LorentzDatabaseCreator, "_resolve_x_chunk", lambda self, filt: 8)  # noqa: ARG005
+    slabbed = tmp_path / "slabbed"
+    _build(sim, slabbed, seed=0)
+
+    for name in ("lorentz_tensor", "lorentz_output"):
+        whole, slabs = np.load(ref / f"{name}.npy"), np.load(slabbed / f"{name}.npy")
+        assert np.array_equal(whole, slabs), f"{name}: max |diff| {np.abs(whole - slabs).max():.3e}"
+
+
+def test_frame_budget_leaves_a_frame_that_fits_alone(sim):
+    """A budget covering the whole frame must not pay the halo or the re-opens."""
+    creator = LorentzDatabaseCreator(sim, SPECIES, "unused", LorentzDatabaseBuildConfig(frame_budget_gb=1.0))
+    creator.set_limits(0, N_DUMPS)
+    assert creator._resolve_x_chunk(NoFilter()) is None
+
+
+@pytest.mark.parametrize(("budget", "match"), [(1e-4, "below the"), (0.0, "must be > 0"), (-1.0, "must be > 0")])
+def test_frame_budget_rejects_unusable_values(sim, budget, match):
+    """Too small to be worth chunking, or not a budget at all."""
+    creator = LorentzDatabaseCreator(sim, SPECIES, "unused", LorentzDatabaseBuildConfig(frame_budget_gb=budget))
+    creator.set_limits(0, N_DUMPS)
+    with pytest.raises(ValueError, match=match):
+        creator._resolve_x_chunk(NoFilter())
