@@ -508,3 +508,78 @@ def test_vnT_says_why_it_is_not_available(sim, tmp_path):
     creator.set_limits(0, N_DUMPS)
     with pytest.raises(NotImplementedError, match="burst_dump_range"):
         creator.create_database(database="vnT")
+
+
+# ----------------------------------------------------------------------
+# Working set
+# ----------------------------------------------------------------------
+# A frame builder holds (3, nx, ny) float64 triples: 13 lab fields, the boost's
+# intermediates, and the 9 boosted fields.  ``_build_tensors`` runs
+# ``max_workers`` of them at once, so peak RSS is (workers x this x nx x ny) and
+# a production grid (nx1 ~ 4e4) turns a few extra triples into tens of GB per
+# worker.  This pins the cost per grid cell so it cannot silently grow again.
+
+#: Bytes of peak working set per grid cell, measured on the reference
+#: implementation (432 B = 54 float64 2-D frames).  The bound leaves ~30% head
+#: room; a rewrite that keeps the 13 lab triples alive to the end costs 744 B
+#: and trips it.
+_MAX_BYTES_PER_CELL = 560
+
+_BOOST_INPUTS = ("n", "e2", "e3", "b2", "b3", "vfl1", "vfl2", "vfl3", "P11", "P12", "P00", "ufl1", "ufl2")
+
+
+def _synthetic_triples(nx: int, ny: int) -> dict[str, np.ndarray]:
+    """``(3, nx, ny)`` lab fields with |v| < 1 and n > 0, as float32 on disk is."""
+    rng = np.random.default_rng(0)
+    f = {name: (rng.random((3, nx, ny)).astype(np.float32) + 1.0) for name in _BOOST_INPUTS}
+    for name in ("vfl1", "vfl2", "vfl3"):
+        f[name] = (0.3 * (rng.random((3, nx, ny)) - 0.5)).astype(np.float32)
+    return f
+
+
+def test_boost_fields_consumes_its_input():
+    """``_boost_fields`` pops as it goes, so the lab triples are freed early."""
+    from osiris_utils.database.lorentz_database import _boost_fields
+
+    f = _synthetic_triples(16, 8)
+    boosted = _boost_fields(f, 0.6, 1.25)
+    assert f == {}, f"lab fields still alive after the boost: {sorted(f)}"
+    assert set(boosted) == {"n", "b2", "b3", "vfl1", "ufl1", "vfl2", "vfl3", "T11", "T12"}
+
+
+@pytest.mark.parametrize(("nx", "ny"), [(128, 64), (256, 64)])
+def test_frame_working_set_is_bounded(nx, ny):
+    """Peak allocation of one frame build, per grid cell (see _MAX_BYTES_PER_CELL)."""
+    import tracemalloc
+
+    from osiris_utils.ar import AnomalousResistivityConfig
+    from osiris_utils.database.lorentz_database import _boost_frame_quantities
+    from osiris_utils.filters import NoFilter
+
+    raw = _synthetic_triples(nx, ny)
+    idx = {name: (0, 1, 2) for name in raw}
+
+    tracemalloc.start()
+    try:
+        start = tracemalloc.get_traced_memory()[0]
+        _boost_frame_quantities(
+            raw,
+            idx,
+            1.0,
+            0.6,
+            NoFilter(),
+            0.1,
+            0.1,
+            avg_axis=1,
+            flags=AnomalousResistivityConfig(),
+            eta_formula="lhs",
+            compute_e_vlasov=True,
+            compute_eta=True,
+            rqm=-1.0,
+        )
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+    per_cell = (peak - start) / (nx * ny)
+    assert per_cell < _MAX_BYTES_PER_CELL, f"{per_cell:.0f} B/cell ({per_cell / 8:.0f} float64 frames) at {nx}x{ny}"

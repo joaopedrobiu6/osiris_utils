@@ -97,7 +97,14 @@ class LorentzDatabaseBuildConfig:
     dtype :
         NumPy dtype for saved tensors.
     max_workers :
-        Worker threads for parallel frame building.
+        Worker threads for parallel frame building.  Each one holds the burst
+        triple of all 13 lab fields plus the boost's intermediates as
+        ``(3, nx1, nx2)`` float64 — a peak of ~432 B per grid cell, so the
+        process needs roughly ``max_workers * 432 B * nx1 * nx2`` and a large
+        grid OOMs long before the thread count becomes the bottleneck.  Size it
+        against the node's memory, not its core count
+        (``tests/test_lorentz_database.py::test_frame_working_set_is_bounded``
+        pins the per-cell figure).
     mft_axis :
         Axis along which the transverse average is taken (1-indexed, OSIRIS convention).
         Default 2 means average over x2 (the y-direction).
@@ -499,32 +506,47 @@ def _boost_fields(f: dict[str, np.ndarray], beta: float, gamma: float) -> dict[s
     picks up a second factor of :math:`\gamma_\beta` and — because
     :math:`\langle v_x\gamma_p\rangle = \langle u_x\rangle` — a doubled
     :math:`\beta` term, while :math:`u'_y = u_y` picks up neither.
+
+    *f* is consumed: its entries are popped as they are used and the dict is
+    empty on return.  Pass a dict you own.
     """
-    n, e2, e3, b2, b3 = f["n"], f["e2"], f["e3"], f["b2"], f["b3"]
-    vfl1, P11, P12, P00, ufl1, ufl2 = f["vfl1"], f["P11"], f["P12"], f["P00"], f["ufl1"], f["ufl2"]
+    # Memory: every entry of *f* and every intermediate below is a (3, nx, ny)
+    # float64 triple, and with 32 frame builders in flight it is the number of
+    # them ALIVE AT ONCE that sets the job's peak RSS.  So lab fields are popped
+    # from *f* as they are consumed (this empties the caller's dict) and each
+    # derived quantity is folded into its final form instead of being kept as a
+    # named intermediate.  See ``LorentzDatabaseBuildConfig.max_workers``.
+    n, vfl1, ufl1 = f.pop("n"), f.pop("vfl1"), f.pop("ufl1")
 
     denom = 1.0 - beta * vfl1
     n_t = gamma * n * denom
+
+    # $\langle v'_x\rangle$ (16).  Eq. 15's
+    # $n'\langle v'_x\rangle = \gamma_\beta n(\langle v_x\rangle - \beta)$ is then
+    # exactly ``n_t * vfl1_t``, so it needs no triple of its own below.
+    vfl1_t = (vfl1 - beta) / denom
+    del vfl1
 
     # The OSIRIS P moments are *unnormalised* (see the class docstring):
     #   P11 = n<v_x u_x>,  P12 = n<v_x u_y>,  P00 = n<gamma_p>,
     # while vfl and ufl are per-particle averages.  So every place Eqs. 19/20/23
     # want a bracket <.> the P has to be divided by n.
-    vxux = P11 / n
-    gamma_p = P00 / n  # $\langle\gamma_p\rangle = \langle\sqrt{1+u^2}\rangle$
+    #
+    # $\langle u'_x\rangle$ (19).  $\langle v_xu_x\rangle = P_{11}/n$ and
+    # $\langle\gamma_p\rangle = P_{00}/n$ enter only here and with the same
+    # coefficient, so they are summed before the division rather than formed as
+    # two triples.
+    ufl1_t = gamma * ((1.0 + beta**2) * ufl1 - beta * (f["P11"] + f["P00"]) / n) / denom
 
-    # $\langle u'_x\rangle$ (19).
-    ufl1_t = gamma * ((1.0 + beta**2) * ufl1 - beta * vxux - beta * gamma_p) / denom
+    # $n/n' = 1/(\gamma_\beta D)$, the density ratio the transverse velocities carry.
+    transverse = 1.0 / (gamma * denom)
+    del denom
 
     # $n'\langle v'_xu'_x\rangle$ (23) and $n'\langle v'_xu'_y\rangle$ (24).
     # The last term of (23) is $\beta^2 n\langle\gamma_p\rangle = \beta^2 P_{00}$.
-    nvu_11 = gamma**2 * (P11 - 2.0 * beta * n * ufl1 + beta**2 * P00)
-    nvu_12 = gamma * (P12 - beta * n * ufl2)
-
-    # $P'_{ij} = n'\langle v'_iu'_j\rangle - n'\langle v'_i\rangle\langle u'_j\rangle$ (22).
-    # $n'\langle v'_x\rangle = \gamma_\beta n(\langle v_x\rangle - \beta)$ (15).
-    n_vfl1_t = gamma * n * (vfl1 - beta)
-    p11_t = nvu_11 - n_vfl1_t * ufl1_t
+    nvu_11 = gamma**2 * (f.pop("P11") - 2.0 * beta * n * ufl1 + beta**2 * f.pop("P00"))
+    nvu_12 = gamma * (f.pop("P12") - beta * n * f.pop("ufl2"))
+    del n, ufl1
 
     # $\langle v'_y\rangle$, $\langle v'_z\rangle$.  The note's Eqs. 17-18 state these are
     # unchanged, but that contradicts its own Eq. 13: with
@@ -535,27 +557,33 @@ def _boost_fields(f: dict[str, np.ndarray], beta: float, gamma: float) -> dict[s
     # Verified against direct quadrature over a distribution function to machine
     # precision (tests/test_lorentz_moments.py); leaving them unchanged is wrong by
     # 6% at beta = 0.3 and 20% at beta = 0.8.
-    transverse = 1.0 / (gamma * denom)
-    vfl2_t = f["vfl2"] * transverse
+    vfl2_t = f.pop("vfl2") * transverse
+    vfl3_t = f.pop("vfl3") * transverse
+    del transverse
 
-    # $\Pi'_{12}$, the (1,2) momentum flux of the *momentum equation*:
+    # $P'_{ij} = n'\langle v'_iu'_j\rangle - n'\langle v'_i\rangle\langle u'_j\rangle$ (22),
+    # and $\Pi'_{12}$, the (1,2) momentum flux of the *momentum equation*:
     #     $\Pi'_{12} = n'\langle v'_2u'_1\rangle - n'\langle v'_2\rangle\langle u'_1\rangle$
     # Its raw part is Eq. 24 unchanged, because $v'_2u'_1 = v'_1u'_2$ pointwise;
     # only the mean subtraction differs from the note's $P'_{12}$ (Eq. 10), which
     # subtracts $\langle v'_1\rangle\langle u'_2\rangle$ instead.  The momentum
     # equation needs the flux of $u_1$ through the y-face, so this is the one.
-    pi12_t = nvu_12 - n_t * vfl2_t * ufl1_t
+    # Both are wanted only as $T'/n'$, so the $1/n'$ is distributed over the two
+    # terms and $P'_{11}$, $\Pi'_{12}$ never exist as triples of their own.
+    T11_t = nvu_11 / n_t - vfl1_t * ufl1_t
+    T12_t = nvu_12 / n_t - vfl2_t * ufl1_t
+    del nvu_11, nvu_12
 
     return {
         "n": n_t,
-        "b2": gamma * (b2 + beta * e3),
-        "b3": gamma * (b3 - beta * e2),
-        "vfl1": (vfl1 - beta) / denom,
+        "b2": gamma * (f.pop("b2") + beta * f.pop("e3")),
+        "b3": gamma * (f.pop("b3") - beta * f.pop("e2")),
+        "vfl1": vfl1_t,
         "ufl1": ufl1_t,
         "vfl2": vfl2_t,
-        "vfl3": f["vfl3"] * transverse,
-        "T11": p11_t / n_t,
-        "T12": pi12_t / n_t,
+        "vfl3": vfl3_t,
+        "T11": T11_t,
+        "T12": T12_t,
     }
 
 
