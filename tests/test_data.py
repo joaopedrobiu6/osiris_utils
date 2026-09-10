@@ -9,7 +9,19 @@ from osiris_utils.data.data import OsirisGridFile
 from osiris_utils.data.diagnostic import Diagnostic
 from osiris_utils.decks.species import Species
 
-from .conftest import DT, N_TIMESTEPS, NDUMP, NX, SPECIES, XMAX, XMIN, grid_values, write_grid_file
+from .conftest import (
+    DT,
+    N_TIMESTEPS,
+    NDUMP,
+    NX,
+    SPECIES,
+    XMAX,
+    XMIN,
+    build_simulation_tree,
+    grid_values,
+    write_grid_file,
+    write_grid_series,
+)
 
 
 def test_osiris_grid_file(sim_dir: Path) -> None:
@@ -81,8 +93,13 @@ def test_diagnostic_integration(sim_dir: Path) -> None:
     np.testing.assert_allclose(diag_sum.load_all(), data * 2)
 
 
-def test_diagnostic_density_flips_sign_with_rqm(sim_dir: Path) -> None:
-    """'n' is charge / q, and q is negative for electrons (rqm = m/q < 0)."""
+def test_diagnostic_density_is_charge_over_q(sim_dir: Path) -> None:
+    """'n' is charge / q; for electrons q = -1, so the two differ by a sign.
+
+    Says nothing about the sign of n itself — the fixture's "charge" is the
+    sign-changing sinusoid every other series uses, not a physical charge
+    density.  See test_density_is_positive_for_a_physical_charge_dump.
+    """
     elec = Species(name=SPECIES, rqm=-1.0)
 
     charge = Diagnostic(simulation_folder=str(sim_dir), species=elec)
@@ -132,6 +149,42 @@ def test_diagnostic_density_load_all_matches_lazy_reads(sim_dir: Path) -> None:
     lazy = np.stack([density[i] for i in range(N_TIMESTEPS)])
     density.unload()
     np.testing.assert_allclose(density.load_all(use_parallel=False), lazy, rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("rqm", "q_real", "sign_of_rho"),
+    [(-1.0, 1.0, -1.0), (-1.0, 2.0, -1.0), (32.0, 1.0, +1.0), (3672.0, 2.0, +1.0)],
+)
+def test_density_is_positive_for_a_physical_charge_dump(tmp_path, rqm, q_real, sign_of_rho) -> None:
+    """n > 0 always: rho and q carry the same sign, so rho / q cannot be negative.
+
+    OSIRIS dumps rho = q n with n > 0, so an electron species' charge dump is
+    negative everywhere and a positive-ion one is positive everywhere.  This is
+    the invariant that makes 'n' a number density rather than a signed field,
+    and it is why the fix is a division by q and not a multiplication by its
+    sign — sign(q) * rho is +|q| n, positive too, but the wrong size.
+    """
+    root = build_simulation_tree(tmp_path / "run")
+    # Replace the fixture's sinusoid with a charge density that never changes
+    # sign, which is what OSIRIS actually writes.
+    write_grid_series(
+        root / "MS" / "DENSITY" / SPECIES / "charge",
+        name="charge",
+        prefix=f"charge-{SPECIES}",
+        data_fn=lambda i, nx: (sign_of_rho * q_real * (2.0 + grid_values(i, nx))).astype(np.float32),
+        units="e \\omega_p^2 / c",
+        label="\\rho",
+    )
+
+    sp = Species(name=SPECIES, rqm=rqm, q=q_real)
+    density = Diagnostic(simulation_folder=str(root), species=sp)
+    density.get_quantity("n")
+
+    for i in range(N_TIMESTEPS):
+        n = density[i]
+        assert (n > 0).all(), f"negative number density at dump {i}: min {n.min():.3e}"
+        # rho = q n, so n is the profile itself — the charge magnitude divides out.
+        np.testing.assert_allclose(n, 2.0 + grid_values(i), rtol=1e-6)
 
 
 def test_diagnostic_rejects_unknown_quantity(sim_dir: Path) -> None:
