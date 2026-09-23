@@ -221,6 +221,7 @@ def convert_tracks(filename_in: str) -> str:
 
     """
 
+    filename_out = filename_in[:-3] + "-v2" + filename_in[-3:]
     try:
         file_in = h5py.File(filename_in, "r")
     except OSError as err:
@@ -228,71 +229,35 @@ def convert_tracks(filename_in: str) -> str:
         # interpreter (and any notebook kernel running it).
         raise OSError(f"Cannot open track file {filename_in}") from err
 
-    # read data from file
-    data = file_in["data"][:]
-    itermap = file_in["itermap"][:]
-    ntracks = file_in.attrs["NTRACKS"][0]
-    niter = file_in.attrs["NITER"][0]
-    quants = file_in.attrs["QUANTS"][:]
-    file_in_attr_keys = file_in.attrs.keys()
-    sim_attr_keys = file_in["SIMULATION"].attrs.keys()
-    nquants = len(quants)
+    with file_in, h5py.File(filename_out, "w") as file_out:
+        data = file_in["data"][:]
+        itermap = file_in["itermap"][:].astype(np.int64)
+        ntracks = int(file_in.attrs["NTRACKS"][0])
+        niter = int(file_in.attrs["NITER"][0])
+        quants = file_in.attrs["QUANTS"][:]
 
-    # construct file out for new format
-    filename_out = filename_in[:-3] + "-v2" + filename_in[-3:]
-    file_out = h5py.File(filename_out, "w")
+        for item in file_in.attrs.keys():
+            file_out.attrs[item] = file_in.attrs[item]
+        for item in file_in["SIMULATION"].attrs.keys():
+            file_out.attrs[item] = file_in["SIMULATION"].attrs[item]
 
-    # copy attrs from file_in
-    for item in file_in_attr_keys:
-        file_out.attrs[item] = file_in.attrs[item]
-    for item in sim_attr_keys:
-        file_out.attrs[item] = file_in["SIMULATION"].attrs[item]
+        # Every data row: its particle, and its iteration (the chunk's nstart
+        # plus its position in the chunk, in steps of NITER).  A stable sort by
+        # particle groups each particle's rows and keeps them in time order.
+        part, npoints, nstart = itermap.T
+        owner = np.repeat(part, npoints)
+        position = np.arange(owner.size) - np.repeat(np.cumsum(npoints) - npoints, npoints)
+        iteration = np.repeat(nstart, npoints) + position * niter
+        order = np.argsort(owner, kind="stable")
+        ends = np.cumsum(np.bincount(owner, minlength=ntracks + 1)[1:])
 
-    # first pass -- find total size of each track
-    # ----------------------------------------#
-    sizes = np.zeros(ntracks)
+        for i in range(ntracks):  # one HDF5 group per particle
+            rows = order[(ends[i - 1] if i else 0) : ends[i]]
+            group = file_out.create_group(str(i + 1))
+            group.create_dataset(quants[0], data=iteration[rows].astype(int))
+            for j in range(1, len(quants)):
+                group.create_dataset(quants[j], data=data[rows, j - 1].astype(float))
 
-    itermapshape = itermap.shape
-    for i in range(itermapshape[0]):
-        part_number, npoints, nstart = itermap[i, :]
-        sizes[part_number - 1] += npoints
-
-    # initialize ordered data buffer
-    # ----------------------------------------#
-    ordered_data = []
-    for i in range(ntracks):
-        ordered_data.append(np.zeros((int(sizes[i]), nquants)))
-    # ----------------------------------------#
-
-    # assign tracks to ordered data from file_in data
-    # ----------------------------------------#
-    track_indices = np.zeros(ntracks)
-    data_index = 0
-
-    for i in range(itermapshape[0]):
-        part_number, npoints, nstart = itermap[i, :]
-        track_index = int(track_indices[part_number - 1])
-
-        ordered_data[part_number - 1][track_index : track_index + npoints, 0] = nstart + np.arange(npoints) * niter
-
-        ordered_data[part_number - 1][track_index : track_index + npoints, 1:] = data[data_index : data_index + npoints, :]
-
-        data_index += npoints
-        track_indices[part_number - 1] += npoints
-
-    # ----------------------------------------#
-
-    # write to file out
-    for i in range(ntracks):
-        group = file_out.create_group(str(i + 1))
-        for j in range(nquants):
-            if j == 0:
-                group.create_dataset(quants[j], data=np.array(ordered_data[i][:, j], dtype=int))
-            else:
-                group.create_dataset(quants[j], data=ordered_data[i][:, j])
-
-    file_out.close()
-    file_in.close()
     print("Track file converted to the old, more readable format: ", filename_out)
     return filename_out
 

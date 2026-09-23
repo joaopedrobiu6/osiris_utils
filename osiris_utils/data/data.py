@@ -6,6 +6,7 @@ from typing import Literal
 import h5py
 import numpy as np
 import pandas as pd
+from numpy.lib import recfunctions as rfn
 
 from osiris_utils.utils import create_file_tags
 
@@ -617,9 +618,12 @@ class OsirisTrackFile(OsirisData):
         >>> import osiris_utils as ou
         >>> track = ou.OsirisTrackFile(path/to/track_file.h5)
         >>> print(track.data[0:10, :]["x1"]) # Access x1 position of first 10 particles over all time steps
+
+    Pass ``load_data=False`` to read only the metadata (quantities, units,
+    particle and iteration counts) without the data itself.
     """
 
-    def __init__(self, filename):
+    def __init__(self, filename, load_data: bool = True):
         super().__init__(filename)
 
         self._grid = np.array(
@@ -637,13 +641,13 @@ class OsirisTrackFile(OsirisData):
 
         self._num_particles = self._file.attrs["NTRACKS"][0]
 
-        unordered_data = self._file["data"][:]
-        itermap = self._file["itermap"][:]
-
-        idxs = get_track_indexes(itermap, self._num_particles)
-        self._data = reorder_track_data(unordered_data, idxs, self._quants)
-        self._time = self._data[0][:]["t"]
-        self._num_time_iters = len(self._time)
+        indexes = get_track_indexes(self._file["itermap"][:], self._num_particles)
+        self._num_time_iters = indexes.shape[1]
+        if load_data:
+            self._data = reorder_track_data(self._file["data"][:], indexes, self._quants)
+            self._time = self._data[0]["t"]
+        else:
+            self._data = None
         self._close_file()
 
     def _load_basic_attributes(self, f: h5py.File) -> None:
@@ -702,76 +706,44 @@ class OsirisTrackFile(OsirisData):
         return np.asarray(self.data)
 
 
-def reorder_track_data(unordered_data, indexes, field_names):
-    """
-    Reorder data from HDF5 track file such data it can be accessed more intuitively
+def reorder_track_data(unordered_data: np.ndarray, indexes: np.ndarray, field_names: list[str]) -> np.ndarray:
+    """The rows of a track file's ``data`` dataset as a structured (num_particles, num_time_iter) array.
 
     Parameters
     ----------
-    unordered_data: np.array
-        The data from a HDF5 osiris track file
-
-    indexes : list[list[int]]
-        Output of get_track_indexes(), list with the indexes associated with each particle
-
-    field_names: list[str]
-        Names for the quantities on the output file.
-        Recommended: field_names = [byte.decode('utf-8') for byte in file.attrs['QUANTS'][1:]]
+    unordered_data : np.ndarray
+        The ``data`` dataset, one row per (particle, time) point, one column per quantity.
+    indexes : np.ndarray
+        Output of :func:`get_track_indexes`, the data row of every (particle, time) point.
+    field_names : list[str]
+        Names of the columns, e.g. ``[q.decode() for q in file.attrs["QUANTS"][1:]]``.
 
     Returns
     -------
-    data_sorted: numpy.ndarray of shape (num_particles, num_time_iter),
-                    dtype = [(field_name, float) for field_name in field_names]
-        A structured numpy array where data is reordered according to indexes.
-
+    np.ndarray
+        Structured array, ``data[particle, time][quantity]``, one float field per column.
     """
-    # Initialize the sorted data structure
-    num_particles = len(indexes)
-    num_time_iter = len(indexes[0])
-    data_sorted = np.empty((num_particles, num_time_iter), dtype=[(name, float) for name in field_names])
-
-    # Fill the sorted data based on the indexes
-    for particle in range(num_particles):
-        for time_iter in range(num_time_iter):
-            index = indexes[particle][time_iter]
-            if len(unordered_data[index]) != len(field_names):
-                raise ValueError(f"Data at index {index} has {len(unordered_data[index])} elements, but {len(field_names)} are expected.")
-            data_sorted[particle, time_iter] = tuple(unordered_data[index])
-
-    return data_sorted
+    unordered_data = np.asarray(unordered_data, dtype=float)
+    if unordered_data.shape[1] != len(field_names):
+        raise ValueError(f"Track data has {unordered_data.shape[1]} columns, but {len(field_names)} names were given.")
+    # unstructured_to_structured views the last axis as named fields
+    return rfn.unstructured_to_structured(unordered_data[indexes], dtype=np.dtype([(name, float) for name in field_names]))
 
 
-def get_track_indexes(itermap, num_particles):
+def get_track_indexes(itermap: np.ndarray, num_particles: int) -> np.ndarray:
+    """Data row of every (particle, time) point of a track file, shape (num_particles, num_time_iters).
+
+    OSIRIS writes each particle's points in chunks, one ``itermap`` row
+    ``(particle, npoints, nstart)`` per chunk, interleaved between particles.
+    Labelling every data row with its particle and sorting by that label with a
+    *stable* sort groups the rows by particle and keeps each particle's rows in
+    time order.
+
+    TODO: take nstart into account (particles that are not initialised at t=0).
     """
-    Returns the indexes for each particle to read track data directly from the hd5 file
-    (before it is ordered)
-
-    Parameters
-    ----------
-    itermap: np.array
-        Itermap from a HDF5 osiris track file
-    num_particles: int
-        num of particles tracked, recomended file.attrs['NTRACKS'][0]
-
-    Returns
-    -------
-    indexes : list[list[int]]
-        Returns a list with the indexes associated with each particle
-        shape(num_particles, num_time_iters)
-    """
-
-    itermapshape = itermap.shape
-    track_indices = np.zeros(num_particles)
-
-    data_index = 0
-    indexes = [[] for _ in range(num_particles)]
-    for i in range(itermapshape[0]):
-        # TODO have nstart into account (for particles that are not initiallized at t=0)
-        part_number, npoints, nstart = itermap[i, :]
-
-        indexes[part_number - 1].extend(list(range(data_index, data_index + npoints)))
-
-        data_index += npoints
-        track_indices[part_number - 1] += npoints
-
-    return indexes
+    itermap = np.asarray(itermap, dtype=np.int64)
+    owner = np.repeat(itermap[:, 0], itermap[:, 1])  # particle of every data row
+    counts = np.bincount(owner, minlength=num_particles + 1)[1:]
+    if counts.min() != counts.max():
+        raise ValueError(f"Tracks of different lengths ({counts.min()} to {counts.max()} points) cannot be stacked.")
+    return np.argsort(owner, kind="stable").reshape(num_particles, -1)

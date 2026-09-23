@@ -61,7 +61,7 @@ def test_track_index_helpers_reorder_idl_track_data() -> None:
     )
 
     indexes = get_track_indexes(itermap, num_particles=2)
-    assert indexes == [[0, 1, 3], [2, 4, 5]]
+    np.testing.assert_array_equal(indexes, [[0, 1, 3], [2, 4, 5]])
 
     ordered = reorder_track_data(unordered_data, indexes, ["t", "x1"])
     assert ordered.shape == (2, 3)
@@ -191,3 +191,17 @@ def test_osiris_track_file_str_describes_the_tracks(track_path: Path) -> None:
     text = str(OsirisTrackFile(str(track_path)))
     assert f"{TRACK_N_PARTICLES} particles x {TRACK_N_ITERS} iterations" in text
     assert SPECIES in text
+
+
+def test_tracks_of_different_lengths_are_refused() -> None:
+    """The row order is stacked per particle; a ragged track file used to be silently truncated or crash."""
+    with pytest.raises(ValueError, match="different lengths"):
+        get_track_indexes(np.array([[1, 3, 0], [2, 2, 0]]), num_particles=2)
+
+
+def test_track_metadata_is_read_without_the_data(track_path: Path) -> None:
+    meta = OsirisTrackFile(str(track_path), load_data=False)
+    assert meta.data is None
+    assert (meta.num_particles, meta.num_time_iters) == (TRACK_N_PARTICLES, TRACK_N_ITERS)
+    assert meta.quants == TRACK_QUANTS[1:]
+

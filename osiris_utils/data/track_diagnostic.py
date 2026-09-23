@@ -136,7 +136,7 @@ class Track_Diagnostic:
             )
 
         try:
-            dump = OsirisTrackFile(self._path)
+            dump = OsirisTrackFile(self._path, load_data=False)  # metadata only; the data is read on demand
             self._dt = dump.dt
             self._grid = dump.grid
             self._units = dump.units
@@ -150,19 +150,6 @@ class Track_Diagnostic:
             self._quants = dump.quants
         except Exception as e:
             warnings.warn(f"Error loading track diagnostic attributes: {e!s}. Please verify the track file exists.", stacklevel=2)
-
-    def _data_generator(self, index=None):
-        if self._simulation_folder is None:
-            raise ValueError("Simulation folder not set.")
-        data_object = OsirisTrackFile(self._path)
-
-        if index is None:
-            yield (data_object.data)
-        else:
-            if index not in self._quants:
-                raise ValueError(f"Quantity {index} is invalid, Options are {self._quants}.")
-            else:
-                yield (data_object.data[index])
 
     def load_all(self):
         """
@@ -178,9 +165,8 @@ class Track_Diagnostic:
             print("Data already loaded.")
             return self._data
 
-        # Original implementation for file-based diagnostics
         print("Loading data from tracks file.")
-        self._data = next(self._data_generator())
+        self._data = OsirisTrackFile(self._path).data
         self._time = self._data["t"][0]
         self._all_loaded = True
         return self._data
@@ -208,17 +194,14 @@ class Track_Diagnostic:
         return self.load_all()
 
     def __getitem__(self, index):
-        # For derived diagnostics with cached data
         if self._all_loaded and self._data is not None:
             return self._data[index]
-
-        # For standard diagnostics with files
+        # Not loaded: read the file for this one quantity (load_all() once instead for repeated access).
         if isinstance(index, str):
-            if self._simulation_folder is not None and hasattr(self, "_data_generator"):
-                return next(self._data_generator(index))
-
-        # If we get here, we don't know how to get data for this index
-        raise ValueError(f"Cannot retrieve data for this diagnostic at index {index}. No data loaded and no generator available.")
+            if index not in self._quants:
+                raise ValueError(f"Quantity {index} is invalid, Options are {self._quants}.")
+            return OsirisTrackFile(self._path).data[index]
+        raise ValueError(f"Cannot retrieve data for this diagnostic at index {index}: load_all() first, or index by quantity name.")
 
     # Getters
     @property
