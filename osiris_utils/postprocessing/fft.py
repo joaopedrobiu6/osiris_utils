@@ -88,6 +88,7 @@ class FFT_Diagnostic(Diagnostic):
 
         self._name = f"FFT[{diagnostic._name}, {fft_axis}]"
         self._fft_axis = fft_axis
+        self._axes = [fft_axis] if isinstance(fft_axis, int) else list(fft_axis)  # OSIRIS axes: 0 = time, 1..3 = space
 
         self._assume_periodic = assume_periodic
         self._detrend = detrend
@@ -103,52 +104,20 @@ class FFT_Diagnostic(Diagnostic):
         # numpy supports norm=None or "ortho"
         self._np_norm = "ortho" if self._normalize == "ortho" else None
 
-        if isinstance(self._dx, (int, float)):
-            self._kmax = np.pi / (self._dx)
-        else:
-            # Handle if fft_axis is int
-            axes = [self._fft_axis] if isinstance(self._fft_axis, int) else self._fft_axis
-            self._kmax = np.pi / np.array([self._dx[ax - 1] for ax in axes if ax != 0])
-
     def load_all(self, n_workers: int | None = None, use_parallel: bool | None = None) -> np.ndarray:
         r"""Power spectrum ``|FFT|^2`` of every frame, stored in ``self._data``.
 
         A purely spatial transform is taken frame by frame, like any other
         diagnostic; one along time (axis 0) needs the whole series at once.
         """
-        axes_osiris = [self._fft_axis] if isinstance(self._fft_axis, int) else list(self._fft_axis)
-        if 0 not in axes_osiris:
+        if 0 not in self._axes:
             return super().load_all(n_workers=n_workers, use_parallel=use_parallel)
         if self._data is not None:
             return self._data
-
-        # Ensure base diagnostic is loaded
-        if self._diag._data is None or not getattr(self._diag, "_all_loaded", False):
-            self._diag.load_all()
-
-        data = np.nan_to_num(self._diag._data, copy=True)
-
-        # Detrend across transform axes in the FULL array
-        # (here axes_osiris match numpy axes because loaded data includes time at axis 0)
-        data = self._detrend_data(data, axes_osiris)
-
-        # Apply windows along the transform axes
-        result = data
-        for ax in axes_osiris:
-            if ax == 0:
-                w = self._get_window(result.shape[0], self._window_time)
-                result = self._apply_window(result, w, axis=0)
-            else:
-                w = self._get_window(result.shape[ax], self._window_spatial)
-                result = self._apply_window(result, w, axis=ax)
-
-        fft = np.fft.fftshift(np.fft.fftn(result, axes=axes_osiris, norm=self._np_norm), axes=axes_osiris)
-
-        # Optional "density" scaling (includes dt/dx factors)
-        if self._normalize == "density":
-            fft = fft * self._spacing_product(axes_osiris)
-
-        self._data = np.abs(fft) ** 2
+        # The whole series; here the OSIRIS axes are the numpy axes (time is axis 0).
+        windows = [self._window_time if ax == 0 else self._window_spatial for ax in self._axes]
+        self._diag.load_all()  # (a Simulation's diagnostics return themselves from load_all, not the array)
+        self._data = self._power_spectrum(self._diag.data, self._axes, self._axes, windows)
         self._all_loaded = True
         return self._data
 
@@ -158,46 +127,23 @@ class FFT_Diagnostic(Diagnostic):
         If fft_axis includes time (0), user must call load_all().
         Returns power spectrum `|FFT|^2`.
         """
-        axes_osiris = [self._fft_axis] if isinstance(self._fft_axis, int) else list(self._fft_axis)
-
         # Time FFT cannot be computed from a single timestep
-        if 0 in axes_osiris:
+        if 0 in self._axes:
             raise ValueError("Cannot compute FFT along time axis for a single timestep. Use load_all() instead.")
-
-        # Read ONLY requested spatial slice from the underlying diagnostic
-        # data_slice refers to spatial dimensions only (no time dimension here)
-        f = np.nan_to_num(self._diag._frame(index, data_slice=data_slice))
-
-        # Map OSIRIS axes (1,2,3) -> per-timestep numpy axes (0,1,2)
-        spatial_axes_osiris = [ax for ax in axes_osiris if ax != 0]
-        data_axes = [ax - 1 for ax in spatial_axes_osiris]  # 1->0, 2->1, 3->2
-
-        # Detrend over transform axes (e.g., remove mean)
-        f = self._detrend_data(f, data_axes)
-
         # A cropped (sliced) domain is not periodic, so it always gets a window.
-        spatial_window_kind = self._window_spatial
-        if data_slice is not None and spatial_window_kind is None:
-            spatial_window_kind = "hann"
+        window = "hann" if data_slice is not None and self._window_spatial is None else self._window_spatial
+        frame = self._diag._frame(index, data_slice=data_slice)  # only the requested slice is read
+        np_axes = [ax - 1 for ax in self._axes]  # a frame has no time axis: x1 -> 0, x2 -> 1, x3 -> 2
+        return self._power_spectrum(frame, np_axes, self._axes, [window] * len(np_axes))
 
-        # Apply window(s) along transformed axes
-        result = f
-        for dax in data_axes:
-            w = self._get_window(result.shape[dax], spatial_window_kind)
-            result = self._apply_window(result, w, dax)
-
-        # FFT + shift
-        if len(data_axes) == 1:
-            fft = np.fft.fft(result, axis=data_axes[0], norm=self._np_norm)
-            fft = np.fft.fftshift(fft, axes=data_axes[0])
-        else:
-            fft = np.fft.fftn(result, axes=data_axes, norm=self._np_norm)
-            fft = np.fft.fftshift(fft, axes=data_axes)
-
-        # Optional "density" scaling (includes dt/dx factors)
-        if self._normalize == "density":
-            fft = fft * self._spacing_product(spatial_axes_osiris)
-
+    def _power_spectrum(self, data: np.ndarray, np_axes: list[int], osiris_axes: list[int], windows: list[str | None]) -> np.ndarray:
+        """``|FFT|^2`` of *data* over *np_axes*: NaN -> 0, detrend, window, transform, shift, optional density scaling."""
+        data = self._detrend_data(np.nan_to_num(data), np_axes)
+        for ax, kind in zip(np_axes, windows, strict=True):
+            data = self._apply_window(data, self._get_window(data.shape[ax], kind), axis=ax)
+        fft = np.fft.fftshift(np.fft.fftn(data, axes=np_axes, norm=self._np_norm), axes=np_axes)
+        if self._normalize == "density":  # includes the dt/dx factors
+            fft = fft * self._spacing_product(osiris_axes)
         return np.abs(fft) ** 2
 
     @staticmethod
@@ -290,31 +236,20 @@ class FFT_Diagnostic(Diagnostic):
         # axes_osiris uses: time=0, space=1,2,3
         prod = 1.0
         for ax in axes_osiris:
-            if ax == 0:
-                prod *= float(self._dt * self._ndump)
-            else:
-                dx = self._dx if isinstance(self._dx, (int, float)) else self._dx[ax - 1]
-                prod *= float(dx)
+            prod *= float(self._dt * self._ndump) if ax == 0 else float(np.atleast_1d(self._dx)[ax - 1])
         return prod
 
     def omega(self) -> np.ndarray:
-        """
-        Get the angular frequency array for the FFT along the time dimension.
-        """
-        if not self._all_loaded:
-            raise ValueError("Load the data first using load_all() method.")
-
-        axes_osiris = [self._fft_axis] if isinstance(self._fft_axis, int) else list(self._fft_axis)
-        if 0 not in axes_osiris:
+        """Angular frequencies of a transform along time, in fftshift order."""
+        if 0 not in self._axes:
             raise ValueError(f"FFT was not computed along time axis (0). fft_axis={self._fft_axis}. Use k() instead.")
-
-        dt = self._dt * self._ndump
-        omega = np.fft.fftfreq(self._data.shape[0], d=dt) * 2 * np.pi
-        return np.fft.fftshift(omega)
+        return np.fft.fftshift(np.fft.fftfreq(self._maxiter, d=self._dt * self._ndump) * 2 * np.pi)
 
     def k(self, axis: int | None = None) -> np.ndarray | dict[int, np.ndarray]:
         """
-        Get the wavenumber array for the FFT along spatial dimension(s).
+        Get the wavenumber array for the FFT along spatial dimension(s), in fftshift order.
+
+        Computed from the grid (``nx``, ``dx``), so it needs no loaded data.
 
         Parameters
         ----------
@@ -327,84 +262,24 @@ class FFT_Diagnostic(Diagnostic):
         np.ndarray or dict
             If axis is specified: wavenumber array for that axis.
             If axis is None: dictionary mapping axis -> wavenumber array.
-
-        Notes
-        -----
-        When load_all() is used, time axis is 0 and spatial axes are 1,2,3.
-        When accessing single timesteps, spatial axes are 0,1,2.
         """
-        if self._data is None:
-            raise ValueError("Load the data first using load_all() or access via indexing.")
-
-        # Which OSIRIS axes did we transform?
-        axes_osiris = [self._fft_axis] if isinstance(self._fft_axis, int) else list(self._fft_axis)
-        spatial_fft_axes = {ax for ax in axes_osiris if ax != 0}  # {1,2,3}
-
-        # If user requests a specific k-axis, it must be one we transformed
-        if axis is not None and axis not in spatial_fft_axes:
-            raise ValueError(f"Requested k for axis {axis}, but FFT was not computed along that axis. fft_axis={self._fft_axis}")
-
-        # Determine if we have the time dimension in the data
-        # If all_loaded is True, then axis 0 is time, spatial axes are 1,2,3
-        # If all_loaded is False, we're looking at a single timestep, spatial axes are 0,1,2
-        has_time_axis = self._all_loaded
-
-        # Determine which axes to compute k for
-        if axis is not None:
-            # Single axis specified
-            if axis == 0:
-                raise ValueError("axis must be a spatial dimension (1, 2, or 3), not 0 (time).")
-            if axis < 1 or axis > 3:
-                raise ValueError(f"axis must be 1, 2, or 3, got {axis}")
-
-            # Get dx for this axis
-            if isinstance(self._dx, (int, float)):
-                dx = self._dx
-            else:
-                dx = self._dx[axis - 1]
-
-            # Compute the actual data axis index
-            # If we have time axis, spatial axis N is at index N
-            # If no time axis (single timestep), spatial axis N is at index N-1
-            data_axis = axis if has_time_axis else axis - 1
-
-            # Compute wavenumber
-            k_array = np.fft.fftfreq(self._data.shape[data_axis], d=dx) * 2 * np.pi
-            k_array = np.fft.fftshift(k_array)
-            return k_array
-        else:
-            # axis is None: return k for all spatial axes in fft_axis
-            result = {}
-
-            if isinstance(self._fft_axis, (list, tuple)):
-                # Multi-axis FFT: return k for all spatial axes
-                spatial_axes = [ax for ax in self._fft_axis if ax != 0]
-            elif self._fft_axis == 0:
-                # Only time FFT, no spatial axes
+        spatial = [ax for ax in self._axes if ax != 0]
+        if axis is None:
+            if not spatial:
                 raise ValueError("No spatial FFT axes to compute wavenumber for. fft_axis is 0 (time only).")
-            else:
-                # Single spatial axis
-                spatial_axes = [self._fft_axis]
-
-            for ax in spatial_axes:
-                if isinstance(self._dx, (int, float)):
-                    dx = self._dx
-                else:
-                    dx = self._dx[ax - 1]
-
-                # Compute the actual data axis index
-                data_axis = ax if has_time_axis else ax - 1
-
-                k_array = np.fft.fftfreq(self._data.shape[data_axis], d=dx) * 2 * np.pi
-                k_array = np.fft.fftshift(k_array)
-                result[ax] = k_array
-
-            return result
+            return {ax: self.k(ax) for ax in spatial}
+        if axis not in spatial:
+            raise ValueError(f"Requested k for axis {axis}, but FFT was not computed along that axis. fft_axis={self._fft_axis}")
+        n = int(np.atleast_1d(self._nx)[axis - 1])
+        dx = float(np.atleast_1d(self._dx)[axis - 1])
+        return np.fft.fftshift(np.fft.fftfreq(n, d=dx) * 2 * np.pi)
 
     @property
     def kmax(self) -> float | np.ndarray:
         """Nyquist wavenumber (rad/m). Upper limit of representable k."""
-        return self._kmax
+        if isinstance(self._dx, (int, float)):
+            return np.pi / self._dx
+        return np.pi / np.array([self._dx[ax - 1] for ax in self._axes if ax != 0])
 
     @property
     def omega_max(self):
