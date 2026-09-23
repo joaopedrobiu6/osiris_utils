@@ -20,9 +20,9 @@ def register_parser(subparsers) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  osiris export file.h5 --format csv --output data.csv
-  osiris export sim/MS/FLD/e3 --format npy --output e3_data.npy
-  osiris export file.h5 --format json --output data.json
+  utils export file.h5 --format csv --output data.csv
+  utils export sim/MS/FLD/e3 --format npy --output e3_data.npy
+  utils export file.h5 --format json --output data.json
         """,
     )
 
@@ -123,13 +123,12 @@ def export_diagnostic_dir(diag_path: Path, args: argparse.Namespace) -> None:
         export_single_file(data_obj, args)
     # Export all timesteps
     elif args.format == "npy":
-        # Stack all data into single array
-        all_data = []
-        for f in h5_files:
-            data_obj = ou.OsirisGridFile(str(f))
-            all_data.append(data_obj.data)
-        stacked = np.array(all_data)
-        np.save(args.output, stacked)
+        # Frame by frame into a memory-mapped .npy (export_to_npy), rather than
+        # stacking the whole run in memory first.
+        diag = ou.Diagnostic()
+        diag._open_folder(diag_path)
+        output = args.output if str(args.output).endswith(".npy") else f"{args.output}.npy"  # as np.save names it
+        ou.export_to_npy(diag, output, overwrite=True, show_progress=False)
     else:
         # For CSV/JSON, export each timestep separately or create multi-index
         export_multi_timestep(h5_files, args)

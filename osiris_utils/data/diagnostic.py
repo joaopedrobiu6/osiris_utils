@@ -324,11 +324,15 @@ class Diagnostic:
             self._open_series(f"DENSITY/{species}/{'charge' if quantity == 'n' else quantity}")
 
     def _open_series(self, subpath: str) -> None:
-        """Find the dumps under ``MS/<subpath>`` and read the grid metadata from one of them."""
+        """Open the dumps under ``<simulation folder>/MS/<subpath>``."""
         if self._simulation_folder is None:
             raise ValueError("Simulation folder not set.")
-        self._path = f"{self._simulation_folder}/MS/{subpath}/"
-        self._scan_files(str(Path(self._path) / "*.h5"))
+        self._open_folder(f"{self._simulation_folder}/MS/{subpath}")
+
+    def _open_folder(self, folder: str | Path) -> None:
+        """Find the dumps in *folder* and read the grid metadata from one of them."""
+        self._path = f"{folder}/"
+        self._scan_files(str(Path(folder) / "*.h5"))
         self._load_attributes(self._input_deck)
 
     def _scan_files(self, pattern: str) -> None:
@@ -564,8 +568,6 @@ class Diagnostic:
         ``diag.data`` once :meth:`load_all` ran), the array handed back is the
         cached one: do not write into a frame in place.
         """
-        if self._simulation_folder is None:
-            raise ValueError("Simulation folder not set.")
         if self._file_list is None:
             raise RuntimeError("File list not initialized. Call get_quantity() first.")
         try:

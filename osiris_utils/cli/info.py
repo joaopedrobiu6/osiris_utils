@@ -39,6 +39,16 @@ Examples:
     parser.set_defaults(func=run)
 
 
+DECK_NAMES = ("os-stdin", "input.deck", "deck.in")
+
+
+def find_deck(path: Path) -> Path | None:
+    """The input deck *path* points at: *path* itself if it is one, or the first deck inside the folder."""
+    if path.is_file():
+        return path if path.name in DECK_NAMES or path.suffix == ".deck" else None
+    return next((path / name for name in DECK_NAMES if (path / name).exists()), None)
+
+
 def run(args: argparse.Namespace) -> int:
     """Execute the info command."""
     path = Path(args.path)
@@ -47,23 +57,13 @@ def run(args: argparse.Namespace) -> int:
         print(f"Error: Path '{path}' does not exist", file=sys.stderr)
         return 1
 
-    # Determine if path is a file or directory
+    deck = find_deck(path)
+    if deck is not None:
+        return show_simulation_info(deck, args.brief, args.verbose)
     if path.is_file():
-        if path.name in ["os-stdin", "input.deck", "deck.in"] or path.suffix == ".deck":
-            return show_simulation_info(path, args.brief, args.verbose)
         return show_file_info(path, args.brief)
-    elif path.is_dir():
-        # Fallback for folder access: try to find the deck automatically
-        for candidate in ["os-stdin", "input.deck", "deck.in"]:
-            deck_path = path / candidate
-            if deck_path.exists():
-                return show_simulation_info(deck_path, args.brief, args.verbose)
-
-        print(f"Error: No input deck found in {path}", file=sys.stderr)
-        return 1
-    else:
-        print(f"Error: '{path}' is not a file or directory", file=sys.stderr)
-        return 1
+    print(f"Error: No input deck found in {path}", file=sys.stderr)
+    return 1
 
 
 def show_file_info(filepath: Path, brief: bool = False) -> int:

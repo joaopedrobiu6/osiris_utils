@@ -689,25 +689,19 @@ def test_validate_deck_file_path(tmp_path):
 # -----------------------------------------------------------------------------
 
 
-@patch("osiris_utils.cli.export.ou.OsirisGridFile")
-def test_export_diagnostic_dir_npy(mock_grid_file, tmp_path):
-    """export_diagnostic_dir stacks all h5 files into a npy when format=npy."""
-    mock_obj = MagicMock()
-    mock_obj.data = np.ones((3, 3))
-    mock_grid_file.return_value = mock_obj
+def test_export_diagnostic_dir_npy(tmp_path):
+    """A dump directory exports to one (n_t, ...) .npy, streamed through export_to_npy."""
+    from .conftest import N_TIMESTEPS, NX, grid_values, write_grid_series
 
     diag_dir = tmp_path / "FLD" / "e1"
-    diag_dir.mkdir(parents=True)
-    for i in range(3):
-        (diag_dir / f"e1-{i:06d}.h5").write_text("")
+    write_grid_series(diag_dir, name="e1", prefix="e1")
 
-    out = tmp_path / "out.npy"
-    with patch("numpy.save") as mock_save:
-        export.export_diagnostic_dir(
-            diag_dir,
-            argparse.Namespace(format="npy", output=str(out), timestep=None, no_coords=False),
-        )
-    assert mock_save.called
+    out = tmp_path / "out"  # np.save's convention: .npy is appended
+    export.export_diagnostic_dir(diag_dir, argparse.Namespace(format="npy", output=str(out), timestep=None, no_coords=False))
+
+    data = np.load(tmp_path / "out.npy")
+    assert data.shape == (N_TIMESTEPS, NX)
+    np.testing.assert_allclose(data, np.stack([grid_values(i) for i in range(N_TIMESTEPS)]))
 
 
 @patch("osiris_utils.cli.export.ou.OsirisGridFile")

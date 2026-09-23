@@ -23,10 +23,10 @@ def register_parser(subparsers) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  osiris plot file.h5 --save plot.png
-  osiris plot file.h5 --save plot.png --title "Ez Field"
-  osiris plot file.h5 --save plot.png --cmap viridis
-  osiris plot file.h5 --display  # Show interactive plot
+  utils plot file.h5 --save plot.png
+  utils plot file.h5 --save plot.png --title "Ez Field"
+  utils plot file.h5 --save plot.png --cmap viridis
+  utils plot file.h5 --display  # Show interactive plot
         """,
     )
 

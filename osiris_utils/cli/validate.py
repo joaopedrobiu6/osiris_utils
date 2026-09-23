@@ -9,6 +9,8 @@ import numpy as np
 
 import osiris_utils as ou
 
+from .info import find_deck
+
 
 def register_parser(subparsers) -> None:
     """Register the 'validate' subcommand parser."""
@@ -54,37 +56,14 @@ def run(args: argparse.Namespace) -> int:
         print(f"Error: Path '{path}' does not exist", file=sys.stderr)
         return 1
 
-    errors = 0
-    warnings = 0
-
     try:
-        if path.is_file():
-            # Check if it's a deck file
-            if path.name in ["os-stdin", "input.deck", "deck.in"] or path.suffix == ".deck":
-                e, w = validate_simulation(path, args.check_missing)
-                errors += e
-                warnings += w
-            else:
-                e, w = validate_file(path)
-                errors += e
-                warnings += w
-        elif path.is_dir():
-            # Fallback
-            deck_found = False
-            for candidate in ["os-stdin", "input.deck", "deck.in"]:
-                deck_path = path / candidate
-                if deck_path.exists():
-                    e, w = validate_simulation(deck_path, args.check_missing)
-                    errors += e
-                    warnings += w
-                    deck_found = True
-                    break
-
-            if not deck_found:
-                print(f"Error: No input deck found in {path}", file=sys.stderr)
-                return 1
+        deck = find_deck(path)
+        if deck is not None:
+            errors, warnings = validate_simulation(deck, args.check_missing)
+        elif path.is_file():
+            errors, warnings = validate_file(path)
         else:
-            print(f"Error: '{path}' is not a file or directory", file=sys.stderr)
+            print(f"Error: No input deck found in {path}", file=sys.stderr)
             return 1
 
         # Summary
