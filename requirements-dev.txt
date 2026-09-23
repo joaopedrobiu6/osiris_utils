@@ -3,7 +3,7 @@
 -r requirements.txt
 
 # Install the package *with* extras in editable mode
--e .[dev,docs,plot]
+-e .[dev,docs]
 
 # Tooling that isn't in extras (optional)
 build>=1.2

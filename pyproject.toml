@@ -1,6 +1,6 @@
 # -----------------------------  build back-end  ----------------------------- #
 [build-system]
-requires = ["setuptools>=70", "wheel", "setuptools-scm>=8", "cibuildwheel>=2.20"]
+requires = ["setuptools>=70", "wheel", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 # -------------------------  core project metadata  -------------------------- #
@@ -74,14 +74,6 @@ packages = { find = { exclude = ["docs", "tests", "local", "report"] } }
 [tool.setuptools_scm]
 fallback_version = "0.0.0" 
 
-[tool.setuptools.package-data]
-# replicate MANIFEST.in rules (examples + images etc.)
-"*" = [
-  "requirements.txt",
-  "examples/example_data/**",
-  "docs/_static/*.png"
-]
-
 # -----------------------------  pre-commit hooks  ---------------------------- #
 [tool.ruff]
 line-length = 140
@@ -100,18 +92,6 @@ quote-style = "preserve"
 
 [tool.ruff.lint.mccabe]
 max-complexity = 25
-
-# ------------------------------  cibuildwheel  ----------------------------- #
-#  • builds wheels on CI when a git tag is pushed (see .github/workflows/*.yml)
-#  • Linux x86-64 only by default - extend matrix as needed
-[tool.cibuildwheel]
-build = "cp39-* cp310-* cp311-* cp312-*"
-skip  = ["*-musllinux*"]
-test-command = "pytest -q"
-
-[tool.cibuildwheel.linux]
-# example: expose an env var or extra index URL if your wheels need BLAS
-environment = { PIP_EXTRA_INDEX_URL = "https://pypi.python.org/simple" }
 
 # --------------------------------------------------------------------------- #
 #  end of file - everything else (tests, CI, docs) now points to this spec
