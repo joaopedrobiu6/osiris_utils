@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from weakref import WeakKeyDictionary
 
 from ..filters import NoFilter, SpatialFilter, as_filter
-from ..postprocessing.derivative import Derivative_Diagnostic, Derivative_Simulation
+from ..postprocessing.derivative import Derivative_Diagnostic
 from ..postprocessing.filtering import Filtered_Simulation
 from ..postprocessing.mft import MFT_Diagnostic, MFT_Simulation
 from ..utils import resolve_rqm
@@ -241,12 +241,6 @@ class AnomalousResistivity:
     def compute_vlasov_electric_field(self):
         logger.info("Computing Vlasov electric field...")
 
-        d_dx1 = Derivative_Simulation(self._simulation, "x1", stencil=_X1_STENCIL, deriv_order=1, filter=self._deriv_filter)
-        # No filter on d/dt: a spatial kernel means nothing along time.  The
-        # frames it differences are already smoothed, exactly as the database's
-        # _time_derivative_frame differences two smoothed frames.
-        d_dt = Derivative_Simulation(self._simulation, "t", stencil=_T_STENCIL, deriv_order=1)
-
         sp = self._simulation[self.species]
 
         # Composite diagnostics
@@ -258,16 +252,16 @@ class AnomalousResistivity:
             self._ensure_diagnostic(sp, self._d_dx2(sp["nT12"]), "dnT12_dx2")
 
         if self._config.include_time_derivative:
-            self._ensure_diagnostic(sp, d_dt[self.species]["vfl1"], "dvfl1_dt")
+            # No filter on d/dt: a spatial kernel means nothing along time.  The
+            # frames it differences are already smoothed, exactly as the database's
+            # _time_derivative_frame differences two smoothed frames.
+            self._ensure_diagnostic(sp, Derivative_Diagnostic(sp["vfl1"], "t", stencil=_T_STENCIL, deriv_order=1), "dvfl1_dt")
 
         if self._config.include_convection:
-            self._ensure_diagnostic(sp, d_dx1[self.species]["vfl1"], "dvfl1_dx1")
+            self._ensure_diagnostic(sp, self._d_dx1(sp["vfl1"]), "dvfl1_dx1")
 
         if self._config.include_transverse_advection:
-            d_dx2 = Derivative_Simulation(
-                self._simulation, "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True, filter=self._deriv_filter
-            )
-            self._ensure_diagnostic(sp, d_dx2[self.species]["vfl1"], "dvfl1_dx2")
+            self._ensure_diagnostic(sp, self._d_dx2(sp["vfl1"]), "dvfl1_dx2")
 
         E_vlasov = self._compute_vlasov_field_terms()
         # Namespaced per species *and* per momentum equation: e_vlasov is stored on
