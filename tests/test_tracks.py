@@ -184,3 +184,10 @@ def test_convert_tracks_writes_v2_layout(track_path: Path, tmp_path: Path) -> No
         np.testing.assert_array_equal(file["1"][b"n"][:4], [0, 1, 2, 3])
         for quant in ["t", "x1", "p1"]:
             np.testing.assert_allclose(file["1"][quant.encode()][:], track.data[quant][0])
+
+
+def test_osiris_track_file_str_describes_the_tracks(track_path: Path) -> None:
+    """str() used to raise AttributeError: it printed dx, which track files do not have."""
+    text = str(OsirisTrackFile(str(track_path)))
+    assert f"{TRACK_N_PARTICLES} particles x {TRACK_N_ITERS} iterations" in text
+    assert SPECIES in text

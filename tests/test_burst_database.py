@@ -610,3 +610,16 @@ def test_two_configs_on_one_simulation_do_not_share_e_vlasov(regular_sim):
         rtol=1e-5,
         atol=1e-8,
     )
+
+
+def test_to_h5_writes_the_true_iteration_of_a_burst_frame(burst_sim, tmp_path):
+    """ITER was written as ndump * index, which is wrong on a burst axis."""
+    from osiris_utils.data.data import OsirisGridFile
+
+    b2 = burst_sim["b2"]
+    k = b2.index_of_iteration(21)  # a burst neighbour, not a dump multiple
+    b2.to_h5(savename="b2copy", index=k, path=str(tmp_path))
+
+    written = OsirisGridFile(str(tmp_path / f"b2copy-{k:06d}.h5"))
+    assert written.iter == 21
+    assert written.time[0] == pytest.approx(21 * DT)

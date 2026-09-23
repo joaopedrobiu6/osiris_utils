@@ -740,17 +740,12 @@ class OsirisTrackFile(OsirisData):
         self._data = data
 
     def __str__(self):
-        # write me a template to print with the name, label, units, iter, grid, nx, dx, axis, dt, dim in a logical way
         return (
-            rf"{self.name}"
-            + "\n"
-            + f"Iteration: {self.iter}"
-            + "\n"
-            + f"Grid: {self.grid}"
-            + "\n"
-            + f"dx: {self.dx}"
-            + "\n"
-            + f"Dimensions: {self.dim}D"
+            f"{self.name}\n"
+            f"Tracks: {self.num_particles} particles x {self.num_time_iters} iterations\n"
+            f"Quantities: {self.quants}\n"
+            f"Grid: {self.grid}\n"
+            f"Dimensions: {self.dim}D"
         )
 
     def __array__(self):

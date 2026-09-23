@@ -912,9 +912,9 @@ class Diagnostic:
 
             n = len(indices)
             out = np.empty((n, *first_arr.shape), dtype=first_arr.dtype)
+            out[0] = first_arr
 
-            # Fill all slots (including first) in order
-            for pos, i in enumerate(indices):
+            for pos, i in enumerate(indices[1:], start=1):
                 try:
                     out[pos] = self._frame(i, data_slice=data_slice)
                 except Exception as e:
@@ -1141,7 +1141,7 @@ class Diagnostic:
                     "TIME UNITS",
                     [(np.bytes_(self.time(i)[1].encode()) if self.time(i)[1] else np.bytes_(b""))],
                 )
-                f.attrs.create("ITER", [self._ndump * i])
+                f.attrs.create("ITER", [int(self.iterations[i])])
                 f.attrs.create("NAME", [np.bytes_(str(self._name or savename).encode())])
                 f.attrs.create("TYPE", [np.bytes_(str(self._type or "grid").encode())])
                 f.attrs.create(
@@ -1375,7 +1375,7 @@ class Diagnostic:
             f"dim: {self._dim}\n"
             f"time: {self.time(index)[0]}\n"
             f"tunits: {self.time(index)[1]}\n"
-            f"iter: {self._ndump * index}\n"
+            f"iter: {int(self.iterations[index])}\n"
             f"name: {self._name}\n"
             f"type: {self._type}\n"
             f"label: {self._label}\n"

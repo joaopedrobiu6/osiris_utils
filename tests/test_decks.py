@@ -140,3 +140,17 @@ def test_species_q_real_is_read_per_species(tmp_path, sample_deck_file):
     assert species["ions"].m == 32.0  # m = rqm * q = 16 * 2
     for sp in species.values():
         assert sp.m / sp.q == pytest.approx(sp.rqm)
+
+
+def test_species_count_mismatch_is_reported(tmp_path, sample_deck_file):
+    """num_species larger than the species sections raises a readable RuntimeError.
+
+    The message used to call len() on the integer num_species, so the check
+    itself died with a TypeError.
+    """
+    src = Path(sample_deck_file).read_text().replace("num_species = 1,", "num_species = 2,")
+    deck_path = tmp_path / "missing_species.1d"
+    deck_path.write_text(src)
+
+    with pytest.raises(RuntimeError, match="1 species 'name' entries for num_species = 2"):
+        InputDeckIO(str(deck_path))

@@ -162,3 +162,19 @@ def test_to_h5_roundtrips_a_postprocessed_diagnostic(sim_dir: Path, tmp_path: Pa
 
     reread = OsirisGridFile(str(out / "charge2-000001.h5"))
     np.testing.assert_allclose(reread.data, combined[1], rtol=1e-6)
+
+
+# --- slicing -------------------------------------------------------------
+
+
+def test_time_slice_evaluates_each_frame_once(sim_dir: Path) -> None:
+    """d[a:b] used to compute its first frame twice — a full recompute for a derived diagnostic."""
+    d = _e3(sim_dir) * 2.0
+    calls: list[int] = []
+    frame = d._frame
+    d._frame = lambda i, data_slice=None: (calls.append(i), frame(i, data_slice))[1]
+
+    out = d[1:4]
+
+    assert calls == [1, 2, 3]
+    np.testing.assert_allclose(out, 2.0 * np.stack([grid_values(i) for i in (1, 2, 3)]), rtol=1e-6)

@@ -172,12 +172,9 @@ class InputDeckIO:
         except KeyError:
             s_qreal = np.ones(len(s_names))
         # check if we have information for all species
-        if len(s_names) != self.n_species:
-            raise RuntimeError(f"Number of specie names does not match number of species: {len(s_names)} != {len(self.n_species)}.")
-        if len(s_rqm) != self.n_species:
-            raise RuntimeError(f"Number of specie rqm does not match number of species: {len(s_rqm)} != {len(self.n_species)}.")
-        if len(s_qreal) != self.n_species:
-            raise RuntimeError(f"Number of specie rqm does not match number of species: {len(s_qreal)} != {len(self.n_species)}.")
+        for what, values in (("name", s_names), ("rqm", s_rqm), ("q_real", s_qreal)):
+            if len(values) != self.n_species:
+                raise RuntimeError(f"{len(values)} species '{what}' entries for num_species = {self.n_species}.")
 
         return {
             ast.literal_eval(s_names[i]): Species(
