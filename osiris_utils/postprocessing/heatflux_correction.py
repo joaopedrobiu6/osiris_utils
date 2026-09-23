@@ -50,7 +50,9 @@ class HeatfluxCorrection_Simulation(PostProcess):
         return HeatfluxCorrection_Diagnostic(container[key], [P(i, j), P(j, k), P(k, i)], vfl, container["n"])
 
 
-def HeatfluxCorrection_Diagnostic(diagnostic: Diagnostic, P_list: list[Diagnostic], vfl_list: list[Diagnostic], n: Diagnostic) -> Diagnostic:  # noqa: N802
+def HeatfluxCorrection_Diagnostic(
+    diagnostic: Diagnostic, P_list: list[Diagnostic], vfl_list: list[Diagnostic], n: Diagnostic
+) -> Diagnostic:  # noqa: N802
     """``Q_ijk - (v_i P_jk + v_j P_ki + v_k P_ij) + 2 v_i v_j v_k n``: the heat flux in the fluid frame.
 
     Parameters

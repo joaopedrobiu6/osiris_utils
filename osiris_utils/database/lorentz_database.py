@@ -773,6 +773,7 @@ def _boost_frame_quantities(
 
         def out(rows: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
             return rows
+
     else:
         x0, x1 = x_range
         halo = _x_halo(filt)

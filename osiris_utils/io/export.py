@@ -272,7 +272,9 @@ def _read_frame(diagnostic: Diagnostic, index: int, reduce_axis) -> tuple[int, n
     return index, arr if reduce_axis is None else arr.mean(axis=reduce_axis)
 
 
-def _iter_frames(diagnostic: Diagnostic, pending: list[int], reduce_axis, n_workers: int, chunk_size: int) -> Iterator[tuple[int, np.ndarray]]:
+def _iter_frames(
+    diagnostic: Diagnostic, pending: list[int], reduce_axis, n_workers: int, chunk_size: int
+) -> Iterator[tuple[int, np.ndarray]]:
     """Yield ``(index, frame)`` for every *pending* index, in bounded memory.
 
     With several workers (a file-backed diagnostic), threads read up to

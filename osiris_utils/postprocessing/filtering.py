@@ -167,7 +167,6 @@ class Filtered_Simulation(PostProcess):
         if isinstance(filt, NoFilter):
             logger.debug("Filtered_Simulation built with NoFilter: frames pass through unchanged.")
 
-
     def _process(self, container: Any, key: str) -> Filtered_Diagnostic:
         return Filtered_Diagnostic(_raw_quantity(container, key), self._filter, self._periodic_axes)
 

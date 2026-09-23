@@ -419,12 +419,10 @@ class OsirisRawFile(OsirisData):
     def __init__(self, filename):
         super().__init__(filename)
 
-        self._grid = np.array(
-            [
-                self._file["SIMULATION"].attrs["XMIN"],
-                self._file["SIMULATION"].attrs["XMAX"],
-            ]
-        ).T
+        self._grid = np.array([
+            self._file["SIMULATION"].attrs["XMIN"],
+            self._file["SIMULATION"].attrs["XMAX"],
+        ]).T
 
         self._quants = [byte.decode("utf-8") for byte in self._file.attrs["QUANTS"][:]]
         units_list = [byte.decode("utf-8") for byte in self._file.attrs["UNITS"][:]]
@@ -626,12 +624,10 @@ class OsirisTrackFile(OsirisData):
     def __init__(self, filename, load_data: bool = True):
         super().__init__(filename)
 
-        self._grid = np.array(
-            [
-                self._file["SIMULATION"].attrs["XMIN"],
-                self._file["SIMULATION"].attrs["XMAX"],
-            ]
-        ).T
+        self._grid = np.array([
+            self._file["SIMULATION"].attrs["XMIN"],
+            self._file["SIMULATION"].attrs["XMAX"],
+        ]).T
 
         self._quants = [byte.decode("utf-8") for byte in self._file.attrs["QUANTS"][1:]]
         units_list = [byte.decode("utf-8") for byte in self._file.attrs["UNITS"][1:]]
