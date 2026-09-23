@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 import osiris_utils.postprocessing.mft as mft
+from osiris_utils.data.diagnostic import Diagnostic
 
 
 class MockDiagnostic:
@@ -87,3 +88,12 @@ def test_mft_validation():
     mft_diag = mft.MFT_Diagnostic(mock, mft_axis=1)
     with pytest.raises(ValueError, match="Invalid MFT component"):
         _ = mft_diag['invalid_key']
+
+
+def test_mft_container_is_not_a_diagnostic():
+    """The container only hands out 'avg' and 'delta'; it used to subclass Diagnostic,
+    so arithmetic on it built an expression that tried to read files."""
+    data = np.array([[[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0]]])
+    container = mft.MFT_Diagnostic(MockDiagnostic(data, dim=2), mft_axis=2)
+    assert not isinstance(container, Diagnostic)
+    assert isinstance(container["avg"], Diagnostic) and container["avg"] is container["avg"]

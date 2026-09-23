@@ -38,35 +38,34 @@ class MFT_Simulation(PostProcess):
         return MFT_Diagnostic(container[key], self._mft_axis)
 
 
-class MFT_Diagnostic(Diagnostic):
+class MFT_Diagnostic:
     """
-    Container: gives access to "avg" and "delta" diagnostics.
-    Not itself a time-indexed diagnostic.
+    Mean-field split of a diagnostic along ``mft_axis``: ``mft["avg"]`` is the
+    transverse average and ``mft["delta"]`` the fluctuation around it.  A
+    container of those two diagnostics, not itself a time-indexed one.
     """
 
     def __init__(self, diagnostic: Diagnostic, mft_axis: int):
-        super().__init__()
-        self._derive_from(diagnostic)
-
-        if mft_axis is None:
-            raise ValueError("Mean field theory axis must be specified (1..dim).")
-        if not (1 <= mft_axis <= diagnostic._dim):
-            raise ValueError(f"mft_axis must be in 1..{diagnostic._dim}, got {mft_axis}")
-
-        self._name = f"MFT[{diagnostic._name}]"
+        _check_mft_axis(diagnostic, mft_axis)
+        self._diag = diagnostic
         self._mft_axis = mft_axis
+        self._name = f"MFT[{diagnostic._name}]"
         self._components: dict[str, Diagnostic] = {}
 
     def __getitem__(self, key: str) -> Diagnostic:
-        if key == "avg":
-            if "avg" not in self._components:
-                self._components["avg"] = MFT_Diagnostic_Average(self._diag, self._mft_axis)
-            return self._components["avg"]
-        if key == "delta":
-            if "delta" not in self._components:
-                self._components["delta"] = MFT_Diagnostic_Fluctuations(self._diag, self._mft_axis)
-            return self._components["delta"]
-        raise ValueError("Invalid MFT component. Use 'avg' or 'delta'.")
+        if key not in ("avg", "delta"):
+            raise ValueError("Invalid MFT component. Use 'avg' or 'delta'.")
+        if key not in self._components:
+            component = MFT_Diagnostic_Average if key == "avg" else MFT_Diagnostic_Fluctuations
+            self._components[key] = component(self._diag, self._mft_axis)
+        return self._components[key]
+
+
+def _check_mft_axis(diagnostic: Diagnostic, mft_axis: int | None) -> None:
+    if mft_axis is None:
+        raise ValueError("Mean field theory axis must be specified (1..dim).")
+    if not (1 <= mft_axis <= diagnostic._dim):
+        raise ValueError(f"mft_axis must be in 1..{diagnostic._dim}, got {mft_axis}")
 
 
 class MFT_Diagnostic_Average(Diagnostic):
@@ -86,11 +85,7 @@ class MFT_Diagnostic_Average(Diagnostic):
     def __init__(self, diagnostic: Diagnostic, mft_axis: int):
         super().__init__()
         self._derive_from(diagnostic)
-
-        if mft_axis is None:
-            raise ValueError("Mean field theory axis must be specified (1..dim).")
-        if not (1 <= mft_axis <= diagnostic._dim):
-            raise ValueError(f"mft_axis must be in 1..{diagnostic._dim}, got {mft_axis}")
+        _check_mft_axis(diagnostic, mft_axis)
 
         self.postprocess_name = "MFT_AVG"
         self._name = f"MFT_avg[{diagnostic._name}, x{mft_axis}]"
@@ -112,11 +107,7 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
     def __init__(self, diagnostic: Diagnostic, mft_axis: int):
         super().__init__()
         self._derive_from(diagnostic)
-
-        if mft_axis is None:
-            raise ValueError("Mean field theory axis must be specified (1..dim).")
-        if not (1 <= mft_axis <= diagnostic._dim):
-            raise ValueError(f"mft_axis must be in 1..{diagnostic._dim}, got {mft_axis}")
+        _check_mft_axis(diagnostic, mft_axis)
 
         self.postprocess_name = "MFT_FLT"
         self._name = f"MFT_delta[{diagnostic._name}, x{mft_axis}]"
