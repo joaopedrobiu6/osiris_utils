@@ -24,7 +24,7 @@ Every script takes the same options:
 | `--sim DECK` | run against your own OSIRIS run (pass its **input deck**) |
 | `--plot` | also write figures to `--outdir` |
 | `--outdir DIR` | where figures and output files go (default `examples/scripts/output/`) |
-| `--log` | keep the package's INFO logging, which is silenced by default |
+| `--log` | show the package's INFO logging (off unless you configure logging) |
 
 **No data is needed.** With no `--sim`, the scripts build a small synthetic
 OSIRIS run (~4 MB, cached under the OS temp directory) whose HDF5 layout and

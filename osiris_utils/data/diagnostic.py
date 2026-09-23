@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from ..decks.decks import InputDeckIO
     from ..decks.species import Species
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)8s │ %(message)s")
 logger = logging.getLogger(__name__)
 
 #: OSIRIS names every grid dump "<quant>-NNNNNN.h5".  Files that do not end
@@ -263,6 +262,7 @@ class Diagnostic:
         self._maxiter: int | None = None
         self._tunits: str | None = None  # time units
         self._data: np.ndarray | None = None  # populated by load_all()
+        self._type: str | None = None
         self._path: str | None = None  # dump directory (file-backed only)
         self._file_list: list[str] | None = None  # dump files, in frame order (file-backed only)
         self._file_indices: np.ndarray | None = None  # their NNNNNN indices
@@ -295,7 +295,7 @@ class Diagnostic:
     #########################################
 
     def get_quantity(self, quantity: str) -> None:
-        """Get the data for a given quantity.
+        """Open the dump series of *quantity* (``"e1"``, ``"vfl1"``, ``"n"``, ...).
 
         Parameters
         ----------
@@ -304,35 +304,32 @@ class Diagnostic:
 
         """
         self._quantity = quantity
-
-        if self._quantity not in OSIRIS_ALL:
-            raise ValueError(f"Invalid quantity {self._quantity}. Use which_quantities() to see the available quantities.")
-        if self._quantity in OSIRIS_SPECIE_REP_UDIST:
-            if self._species is None:
-                raise ValueError("Species not set.")
-            self._get_moment(self._species.name, self._quantity)
-        elif self._quantity in OSIRIS_SPECIE_REPORTS:
-            if self._species is None:
-                raise ValueError("Species not set.")
-            self._get_density(self._species.name, self._quantity)
-        elif self._quantity in OSIRIS_FLD:
-            self._get_field(self._quantity)
-        elif self._quantity in OSIRIS_PHA:
-            if self._species is None:
-                raise ValueError("Species not set.")
-            self._get_phase_space(self._species.name, self._quantity)
-        elif self._quantity == "n":
-            if self._species is None:
-                raise ValueError("Species not set.")
-            self._get_density(self._species.name, "charge")
-        elif self._quantity == "tracks":
+        if quantity == "tracks":
             raise ValueError("For track diagnostics use class Track_Diagnostic.")
-        elif self._quantity == "raw":
+        if quantity == "raw":
             raise ValueError("For raw diagnostics use class OsirisRawFile.")
-        else:
-            raise ValueError(
-                f"Invalid quantity {self._quantity}. Or it's not implemented yet (this may happen for phase space quantities).",
-            )
+        if quantity not in OSIRIS_ALL:
+            raise ValueError(f"Invalid quantity {quantity}. Use which_quantities() to see the available quantities.")
+        if quantity in OSIRIS_FLD:
+            self._open_series(f"FLD/{quantity}")
+            return
+        if self._species is None:
+            raise ValueError("Species not set.")
+        species = self._species.name
+        if quantity in OSIRIS_SPECIE_REP_UDIST:
+            self._open_series(f"UDIST/{species}/{quantity}")
+        elif quantity in OSIRIS_PHA:
+            self._open_series(f"PHA/{quantity}/{species}")
+        else:  # a DENSITY report; "n" is read from the charge dump (see _read_index)
+            self._open_series(f"DENSITY/{species}/{'charge' if quantity == 'n' else quantity}")
+
+    def _open_series(self, subpath: str) -> None:
+        """Find the dumps under ``MS/<subpath>`` and read the grid metadata from one of them."""
+        if self._simulation_folder is None:
+            raise ValueError("Simulation folder not set.")
+        self._path = f"{self._simulation_folder}/MS/{subpath}/"
+        self._scan_files(str(Path(self._path) / "*.h5"))
+        self._load_attributes(self._input_deck)
 
     def _scan_files(self, pattern: str) -> None:
         """Populate _file_list and related attributes from a glob pattern.
@@ -359,78 +356,11 @@ class Diagnostic:
             )
         if not self._file_list:
             raise FileNotFoundError(f"No HDF5 files match {pattern}")
-        self._file_template = self._file_list[0][:-9]  # keep old “template” idea
         self._maxiter = len(self._file_list)
         # The trailing NNNNNN of each filename: the dump counter for a regular
         # run, the absolute iteration when the report uses burst dumps
         # (OSIRIS writes n instead of n/ndump in that case).
         self._file_indices = np.array([int(m.group(1)) for _, m in matches if m], dtype=np.int64)
-
-    def _get_moment(self, species: str, moment: str) -> None:
-        """Get the moment data for a given species and moment.
-
-        Parameters
-        ----------
-        species : str
-            The species to get the moment data.
-        moment : str
-            The moment to get the data.
-
-        """
-        if self._simulation_folder is None:
-            raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
-        self._path = f"{self._simulation_folder}/MS/UDIST/{species}/{moment}/"
-        self._scan_files(str(Path(self._path) / "*.h5"))
-        self._load_attributes(self._file_template, self._input_deck)
-
-    def _get_field(self, field: str) -> None:
-        """Get the field data for a given field.
-
-        Parameters
-        ----------
-        field : str
-            The field to get the data.
-
-        """
-        if self._simulation_folder is None:
-            raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
-        self._path = f"{self._simulation_folder}/MS/FLD/{field}/"
-        self._scan_files(str(Path(self._path) / "*.h5"))
-        self._load_attributes(self._file_template, self._input_deck)
-
-    def _get_density(self, species: str, quantity: str) -> None:
-        """Get the density data for a given species and quantity.
-
-        Parameters
-        ----------
-        species : str
-            The species to get the density data.
-        quantity : str
-            The quantity to get the data.
-
-        """
-        if self._simulation_folder is None:
-            raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
-        self._path = f"{self._simulation_folder}/MS/DENSITY/{species}/{quantity}/"
-        self._scan_files(str(Path(self._path) / "*.h5"))
-        self._load_attributes(self._file_template, self._input_deck)
-
-    def _get_phase_space(self, species: str, type: str) -> None:
-        """Get the phase space data for a given species and type.
-
-        Parameters
-        ----------
-        species : str
-            The species to get the phase space data.
-        type : str
-            The type of phase space to get the data.
-
-        """
-        if self._simulation_folder is None:
-            raise ValueError("Simulation folder not set. If you're using CustomDiagnostic, this method is not available.")
-        self._path = f"{self._simulation_folder}/MS/PHA/{type}/{species}/"
-        self._scan_files(str(Path(self._path) / "*.h5"))
-        self._load_attributes(self._file_template, self._input_deck)
 
     def _build_iteration_axis(self, ref_path: Path, ref_iter: int) -> None:
         """Derive the true OSIRIS iteration of every frame.
@@ -447,7 +377,7 @@ class Diagnostic:
         ``iteration = index * ndump`` assumption when the stride cannot be
         determined.
         """
-        indices = getattr(self, "_file_indices", None)
+        indices = self._file_indices
         if indices is None or len(indices) == 0:
             return
 
@@ -465,23 +395,16 @@ class Diagnostic:
         self._iter_stride = stride
         self._iterations = indices * stride
 
-    def _load_attributes(self, file_template: str, input_deck: dict | None) -> None:  # this will be replaced by reading the input deck
+    def _load_attributes(self, input_deck: dict | None) -> None:
         """Load diagnostic attributes from the first available file or input deck.
 
         Parameters
         ----------
-        file_template : str
-            The file template to load the attributes from.
-            This is the path to the file without the iteration number and extension.
-            (e.g., /path/to/diagnostic/000001.h5 -> /path/to/diagnostic/)
         input_deck : dict, optional
             The input deck to load the diagnostic attributes. If None, the attributes are loaded from the files.
 
         """
-        if input_deck is not None:
-            self._ndump = int(input_deck["time_step"][0]["ndump"])
-        elif input_deck is None:
-            self._ndump = 1
+        self._ndump = int(input_deck["time_step"][0]["ndump"]) if input_deck is not None else 1
 
         try:
             # Read metadata from the first file after 000000 (the t=0 dump is
@@ -490,7 +413,7 @@ class Diagnostic:
             # for burst dumps, whose filenames are absolute iterations and so
             # skip most integers.
             found_file = False
-            candidates = getattr(self, "_file_list", None) or []
+            candidates = self._file_list or []
             for path_str in candidates[1:] or candidates[:1]:
                 path_file = Path(path_str)
                 if path_file.exists():
@@ -550,11 +473,11 @@ class Diagnostic:
         (``OMP_NUM_THREADS`` / ``MKL_NUM_THREADS``).
         """
         # Fast path — reading a bool is atomic in CPython; no lock needed here.
-        if getattr(self, "_all_loaded", False) and self._data is not None:
+        if self._all_loaded and self._data is not None:
             logger.debug("Data already loaded into memory.")
             return self._data
 
-        size = getattr(self, "_maxiter", None)
+        size = self._maxiter
         if size is None:
             raise RuntimeError("Cannot determine iteration count (no _maxiter).")
 
@@ -720,7 +643,7 @@ class Diagnostic:
 
     def __len__(self) -> int:
         """Return the number of timesteps available."""
-        return getattr(self, "_maxiter", 0)
+        return self._maxiter or 0
 
     def __getitem__(self, index: int | slice | tuple) -> np.ndarray:
         """Retrieve timestep data with optional spatial slicing.
@@ -768,7 +691,7 @@ class Diagnostic:
             time_index = index  # index is just time index/slice
 
         # Quick path: all data already in memory
-        if getattr(self, "_all_loaded", False) and self._data is not None:
+        if self._all_loaded and self._data is not None:
             if data_slice is not None:
                 # Apply spatial slicing to loaded data
                 return self._data[(time_index,) + data_slice]
@@ -790,7 +713,7 @@ class Diagnostic:
         # if time is a slice
         if isinstance(time_index, slice):
             # Use slice.indices to correctly handle negative steps and defaults
-            start, stop, step = time_index.indices(getattr(self, "_maxiter", 0))
+            start, stop, step = time_index.indices(self._maxiter or 0)
             indices = range(start, stop, step)
 
             # Empty slice in time: try to preserve spatial shape/dtype if possible
@@ -829,10 +752,9 @@ class Diagnostic:
         No data is copied, and no constructor edits are required because we
         assign attributes dynamically.
         """
-        clone = Diagnostic(species=getattr(self, "_species", None))  # keep species link
+        clone = Diagnostic(species=self._species)  # keep species link
         for attr in _ATTRS_TO_CLONE:
-            if hasattr(self, attr):
-                setattr(clone, attr, getattr(self, attr))
+            setattr(clone, attr, getattr(self, attr))
         # Not the file list: a result's frames are not its operand's files.
         return clone
 
@@ -872,8 +794,8 @@ class Diagnostic:
             result._maxiter = self._maxiter
 
         # SELF ALL_LOADED & OTHER ALL LOADED / SCALAR/NDARRAY
-        self_loaded = getattr(self, "_all_loaded", False)  # check if self data is loaded
-        other_loaded = isinstance(other, Diagnostic) and getattr(other, "_all_loaded", False)  # check is other data is loaded
+        self_loaded = self._all_loaded
+        other_loaded = isinstance(other, Diagnostic) and other._all_loaded
         # if both are loaded, do eager operation
         if self_loaded and (other_loaded or not isinstance(other, Diagnostic)):
             lhs = self._data  # self data
@@ -913,7 +835,7 @@ class Diagnostic:
         result.created_diagnostic_name = "MISC"
         result._maxiter = self._maxiter
 
-        if getattr(self, "_all_loaded", False):
+        if self._all_loaded:
             result._data = op_func(self._data)
             result._all_loaded = True
             return result
@@ -960,8 +882,7 @@ class Diagnostic:
         return self._binary_op(other, lambda x, y: operator.truediv(y, x))
 
     def __neg__(self) -> Diagnostic:
-        # unary minus as multiplication by -1
-        return self._binary_op(-1, operator.mul)
+        return self._unary_op(operator.neg)
 
     def __pow__(self, other: Diagnostic | float | np.ndarray) -> Diagnostic:
         """Power operation. Raises the diagnostic data to the power of `other`.
@@ -1243,7 +1164,7 @@ class Diagnostic:
         ``iterations[index] == index * ndump`` and this reduces to the historical
         ``index * dt * ndump``.
         """
-        iterations = getattr(self, "_iterations", None)
+        iterations = self._iterations
         if iterations is not None and self._dt is not None:
             return [float(iterations[index]) * self._dt, self._tunits]
         return [index * self._dt * self._ndump, self._tunits]
@@ -1251,7 +1172,7 @@ class Diagnostic:
     @property
     def iterations(self) -> np.ndarray:
         """True OSIRIS iteration number of every frame, in file order."""
-        iterations = getattr(self, "_iterations", None)
+        iterations = self._iterations
         if iterations is None:
             ndump = self._ndump if self._ndump else 1
             return np.arange(self._maxiter or 0, dtype=np.int64) * ndump

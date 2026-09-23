@@ -39,10 +39,10 @@ def parse_args(description: str, extra: list[tuple[str, dict]] | None = None) ->
     args = parser.parse_args()
     args.outdir = Path(args.outdir)
 
-    # osiris_utils logs at INFO by default (diagnostic.py calls basicConfig).
-    # Useful in a real analysis, noise in an example.
-    if not args.log:
-        logging.getLogger("osiris_utils").setLevel(logging.WARNING)
+    # osiris_utils logs progress at INFO but leaves logging configuration to
+    # the caller.  Useful in a real analysis, noise in an example: opt in.
+    if args.log:
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)8s | %(message)s")
     return args
 
 
