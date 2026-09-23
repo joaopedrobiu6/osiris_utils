@@ -24,7 +24,6 @@ Two closed forms carry most of the assertions:
 
 from __future__ import annotations
 
-import h5py
 import numpy as np
 import pytest
 
@@ -33,7 +32,7 @@ from osiris_utils.database import BurstConfig, LorentzDatabaseBuildConfig, Loren
 from osiris_utils.database.lorentz_database import LORENTZ_FEATURE_LABELS
 from osiris_utils.filters import GaussianFilter, NoFilter, SavitzkyGolayFilter
 
-from .conftest import write_grid_file
+from .conftest import write_run_tree
 
 NX1, NX2 = 24, 8
 XMAX1, XMAX2 = 6.0, 2.0
@@ -114,29 +113,6 @@ def quantity(name: str, iteration: int, zero_vfl1: bool = False) -> np.ndarray:
     return value.astype(np.float32)
 
 
-def _write_series(directory, *, name: str, prefix: str, iterations: list[int], burst: bool, zero_vfl1: bool = False) -> None:
-    """Write one diagnostic series, OSIRIS burst naming when *burst*."""
-    for n in iterations:
-        file_index = n if burst else n // NDUMP
-        path = directory / f"{prefix}-{file_index:06d}.h5"
-        write_grid_file(
-            path,
-            name=name,
-            data=quantity(name, n, zero_vfl1),
-            iteration=1,  # overwritten below
-            dt=DT,
-            ndump=NDUMP,
-            grid=np.array([[0.0, XMAX1], [0.0, XMAX2]]),
-            units="",
-            label=name,
-        )
-        # write_grid_file stores ITER = iteration * ndump; rewrite it so the file
-        # carries the true iteration, exactly as OSIRIS does.
-        with h5py.File(path, "r+") as f:
-            f.attrs["ITER"] = [n]
-            f.attrs["TIME"] = [n * DT]
-
-
 DUMPS = [m * NDUMP for m in range(N_DUMPS)]
 BURSTED = sorted({n + k for n in DUMPS for k in (-1, 0, 1) if n + k >= 0})
 # Midpoints with both neighbours: 10, 20, 30 -- iteration 0 has no left flank.
@@ -144,32 +120,19 @@ MIDPOINT_DUMPS = [1, 2, 3]
 
 
 def _build_tree(root, *, burst_quantities: set[str] | None = None, zero_vfl1: bool = False) -> None:
-    burst_quantities = {*FIELDS, "charge", *MOMENTS} if burst_quantities is None else burst_quantities
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "shock.2d").write_text(DECK)
-    ms = root / "MS"
-
-    def iters(name):
-        return BURSTED if name in burst_quantities else DUMPS
-
-    for fld in FIELDS:
-        _write_series(ms / "FLD" / fld, name=fld, prefix=fld, iterations=iters(fld), burst=fld in burst_quantities)
-    _write_series(
-        ms / "DENSITY" / SPECIES / "charge",
-        name="charge",
-        prefix=f"charge-{SPECIES}",
-        iterations=iters("charge"),
-        burst="charge" in burst_quantities,
+    write_run_tree(
+        root,
+        deck=DECK,
+        fields=FIELDS,
+        moments=MOMENTS,
+        species=SPECIES,
+        data=lambda name, n: quantity(name, n, zero_vfl1),
+        dumps=DUMPS,
+        burst_quantities={*FIELDS, "charge", *MOMENTS} if burst_quantities is None else burst_quantities,
+        dt=DT,
+        ndump=NDUMP,
+        grid=np.array([[0.0, XMAX1], [0.0, XMAX2]]),
     )
-    for mom in MOMENTS:
-        _write_series(
-            ms / "UDIST" / SPECIES / mom,
-            name=mom,
-            prefix=f"{mom}-{SPECIES}",
-            iterations=iters(mom),
-            burst=mom in burst_quantities,
-            zero_vfl1=zero_vfl1,
-        )
 
 
 @pytest.fixture

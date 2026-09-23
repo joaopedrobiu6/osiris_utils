@@ -18,7 +18,7 @@ from osiris_utils.data.simulation import Simulation
 from osiris_utils.database import BurstAxis, BurstConfig, DatabaseBuildConfig, DatabaseCreator, describe_axes
 from osiris_utils.database.database import TIME_DERIVATIVE_LABEL, input_feature_labels
 
-from .conftest import write_grid_file
+from .conftest import write_run_tree
 
 NX1, NX2 = 24, 8
 XMAX1, XMAX2 = 6.0, 2.0
@@ -113,66 +113,21 @@ def field(name: str, iteration: int) -> np.ndarray:
     return value.astype(np.float32)
 
 
-def _write_series(directory, *, name: str, prefix: str, iterations: list[int], burst: bool) -> None:
-    """Write one diagnostic series.
-
-    ``burst=True`` reproduces OSIRIS burst naming (filename index = absolute
-    iteration); otherwise the filename index is the dump counter ``n / ndump``.
-    """
-    for n in iterations:
-        file_index = n if burst else n // NDUMP
-        write_grid_file(
-            directory / f"{prefix}-{file_index:06d}.h5",
-            name=name,
-            data=field(name, n),
-            iteration=1,  # overwritten below
-            dt=DT,
-            ndump=NDUMP,
-            grid=np.array([[0.0, XMAX1], [0.0, XMAX2]]),
-            units="",
-            label=name,
-        )
-        # write_grid_file stores ITER = iteration * ndump; rewrite it so the file
-        # carries the true iteration, exactly as OSIRIS does.
-        import h5py
-
-        with h5py.File(directory / f"{prefix}-{file_index:06d}.h5", "r+") as f:
-            f.attrs["ITER"] = [n]
-            f.attrs["TIME"] = [n * DT]
-
-
 def build_burst_tree(root, *, burst_quantities: set[str]) -> tuple[list[int], list[int]]:
     """Write a synthetic run; quantities in *burst_quantities* get burst dumps."""
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "shock.2d").write_text(DECK)
-
-    dumps = [m * NDUMP for m in range(N_DUMPS)]
-    bursted = sorted({n + k for n in dumps for k in (-1, 0, 1) if n + k >= 0})
-
-    ms = root / "MS"
-    for fld in ("e1", "b2", "b3"):
-        iters = bursted if fld in burst_quantities else dumps
-        _write_series(ms / "FLD" / fld, name=fld, prefix=fld, iterations=iters, burst=fld in burst_quantities)
-
-    iters = bursted if "charge" in burst_quantities else dumps
-    _write_series(
-        ms / "DENSITY" / SPECIES / "charge",
-        name="charge",
-        prefix=f"charge-{SPECIES}",
-        iterations=iters,
-        burst="charge" in burst_quantities,
+    return write_run_tree(
+        root,
+        deck=DECK,
+        fields=("e1", "b2", "b3"),
+        moments=("vfl1", "vfl2", "vfl3", "T11", "T12"),
+        species=SPECIES,
+        data=field,
+        dumps=[m * NDUMP for m in range(N_DUMPS)],
+        burst_quantities=burst_quantities,
+        dt=DT,
+        ndump=NDUMP,
+        grid=np.array([[0.0, XMAX1], [0.0, XMAX2]]),
     )
-
-    for moment in ("vfl1", "vfl2", "vfl3", "T11", "T12"):
-        iters = bursted if moment in burst_quantities else dumps
-        _write_series(
-            ms / "UDIST" / SPECIES / moment,
-            name=moment,
-            prefix=f"{moment}-{SPECIES}",
-            iterations=iters,
-            burst=moment in burst_quantities,
-        )
-    return dumps, bursted
 
 
 ALL_QUANTITIES = {"e1", "b2", "b3", "charge", "vfl1", "vfl2", "vfl3", "T11", "T12"}

@@ -233,6 +233,51 @@ def write_grid_series(
     return paths
 
 
+def write_run_tree(
+    root: Path,
+    *,
+    deck: str,
+    fields: tuple[str, ...],
+    moments: tuple[str, ...],
+    species: str,
+    data: Callable[[str, int], np.ndarray],
+    dumps: list[int],
+    burst_quantities: set[str],
+    dt: float,
+    ndump: int,
+    grid: np.ndarray,
+) -> tuple[list[int], list[int]]:
+    """A 2-D run: fields, the species' charge and moments, each at the iterations *dumps*.
+
+    A quantity in *burst_quantities* is also dumped at the two neighbours of
+    every dump and named as OSIRIS names burst dumps (file index = absolute
+    iteration, instead of the dump counter ``n // ndump``).  ``data(name, n)``
+    is the frame of *name* at iteration *n*.  Returns ``(dumps, bursted)``.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "shock.2d").write_text(deck)
+    bursted = sorted({n + k for n in dumps for k in (-1, 0, 1) if n + k >= 0})
+    series = [(f"FLD/{f}", f, f) for f in fields]
+    series += [(f"DENSITY/{species}/charge", "charge", f"charge-{species}")]
+    series += [(f"UDIST/{species}/{m}", m, f"{m}-{species}") for m in moments]
+    for subdir, name, prefix in series:
+        burst = name in burst_quantities
+        for n in bursted if burst else dumps:
+            # ndump=1: the file carries the absolute iteration n, as OSIRIS writes it
+            write_grid_file(
+                root / "MS" / subdir / f"{prefix}-{(n if burst else n // ndump):06d}.h5",
+                name=name,
+                data=data(name, n),
+                iteration=n,
+                dt=dt,
+                ndump=1,
+                grid=grid,
+                units="",
+                label=name,
+            )
+    return dumps, bursted
+
+
 def write_species_moment(sim_dir: Path, quantity: str, data_fn, *, species: str = SPECIES) -> list[Path]:
     """Add a UDIST moment series (vfl1, P12, Q112, ...) to an existing sim tree."""
     return write_grid_series(
