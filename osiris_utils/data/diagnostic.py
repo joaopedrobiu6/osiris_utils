@@ -263,6 +263,12 @@ class Diagnostic:
         self._maxiter: int | None = None
         self._tunits: str | None = None  # time units
         self._data: np.ndarray | None = None  # populated by load_all()
+        self._path: str | None = None  # dump directory (file-backed only)
+        self._file_list: list[str] | None = None  # dump files, in frame order (file-backed only)
+        self._file_indices: np.ndarray | None = None  # their NNNNNN indices
+        # Diagnostics this one is computed from (arithmetic operands, the
+        # wrapped input of a post-processing step); empty when read from files.
+        self._parents: tuple[Diagnostic, ...] = ()
 
         if simulation_folder:
             self._simulation_folder = simulation_folder
@@ -664,6 +670,10 @@ class Diagnostic:
 
     def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
         """Return one timestep (lazy). Overridden by derived diagnostics."""
+        # Loaded data first: an arithmetic result of two loaded operands is
+        # computed eagerly and has no files of its own to read.
+        if self._all_loaded and self._data is not None:
+            return self._data[index] if data_slice is None else self._data[(index, *data_slice)]
         return self._read_index(index, data_slice=data_slice)
 
     ###########################################
@@ -823,12 +833,7 @@ class Diagnostic:
         for attr in _ATTRS_TO_CLONE:
             if hasattr(self, attr):
                 setattr(clone, attr, getattr(self, attr))
-        # If this diagnostic already discovered a _file_list via _scan_files,
-        # copy it too (harmless for virtual diags).
-        if hasattr(self, "_file_list"):
-            clone._file_list = self._file_list
-        if hasattr(self, "_file_indices"):
-            clone._file_indices = self._file_indices
+        # Not the file list: a result's frames are not its operand's files.
         return clone
 
     def _derive_from(self, source: Diagnostic) -> None:
@@ -838,6 +843,7 @@ class Diagnostic:
         *source* becomes ``self._diag``, the input its ``_frame`` transforms.
         """
         self._diag = source
+        self._parents = (source,)
         self._species = getattr(source, "_species", None)
         self._simulation_folder = getattr(source, "_simulation_folder", None)
         for attr in _GRID_ATTRS:
@@ -887,6 +893,7 @@ class Diagnostic:
                 return op_func(self._frame(index, data_slice=data_slice), other)
 
         result._frame = _frame  # attach method dynamically
+        result._parents = (self, other) if isinstance(other, Diagnostic) else (self,)
         result._all_loaded = False
         result._data = None
         return result
@@ -915,6 +922,7 @@ class Diagnostic:
             return op_func(self._frame(index, data_slice=data_slice))
 
         result._frame = _frame
+        result._parents = (self,)
         result._all_loaded = False
         result._data = None
         return result

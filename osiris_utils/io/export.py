@@ -68,6 +68,7 @@ from __future__ import annotations
 
 import json
 import os
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -76,74 +77,13 @@ import numpy as np
 import tqdm
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from ..data.diagnostic import Diagnostic
     from ..data.simulation import Simulation
 
 # Beyond ~32 threads, Lustre MDS contention dominates on HPC clusters.
 _MAX_EXPORT_WORKERS = 32
-
-
-def _read_frame(args: tuple) -> tuple[int, np.ndarray]:
-    """Worker: read one frame and optionally reduce spatial axes.
-
-    Uses ``_frame()`` — the universal interface for all diagnostic types
-    (base file-backed and derived via arithmetic / post-processing).  Spatial
-    reduction is done inside the thread so that only the (much smaller)
-    reduced array crosses the thread boundary.
-    """
-    diagnostic, index, reduce_axis = args
-    arr = diagnostic._frame(index)
-    if reduce_axis is not None:
-        arr = arr.mean(axis=reduce_axis)
-    return index, arr
-
-
-# -----------------------------------------------------------------------
-# Derived-diagnostic helpers
-# -----------------------------------------------------------------------
-
-
-def _collect_chain(diagnostic, _seen: set | None = None) -> list:
-    """Recursively collect every Diagnostic in the computation chain.
-
-    Used to find the file-backed leaves to prefetch and the widest time
-    stencil in the chain (see :func:`_get_stencil_range`).
-    """
-    from ..data.diagnostic import Diagnostic
-
-    if _seen is None:
-        _seen = set()
-    uid = id(diagnostic)
-    if uid in _seen:
-        return []
-    _seen.add(uid)
-
-    chain = [diagnostic]
-
-    # Arithmetic-derived: _frame is a closure capturing 'self' and 'other'
-    instance_frame = diagnostic.__dict__.get('_frame')
-    if instance_frame is not None and hasattr(instance_frame, '__closure__') and instance_frame.__closure__:
-        for cell in instance_frame.__closure__:
-            try:
-                val = cell.cell_contents
-                if isinstance(val, Diagnostic):
-                    chain.extend(_collect_chain(val, _seen))
-            except ValueError:
-                pass  # empty cell
-
-    # Post-processing subclasses store their parent in self._diag
-    diag_attr = getattr(diagnostic, '_diag', None)
-    if isinstance(diag_attr, Diagnostic):
-        chain.extend(_collect_chain(diag_attr, _seen))
-
-    return chain
-
-
-def _resolve_workers(n_workers: int | None, n_frames: int) -> int:
-    cpu = os.cpu_count() or 4
-    if n_workers is None:
-        return min(_MAX_EXPORT_WORKERS, n_frames, cpu)
-    return max(1, min(n_workers, _MAX_EXPORT_WORKERS, n_frames))
 
 
 def export_to_npy(
@@ -229,36 +169,32 @@ def export_to_npy(
     >>> np.load("e1_x1avg_tavg.npy").shape       # (nx2,)
     """
     output_path = Path(output_path).resolve()
-
-    if output_path.exists() and not overwrite:
-        raise FileExistsError(f"{output_path} already exists.  Pass overwrite=True to replace it.")
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
     n_frames = len(diagnostic)
     if n_frames == 0:
         raise RuntimeError("Diagnostic has no timesteps.")
 
-    # ------------------------------------------------------------------
-    # Probe shape / dtype from first frame (do not keep in memory).
-    # ------------------------------------------------------------------
+    # An interrupted run of this same export left a progress record next to
+    # its partial output (the memmap, or the running sum): resume it.  Any
+    # other existing output is refused unless overwrite=True.
+    mode = "time_average" if time_average else "frames"
+    progress_path = output_path.with_suffix(".progress")
+    acc_path = output_path.with_suffix(".acc.npy")
+    completed: set[int] = set()
+    if not overwrite and (acc_path if time_average else output_path).exists():
+        completed = _load_progress(progress_path, mode, n_frames, reduce_axis) or set()
+    if output_path.exists() and not overwrite and not completed:
+        raise FileExistsError(f"{output_path} already exists.  Pass overwrite=True to replace it.")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Probe shape / dtype from the first frame (not kept in memory).
     try:
-        first_raw = diagnostic._frame(0)
+        first = diagnostic._frame(0)
     except Exception as exc:
         raise RuntimeError("Failed to read the first timestep.") from exc
+    dtype = first.dtype
+    frame_shape = (first if reduce_axis is None else first.mean(axis=reduce_axis)).shape
+    del first
 
-    # Shape after optional spatial reduction
-    if reduce_axis is not None:
-        first_reduced = first_raw.mean(axis=reduce_axis)
-    else:
-        first_reduced = first_raw
-    frame_shape = first_reduced.shape
-    raw_dtype = first_raw.dtype
-    del first_raw, first_reduced
-
-    # ------------------------------------------------------------------
-    # Derived-diagnostic detection
-    # ------------------------------------------------------------------
     # Derived diagnostics (arithmetic results, Derivative_Diagnostic, FFT, …)
     # keep a small per-instance LRU of frames (Diagnostic.frame_cache_size),
     # sized for sequential sliding-window access.  With N workers,
@@ -266,63 +202,56 @@ def export_to_npy(
     # and files are re-read; sequentially, each frame after the stencil
     # warm-up costs one new read.  So derived diagnostics run on one worker,
     # with the chain's file-backed leaves prefetched ahead of it.
-    derived = diagnostic.is_derived
-    if derived:
-        chain = _collect_chain(diagnostic)
-        if n_workers is None:
-            n_workers = 1
-        elif n_workers > 1:
-            import warnings
-
+    if diagnostic.is_derived:
+        if n_workers is not None and n_workers > 1:
             warnings.warn(
                 f"Derived diagnostic detected — forcing n_workers=1 for memory and cache efficiency. "
                 f"(You requested n_workers={n_workers}.) "
                 f"See export_to_npy docstring for details.",
-                stacklevel=3,
+                stacklevel=2,
             )
-            n_workers = 1
+        n_workers = 1
     else:
-        chain = [diagnostic]
         n_workers = _resolve_workers(n_workers, n_frames)
 
-    # ------------------------------------------------------------------
-    # Branch 1 — time_average=True: streaming accumulator, O(frame) RAM.
-    # Output: a single frame (spatially averaged if reduce_axis is set).
-    # ------------------------------------------------------------------
+    # Where each frame goes, and what a checkpoint writes: the memory-mapped
+    # output (peak RAM ~ one chunk, whatever n_frames), or a float64 running
+    # sum for the time average (O(frame) RAM).
     if time_average:
-        return _export_time_average(
-            diagnostic=diagnostic,
-            output_path=output_path,
-            n_frames=n_frames,
-            frame_shape=frame_shape,
-            raw_dtype=raw_dtype,
-            reduce_axis=reduce_axis,
-            n_workers=n_workers,
-            chunk_size=chunk_size,
-            show_progress=show_progress,
-            overwrite=overwrite,
-            checkpoint=checkpoint,
-            chain=chain,
-        )
+        acc = np.load(acc_path).astype(np.float64) if completed else np.zeros(frame_shape)
 
-    # ------------------------------------------------------------------
-    # Branch 2 — full export (with optional per-frame spatial reduction).
-    # Output: (n_frames, *frame_shape), memory-mapped → bounded RAM.
-    # ------------------------------------------------------------------
-    return _export_frames(
-        diagnostic=diagnostic,
-        output_path=output_path,
-        n_frames=n_frames,
-        frame_shape=frame_shape,
-        raw_dtype=raw_dtype,
-        reduce_axis=reduce_axis,
-        n_workers=n_workers,
-        chunk_size=chunk_size,
-        show_progress=show_progress,
-        overwrite=overwrite,
-        checkpoint=checkpoint,
-        chain=chain,
-    )
+        def store(idx: int, arr: np.ndarray) -> None:
+            np.add(acc, arr, out=acc)
+
+        def save() -> None:
+            np.save(acc_path, acc)
+
+    else:
+        out = np.lib.format.open_memmap(output_path, mode="r+" if completed else "w+", dtype=dtype, shape=(n_frames, *frame_shape))
+
+        def store(idx: int, arr: np.ndarray) -> None:
+            out[idx] = arr
+
+        save = out.flush
+
+    pending = [i for i in range(n_frames) if i not in completed]
+    desc = f"{'Time-averaging' if time_average else 'Exporting'} → {output_path.name}"
+    with tqdm.tqdm(total=n_frames, initial=len(completed), desc=desc, unit="frame", disable=not show_progress) as pbar:
+        for idx, arr in _iter_frames(diagnostic, pending, reduce_axis, n_workers, chunk_size):
+            store(idx, arr)
+            completed.add(idx)
+            pbar.update(1)
+            if checkpoint and len(completed) % chunk_size == 0:
+                save()
+                _save_progress(progress_path, mode, n_frames, reduce_axis, completed)
+
+    if time_average:
+        np.save(output_path, acc / n_frames)
+        acc_path.unlink(missing_ok=True)
+    else:
+        out.flush()
+    progress_path.unlink(missing_ok=True)
+    return output_path
 
 
 # ======================================================================
@@ -330,24 +259,81 @@ def export_to_npy(
 # ======================================================================
 
 
-def _make_pbar(desc: str, total: int, n_workers: int, chunk_mb: float, show: bool) -> tqdm.tqdm:
-    return tqdm.tqdm(
-        total=total,
-        desc=desc,
-        unit="frame",
-        disable=not show,
-        postfix={"workers": n_workers, "chunk": f"{chunk_mb:.0f} MB"},
-    )
+def _resolve_workers(n_workers: int | None, n_frames: int) -> int:
+    cpu = os.cpu_count() or 4
+    if n_workers is None:
+        return min(_MAX_EXPORT_WORKERS, n_frames, cpu)
+    return max(1, min(n_workers, _MAX_EXPORT_WORKERS, n_frames))
+
+
+def _read_frame(diagnostic: Diagnostic, index: int, reduce_axis) -> tuple[int, np.ndarray]:
+    """One frame, spatially reduced if asked — in the worker, so only the reduced array crosses threads."""
+    arr = diagnostic._frame(index)
+    return index, arr if reduce_axis is None else arr.mean(axis=reduce_axis)
+
+
+def _iter_frames(diagnostic: Diagnostic, pending: list[int], reduce_axis, n_workers: int, chunk_size: int) -> Iterator[tuple[int, np.ndarray]]:
+    """Yield ``(index, frame)`` for every *pending* index, in bounded memory.
+
+    With several workers (a file-backed diagnostic), threads read up to
+    *chunk_size* frames at a time — h5py releases the GIL, so they overlap
+    I/O latency — and frames are yielded as they complete.  With one (a
+    derived diagnostic), frames are computed in order on this thread while an
+    I/O pool reads the next frame of every file-backed leaf of the chain into
+    that leaf's frame cache, so the evaluation finds it without touching disk.
+    """
+    if n_workers > 1:
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            for start in range(0, len(pending), chunk_size):
+                futures = [pool.submit(_read_frame, diagnostic, i, reduce_axis) for i in pending[start : start + chunk_size]]
+                for future in as_completed(futures):
+                    yield future.result()
+        return
+
+    chain = _collect_chain(diagnostic)
+    leaves = [d for d in chain if getattr(d, "_file_list", None) is not None]  # the ones that read files
+    reach = _prefetch_reach(chain)
+    n_frames = len(diagnostic)
+    with ThreadPoolExecutor(max_workers=max(1, min(_MAX_EXPORT_WORKERS, len(leaves) * (reach + 1)))) as io:
+        # warm the stencil window of the first frame
+        first = pending[0] if pending else 0
+        for future in [io.submit(leaf._read_index, j) for leaf in leaves for j in range(first, min(first + reach + 1, n_frames))]:
+            future.result()
+        ahead: list = []
+        for idx in pending:
+            for future in ahead:
+                future.result()
+            frame = _read_frame(diagnostic, idx, reduce_axis)
+            nxt = idx + reach + 1
+            ahead = [io.submit(leaf._read_index, nxt) for leaf in leaves] if nxt < n_frames else []
+            yield frame
+        for future in ahead:
+            future.result()
+
+
+def _collect_chain(diagnostic: Diagnostic) -> list[Diagnostic]:
+    """*diagnostic* and every diagnostic it is computed from (its ``_parents``, recursively), each once."""
+    chain: list = []
+    seen: set[int] = set()
+    stack = [diagnostic]
+    while stack:
+        d = stack.pop()
+        if id(d) in seen:
+            continue
+        seen.add(id(d))
+        chain.append(d)
+        stack.extend(getattr(d, "_parents", ()))
+    return chain
+
+
+def _prefetch_reach(chain: list[Diagnostic]) -> int:
+    """How many frames ahead the time derivatives in *chain* read (0 without one)."""
+    return max((max(d._fd_stencil) for d in chain if getattr(d, "_has_time", False)), default=0)
 
 
 # ------------------------------------------------------------------
 # Progress / checkpoint helpers
 # ------------------------------------------------------------------
-
-
-def _progress_path(output_path: Path) -> Path:
-    """Sidecar file that tracks which frames have been written."""
-    return output_path.with_suffix(".progress")
 
 
 def _load_progress(
@@ -410,364 +396,6 @@ def _save_progress(
     with open(tmp, "w") as f:
         json.dump(data, f)
     tmp.replace(progress_path)
-
-
-# ------------------------------------------------------------------
-# Frame export helpers
-# ------------------------------------------------------------------
-
-
-def _find_base_diagnostics(chain: list) -> list:
-    """Return only the file-backed base diagnostics from the chain.
-
-    These are the leaf nodes of the computation graph — they hold a
-    ``_file_list`` and can call ``_read_index`` directly.  Prefetching
-    their files in parallel is safe because each call opens an independent
-    HDF5 handle.
-    """
-    return [d for d in chain if getattr(d, '_file_list', None) is not None]
-
-
-def _get_stencil_range(chain: list) -> tuple[int, int]:
-    """Return ``(max_backward, max_forward)`` time-frame offsets across all temporal derivatives.
-
-    Only considers diagnostics with ``_deriv_type == 't'`` — spatial derivatives
-    (x1, x2, x3) use the same ``_stencil`` attribute for spatial grid offsets, which
-    must not be confused with time-frame offsets when sizing the prefetch window.
-    Zero when no temporal ``Derivative_Diagnostic`` is present in the chain.
-    """
-    max_back = max_fwd = 0
-    for d in chain:
-        if getattr(d, '_deriv_type', None) != 't':
-            continue
-        stencil = getattr(d, '_stencil', None)
-        if stencil is not None:
-            for s in stencil:
-                s = int(s)
-                if s < 0:
-                    max_back = max(max_back, -s)
-                elif s > 0:
-                    max_fwd = max(max_fwd, s)
-    return max_back, max_fwd
-
-
-def _prefetch_into_cache(diag, idx: int) -> None:
-    """Warm a base diagnostic's frame cache for time index *idx*.
-
-    ``_read_index`` stores what it reads in the diagnostic's own bounded LRU
-    (``Diagnostic.frame_cache_size`` frames), so the lazy evaluation that
-    follows finds the frame there instead of re-reading the file.  The LRU
-    guards itself with a lock, and a duplicate concurrent read is benign — it
-    produces the same array.
-
-    A stencil window wider than ``frame_cache_size`` evicts its own prefetches;
-    that costs a re-read, never a wrong number.
-    """
-    diag._read_index(idx)
-
-
-def _export_frames(
-    diagnostic,
-    output_path,
-    n_frames,
-    frame_shape,
-    raw_dtype,
-    reduce_axis,
-    n_workers,
-    chunk_size,
-    show_progress,
-    overwrite,
-    checkpoint,
-    chain,
-) -> Path:
-    """Write every frame to a memory-mapped npy file (bounded RAM).
-
-    Two internal paths:
-
-    **Base diagnostics** (direct HDF5 reads, n_workers > 1):
-        Frames are read in parallel into a contiguous chunk buffer, then
-        written to the memmap in one sequential block.  Peak extra RAM =
-        ``chunk_size × frame_bytes``.
-
-    **Derived diagnostics** (arithmetic / post-processing, n_workers = 1):
-        Frames are computed and written one at a time directly into the
-        memmap slot — no chunk buffer — while the chain's file-backed leaves
-        are prefetched one stencil window ahead.
-    """
-    derived = len(chain) > 1 or n_workers == 1
-    progress_path = _progress_path(output_path)
-    full_shape = (n_frames, *frame_shape)
-    frame_bytes = int(np.prod(frame_shape)) * raw_dtype.itemsize
-    chunk_mb = chunk_size * frame_bytes / 1024**2
-
-    # ---- resume detection ----
-    completed: set[int] = set()
-    if not overwrite:
-        prev = _load_progress(progress_path, "frames", n_frames, reduce_axis)
-        if prev is not None and output_path.exists():
-            completed = prev
-
-    memmap_mode = "r+" if completed else "w+"
-    out = np.lib.format.open_memmap(
-        output_path,
-        mode=memmap_mode,
-        dtype=raw_dtype,
-        shape=full_shape,
-    )
-
-    pending = [i for i in range(n_frames) if i not in completed]
-    if not pending:
-        return output_path  # already complete
-
-    n_done_already = len(completed)
-
-    if derived:
-        # ------------------------------------------------------------------
-        # Derived path: prefetch pipeline + selective cache eviction.
-        #
-        # Problem: for each output frame the lazy eval graph triggers ~18
-        # sequential HDF5 reads (stencil frames + all "current-only" terms
-        # like n, P12, vfl2, b3 …).  At 7 ms/read that is ~126 ms of pure
-        # I/O per frame, on top of ~50-100 ms of numpy computation.
-        #
-        # Fix: a dedicated I/O thread pool pre-reads every base-diagnostic
-        # file for the NEXT frame while the main thread computes the current
-        # one.  By the time computation finishes the next frame's data is
-        # already in that diagnostic's frame cache — the lazy eval finds it
-        # without touching disk.  The caches are bounded LRUs, so memory
-        # stays (frame_cache_size) x (n_base_diags) x frame_size.
-        # ------------------------------------------------------------------
-        base_diags = _find_base_diagnostics(chain)
-        _, max_fwd = _get_stencil_range(chain)
-        n_io = max(1, min(_MAX_EXPORT_WORKERS, len(base_diags) * (max_fwd + 1)))
-
-        pbar = tqdm.tqdm(
-            total=n_frames,
-            desc=f"Exporting → {output_path.name}",
-            unit="frame",
-            disable=not show_progress,
-            postfix={"mode": "prefetch", "io_workers": n_io, "frame_MB": f"{frame_bytes / 1024**2:.0f}"},
-        )
-        pbar.update(n_done_already)
-
-        with ThreadPoolExecutor(max_workers=n_io) as io_pool:
-            # Warmup: pre-read the initial forward stencil window so the
-            # very first frames don't pay full cold-cache I/O cost.
-            warmup = [io_pool.submit(_prefetch_into_cache, d, j) for d in base_diags for j in range(min(max_fwd + 1, n_frames))]
-            for f in warmup:
-                f.result()
-
-            prefetch_futures: list = []
-            for idx in pending:
-                # Wait for the prefetch that was launched for *this* frame
-                # (submitted at the end of the previous iteration).
-                # In practice these are already done — computation takes
-                # longer than 18 parallel HDF5 reads.
-                for f in prefetch_futures:
-                    f.result()
-
-                # Compute current frame — most reads hit the frame cache.
-                arr = diagnostic._frame(idx)
-                if reduce_axis is not None:
-                    arr = arr.mean(axis=reduce_axis)
-
-                # Launch prefetch for the next forward stencil frame of
-                # every base diagnostic while we write the current frame.
-                next_pf = idx + max_fwd + 1
-                if next_pf < n_frames:
-                    prefetch_futures = [io_pool.submit(_prefetch_into_cache, d, next_pf) for d in base_diags]
-                else:
-                    prefetch_futures = []
-
-                # Write directly into the memmap slot (no chunk buffer).
-                out[idx] = arr
-                del arr
-
-                completed.add(idx)
-                pbar.update(1)
-
-                if checkpoint and len(completed) % chunk_size == 0:
-                    out.flush()
-                    _save_progress(progress_path, "frames", n_frames, reduce_axis, completed)
-
-            # Drain any remaining prefetch futures.
-            for f in prefetch_futures:
-                f.result()
-
-        pbar.close()
-
-    else:
-        # ------------------------------------------------------------------
-        # Base path: parallel reads into a contiguous chunk buffer, then one
-        # sequential write per chunk.
-        # ------------------------------------------------------------------
-        pbar = _make_pbar(
-            f"Exporting → {output_path.name}",
-            total=n_frames,
-            n_workers=n_workers,
-            chunk_mb=chunk_mb,
-            show=show_progress,
-        )
-        pbar.update(n_done_already)
-
-        with ThreadPoolExecutor(max_workers=n_workers) as executor:
-            for chunk_start in range(0, len(pending), chunk_size):
-                chunk_indices = pending[chunk_start : chunk_start + chunk_size]
-                n_chunk = len(chunk_indices)
-
-                # Pre-allocate contiguous buffer so the memmap write is one
-                # sequential block rather than n_chunk scattered seeks.
-                chunk_buf = np.empty((n_chunk, *frame_shape), dtype=raw_dtype)
-                pos_of = {i: pos for pos, i in enumerate(chunk_indices)}
-
-                future_map = {executor.submit(_read_frame, (diagnostic, i, reduce_axis)): i for i in chunk_indices}
-                for future in as_completed(future_map):
-                    idx, arr = future.result()
-                    chunk_buf[pos_of[idx]] = arr
-                    completed.add(idx)
-                    pbar.update(1)
-
-                out_start = chunk_indices[0]
-                out_end = chunk_indices[-1] + 1
-                out[out_start:out_end] = chunk_buf
-                del chunk_buf
-
-                if checkpoint:
-                    out.flush()
-                    _save_progress(progress_path, "frames", n_frames, reduce_axis, completed)
-
-        pbar.close()
-
-    if checkpoint:
-        progress_path.unlink(missing_ok=True)
-    return output_path
-
-
-# ------------------------------------------------------------------
-# Time-average export (streaming accumulator)
-# ------------------------------------------------------------------
-
-
-def _export_time_average(
-    diagnostic,
-    output_path,
-    n_frames,
-    frame_shape,
-    raw_dtype,
-    reduce_axis,
-    n_workers,
-    chunk_size,
-    show_progress,
-    overwrite,
-    checkpoint,
-    chain,
-) -> Path:
-    """Stream a running mean over all timesteps — O(frame_size) RAM.
-
-    Uses a float64 accumulator for numerical stability.  The accumulator
-    state is checkpointed to a ``.acc.npy`` sidecar after every chunk so
-    that an interrupted run can resume without reprocessing all frames.
-    """
-    progress_path = _progress_path(output_path)
-    acc_path = output_path.with_suffix(".acc.npy")
-    frame_bytes = int(np.prod(frame_shape)) * np.dtype(np.float64).itemsize
-    chunk_mb = chunk_size * frame_bytes / 1024**2
-
-    # ---- resume detection ----
-    completed: set[int] = set()
-    if not overwrite:
-        prev = _load_progress(progress_path, "time_average", n_frames, reduce_axis)
-        if prev is not None and acc_path.exists():
-            completed = prev
-            acc = np.load(acc_path).astype(np.float64)
-        else:
-            acc = np.zeros(frame_shape, dtype=np.float64)
-    else:
-        acc = np.zeros(frame_shape, dtype=np.float64)
-
-    pending = [i for i in range(n_frames) if i not in completed]
-    if not pending:
-        # All frames were already accumulated in a previous run; just finalise.
-        acc /= n_frames
-        np.save(output_path, acc)
-        progress_path.unlink(missing_ok=True)
-        acc_path.unlink(missing_ok=True)
-        return output_path
-
-    n_done_already = len(completed)
-    pbar = _make_pbar(
-        f"Time-averaging → {output_path.name}",
-        total=n_frames,
-        n_workers=n_workers,
-        chunk_mb=chunk_mb,
-        show=show_progress,
-    )
-    pbar.update(n_done_already)
-
-    derived = len(chain) > 1 or n_workers == 1
-
-    if derived:
-        # Derived path: same prefetch pipeline as _export_frames.
-        base_diags = _find_base_diagnostics(chain)
-        _, max_fwd = _get_stencil_range(chain)
-        n_io = max(1, min(_MAX_EXPORT_WORKERS, len(base_diags) * (max_fwd + 1)))
-
-        with ThreadPoolExecutor(max_workers=n_io) as io_pool:
-            warmup = [io_pool.submit(_prefetch_into_cache, d, j) for d in base_diags for j in range(min(max_fwd + 1, n_frames))]
-            for f in warmup:
-                f.result()
-
-            prefetch_futures: list = []
-            for idx in pending:
-                for f in prefetch_futures:
-                    f.result()
-
-                arr = diagnostic._frame(idx)
-                if reduce_axis is not None:
-                    arr = arr.mean(axis=reduce_axis)
-
-                next_pf = idx + max_fwd + 1
-                if next_pf < n_frames:
-                    prefetch_futures = [io_pool.submit(_prefetch_into_cache, d, next_pf) for d in base_diags]
-                else:
-                    prefetch_futures = []
-
-                acc += arr
-                del arr
-                completed.add(idx)
-                pbar.update(1)
-
-                if checkpoint and len(completed) % chunk_size == 0:
-                    np.save(acc_path, acc)
-                    _save_progress(progress_path, "time_average", n_frames, reduce_axis, completed)
-
-            for f in prefetch_futures:
-                f.result()
-    else:
-        with ThreadPoolExecutor(max_workers=n_workers) as executor:
-            for chunk_start in range(0, len(pending), chunk_size):
-                chunk_indices = pending[chunk_start : chunk_start + chunk_size]
-
-                future_map = {executor.submit(_read_frame, (diagnostic, i, reduce_axis)): i for i in chunk_indices}
-                for future in as_completed(future_map):
-                    idx, arr = future.result()
-                    acc += arr
-                    completed.add(idx)
-                    pbar.update(1)
-
-                if checkpoint:
-                    np.save(acc_path, acc)
-                    _save_progress(progress_path, "time_average", n_frames, reduce_axis, completed)
-
-    pbar.close()
-
-    acc /= n_frames
-    np.save(output_path, acc)
-
-    if checkpoint:
-        progress_path.unlink(missing_ok=True)
-        acc_path.unlink(missing_ok=True)
-    return output_path
 
 
 def export_simulation_to_npy(

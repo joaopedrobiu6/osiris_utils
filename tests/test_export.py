@@ -86,3 +86,59 @@ def test_export_simulation_writes_one_file_per_quantity(sim, tmp_path):
     assert written["e3"].name == "e3.npy"
     assert written["electrons/vfl1"].name == "electrons_vfl1.npy"
     assert np.load(written["electrons/vfl1"]).shape == (N_TIMESTEPS, NX)
+
+
+def test_loaded_operands_give_a_result_with_its_own_frames(sim_dir, tmp_path):
+    """a * b of two loaded diagnostics is computed eagerly.  Its frames used to be
+    read from a's files (it inherited a's file list), so exporting or
+    differentiating it silently worked on a."""
+    loaded = Simulation(str(sim_dir / "thermal.1d"))
+    a, b = loaded["e3"], loaded["electrons"]["vfl1"]
+    a.load_all()
+    b.load_all()
+    c = a * b
+
+    fresh = Simulation(str(sim_dir / "thermal.1d"))
+    lazy = fresh["e3"] * fresh["electrons"]["vfl1"]
+    np.testing.assert_allclose(c._frame(1), lazy[1])
+    np.testing.assert_allclose(np.load(ou.export_to_npy(c, tmp_path / "c.npy", show_progress=False)), lazy[:])
+    np.testing.assert_allclose(ou.Derivative_Diagnostic(c, "x1")[2], ou.Derivative_Diagnostic(lazy, "x1")[2])
+
+
+@pytest.mark.parametrize("time_average", [False, True])
+def test_an_interrupted_export_resumes(sim, tmp_path, time_average):
+    """Checkpoints every chunk_size frames; a rerun computes only what is missing."""
+    e3 = sim["e3"] * 1.0  # derived: frames computed in order
+    out = tmp_path / "r.npy"
+    calls: list[int] = []
+    frame = e3._frame
+
+    def flaky(i, data_slice=None):
+        if i == 4 and not calls.count(-1):
+            calls.append(-1)
+            raise OSError("node died")
+        calls.append(i)
+        return frame(i, data_slice)
+
+    e3._frame = flaky
+    with pytest.raises(OSError, match="node died"):
+        ou.export_to_npy(e3, out, chunk_size=2, time_average=time_average, show_progress=False)
+    calls.clear()
+    calls.append(-1)  # the failure happened once; let the rerun through
+    result = np.load(ou.export_to_npy(e3, out, chunk_size=2, time_average=time_average, show_progress=False))
+
+    full = sim["e3"][:]
+    np.testing.assert_allclose(result, full.mean(axis=0) if time_average else full, rtol=1e-6)
+    assert calls[1:] == [0, 4, 5]  # probe frame 0, then only the frames after the last checkpoint
+    assert not out.with_suffix(".progress").exists()
+
+
+def test_chain_follows_arithmetic_and_post_processing(sim):
+    from osiris_utils.io.export import _collect_chain, _prefetch_reach
+
+    n, v = sim["electrons"]["n"], sim["electrons"]["vfl1"]
+    d = ou.Derivative_Diagnostic(n * v, "t", order=4)
+    chain = _collect_chain(d)
+    assert any(x is n for x in chain) and any(x is v for x in chain)
+    assert _prefetch_reach(chain) == 2  # the 5-point time stencil reads two frames ahead
+    assert _prefetch_reach(_collect_chain(ou.Derivative_Diagnostic(n, "x1"))) == 0
