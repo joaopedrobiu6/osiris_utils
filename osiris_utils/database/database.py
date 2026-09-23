@@ -161,8 +161,10 @@ class DatabaseBuildConfig:
     filters :
         Spatial filters applied, in order, to every raw 2-D frame *before*
         any physics (e_vlasov, mean fields, derivatives) is computed.
-        Empty (default) = no filtering, 4th-order finite-difference
-        derivatives — identical to the historical tensors.  Filters like
+        Empty (default) = no filtering and the finite differences of
+        :func:`~osiris_utils.filters.fd_derivative`: 4th order along x1, the
+        centred ``[-1, 0, 1]`` stencil along the periodic x2 (the scheme
+        ``AnomalousResistivity`` uses, so the two agree).  Filters like
         :class:`~osiris_utils.filters.SavitzkyGolayFilter` also
         supply their own analytic derivative scheme, used for every
         derivative in the pipeline in a single pass per order.  The frame

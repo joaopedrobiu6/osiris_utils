@@ -93,7 +93,11 @@ def _mesh() -> tuple[np.ndarray, np.ndarray]:
 
 def _base(seed: float) -> np.ndarray:
     X1, X2 = _mesh()
-    return np.sin(2 * np.pi * X1 / XMAX1) * np.cos(2 * np.pi * X2 / XMAX2) + seed
+    # The second, phase-shifted x2 harmonic breaks the parity of a single
+    # cos(k x2) mode.  Without it the transverse average of any x2-derivative
+    # error vanishes by symmetry, and a wrong x2 stencil passes every parity test.
+    k2 = 2 * np.pi / XMAX2
+    return np.sin(2 * np.pi * X1 / XMAX1) * (np.cos(k2 * X2) + 0.3 * np.sin(2 * k2 * X2 + 0.7)) + seed
 
 
 def _rate(seed: float) -> np.ndarray:

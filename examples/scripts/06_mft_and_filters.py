@@ -15,8 +15,9 @@ with ``"avg"`` or ``"delta"`` to get the actual time-indexed diagnostics.
 is the part that is easy to miss — each one also carries **its own derivative
 scheme**:
 
-* :class:`~osiris_utils.NoFilter` — identity smoothing, 4th-order finite
-  differences.  The default everywhere; reproduces unfiltered results exactly.
+* :class:`~osiris_utils.NoFilter` — identity smoothing, finite differences:
+  4th order along the open x1 axis, the centred ``[-1, 0, 1]`` stencil along
+  the periodic x2.  The default everywhere; reproduces unfiltered results exactly.
 * :class:`~osiris_utils.SavitzkyGolayFilter` — local polynomial fit;
   the m-th derivative is the m-th derivative *of that fit*, in one pass
   (needs ``polyorder >= m``).
@@ -130,8 +131,9 @@ def main() -> None:
         err = np.abs(d - exact).max() / np.abs(exact).max()
         show(f"{name} d/dx2 vs exact d/dx2", f"{err:.3e}")
 
-    # fd_derivative is the standalone 4th-order stencil NoFilter uses; higher
-    # orders are repeated applications of the first-derivative scheme.
+    # fd_derivative is the standalone stencil NoFilter uses (4th order on an
+    # open axis, [-1, 0, 1] on a periodic one); higher orders are repeated
+    # applications of the first-derivative scheme.
     show("fd_derivative order=2", fd_derivative(frame, dx1, axis=0, order=2, periodic=False).shape)
 
     # Savitzky-Golay refuses a derivative its polynomial fit cannot support.

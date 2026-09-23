@@ -63,9 +63,10 @@ class AnomalousResistivityConfig:
         and whose own derivative scheme then replaces finite differences —
         the same contract as ``DatabaseBuildConfig.filters``, except that
         here nothing is precomputed: each frame is smoothed when a timestep
-        is asked for.  Empty (default) = no filtering, 4th-order
-        finite-difference derivatives, i.e. the historical behaviour
-        unchanged.  See :mod:`osiris_utils.filters`.
+        is asked for.  Empty (default) = no filtering: 4th-order finite
+        differences along x1 and the centred ``[-1, 0, 1]`` stencil along the
+        periodic x2, the same as the unfiltered database.  See
+        :mod:`osiris_utils.filters`.
     """
 
     species: str = "electrons"

@@ -122,8 +122,9 @@ class LorentzDatabaseBuildConfig:
     filters :
         Spatial filters applied, in order, to every raw 2-D field right after
         loading — *before* the Lorentz boost and the transverse average.
-        Empty (default) = no filtering, 4th-order finite-difference
-        derivatives.  Filters like
+        Empty (default) = no filtering and the finite differences of
+        :func:`~osiris_utils.filters.fd_derivative` (4th order along x1,
+        ``[-1, 0, 1]`` along the periodic x2).  Filters like
         :class:`~osiris_utils.filters.SavitzkyGolayFilter` also supply their own
         analytic derivative scheme, used for every derivative in the pipeline.
         As in ``DatabaseBuildConfig``, this and ``ar_config.filters`` may not
@@ -730,8 +731,9 @@ def _boost_frame_quantities(
     :math:`(g_{hi}-g_{lo})/h`, :math:`\partial_t^2` is
     :math:`4(g_{hi}-2g_{mid}+g_{lo})/h^2` (the half-width is :math:`h/2`), and
     :math:`\partial_t\partial_x` differences the spatial derivative across the
-    same triple.  Spatial derivatives come from ``filt.derivative`` (4th-order
-    finite differences for :class:`~osiris_utils.filters.NoFilter`).
+    same triple.  Spatial derivatives come from ``filt.derivative`` (the finite
+    differences of :func:`~osiris_utils.filters.fd_derivative` for
+    :class:`~osiris_utils.filters.NoFilter`).
 
     e_vlasov and eta
     ----------------

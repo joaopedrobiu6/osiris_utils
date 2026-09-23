@@ -238,6 +238,18 @@ def test_filtered_ar_reproduces_the_database_tensors(sim, tmp_path, filters):
             np.testing.assert_allclose(got, expected[t], err_msg=f"{key} at t={t}", **tol)
 
 
+def test_unfiltered_transverse_derivative_is_the_centred_stencil():
+    """NoFilter's periodic (x2) derivative is (f[i+1] - f[i-1]) / 2dx, as in AnomalousResistivity.
+
+    On a Fourier mode that stencil is exact up to the known factor sin(k dx) / (k dx).
+    """
+    n, k = 16, 3
+    dx = 2 * np.pi / n
+    x = np.arange(n) * dx
+    got = ou.NoFilter().derivative(np.sin(k * x), dx, axis=0, order=1, periodic=True)
+    np.testing.assert_allclose(got, np.sin(k * dx) / dx * np.cos(k * x), atol=1e-13)
+
+
 def test_database_takes_the_filter_from_ar_config(sim, tmp_path):
     """One config drives both paths, so ar_config.filters must not be ignored."""
     from_ar = _database(sim, tmp_path / "ar", (), ar_config=_ar_config(filters=FILTER))

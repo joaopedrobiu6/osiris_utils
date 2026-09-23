@@ -26,9 +26,10 @@ Every filter implements the :class:`SpatialFilter` interface:
     effective filter scale is the same for all orders.  Savitzky-Golay
     therefore requires ``polyorder >= order`` (the derivative of the
     local fit must exist at that order).  :class:`NoFilter` falls back
-    to the 4th-order finite differences in :func:`fd_derivative`,
-    applied *order* times (repeated first derivatives — the historical
-    scheme; no smoothing kernel is involved so chaining is exact).
+    to the finite differences in :func:`fd_derivative` (4th order along
+    the open x1 axis, the centred ``[-1, 0, 1]`` stencil along the
+    periodic transverse axis), applied *order* times (repeated first
+    derivatives; no smoothing kernel is involved so chaining is exact).
 
     ``derivative`` does not assume *f* is raw: in the database pipeline
     fields are smoothed once and derivatives are then taken of the
@@ -72,24 +73,20 @@ __all__ = [
 
 
 def fd_derivative(f: np.ndarray, dx: float, axis: int = 0, order: int = 1, periodic: bool = False) -> np.ndarray:
-    r"""4th-order finite-difference derivative of *f* along *axis*.
+    r"""Finite-difference derivative of *f* along *axis*: the :class:`NoFilter` scheme.
 
     Higher *order* derivatives are computed by repeated application of the
     first-derivative scheme — this matches how the database creators
     historically chained first-derivative diagnostics (e.g. the 4th-order
     x1-derivatives of the vnT tensor).
 
-    Interior points use the standard 5-point centered stencil:
-
-    .. math::
-        f'_i = \frac{f_{i-2} - 8f_{i-1} + 8f_{i+1} - f_{i+2}}{12\,\Delta x}
-
-    Boundary treatment
-    ------------------
-    periodic=True (transverse / x2 direction)
-        Wrap-around indexing via ``np.roll``; all points use the centered stencil.
     periodic=False (longitudinal / x1 direction)
-        4th-order one-sided stencils at the four edge points:
+        4th order.  Interior points use the 5-point centred stencil
+
+        .. math::
+            f'_i = \frac{f_{i-2} - 8f_{i-1} + 8f_{i+1} - f_{i+2}}{12\,\Delta x}
+
+        and the four edge points 4th-order one-sided stencils:
 
         .. math::
             f'_0     &= \frac{-25f_0 + 48f_1 - 36f_2 + 16f_3 - 3f_4}
@@ -101,30 +98,29 @@ def fd_derivative(f: np.ndarray, dx: float, axis: int = 0, order: int = 1, perio
             f'_{N-1} &= \frac{3f_{N-5} - 16f_{N-4} + 36f_{N-3} - 48f_{N-2} + 25f_{N-1}}
                               {12\,\Delta x}
 
-    Requires at least 5 points along *axis*.
+        Requires at least 5 points along *axis*.
+
+    periodic=True (transverse / x2 direction)
+        The centred ``[-1, 0, 1]`` stencil with wrap-around,
+        :math:`f'_i = (f_{i+1} - f_{i-1}) / (2\Delta x)` — the transverse
+        derivative :class:`~osiris_utils.ar.anomalous_resistivity.AnomalousResistivity`
+        takes, so the unfiltered database and the lazy pipeline agree.
     """
     if order < 1:
         raise ValueError(f"order must be >= 1, got {order}.")
     out = np.asarray(f, dtype=np.float64)
     for _ in range(order):
-        out = _grad4(out, dx, axis=axis, periodic=periodic)
+        out = _centred_periodic(out, dx, axis) if periodic else _grad4(out, dx, axis)
     return out
 
 
-def _grad4(f: np.ndarray, dx: float, axis: int, periodic: bool = False, fourier: bool = False) -> np.ndarray:
-    """Single application of the 4th-order first-derivative stencil."""
-    if periodic:
-        if fourier:
-            # Fourier derivative: FFT, multiply by ik, IFFT
-            f_hat = np.fft.fft(f, axis=axis)
-            k = np.fft.fftfreq(f.shape[axis], d=dx) * 2.0 * np.pi
-            k = np.moveaxis(k, 0, axis)
-            return np.fft.ifft(1j * k * f_hat, axis=axis).real
-        else:
-            return (
-                np.roll(f, 2, axis=axis) - 8.0 * np.roll(f, 1, axis=axis) + 8.0 * np.roll(f, -1, axis=axis) - np.roll(f, -2, axis=axis)
-            ) / (12.0 * dx)
+def _centred_periodic(f: np.ndarray, dx: float, axis: int) -> np.ndarray:
+    """(f[i+1] - f[i-1]) / (2 dx) with wrap-around along *axis*."""
+    return (np.roll(f, -1, axis=axis) - np.roll(f, 1, axis=axis)) / (2.0 * dx)
 
+
+def _grad4(f: np.ndarray, dx: float, axis: int) -> np.ndarray:
+    """One application of the 4th-order first-derivative stencil on an open axis."""
     # Move the target axis to front for clean 1-D slicing
     fm = np.moveaxis(f, axis, 0)
     out = np.empty_like(fm)
@@ -234,21 +230,22 @@ class SpatialFilter(ABC):
 
 
 class NoFilter(SpatialFilter):
-    """Identity filter: no smoothing, 4th-order finite-difference derivatives.
+    """Identity filter: no smoothing, finite-difference derivatives (:func:`fd_derivative`).
 
-    This is the default for all database creators and reproduces the
-    historical (unfiltered) tensors exactly.
+    The default for all database creators: 4th-order along the open x1 axis,
+    the centred ``[-1, 0, 1]`` stencil along the periodic transverse axis.
     """
 
     def smooth(self, f: np.ndarray, periodic: bool | Sequence[bool] | None = None) -> np.ndarray:  # noqa: ARG002
         return np.asarray(f)
 
     def _first_derivative(self, f: np.ndarray, dx: float, axis: int, periodic: bool) -> np.ndarray:
-        return _grad4(f, dx, axis=axis, periodic=periodic)
+        return fd_derivative(f, dx, axis=axis, order=1, periodic=periodic)
 
     def stencil_radius(self, order: int = 0) -> int:
-        # No smoothing kernel; the 5-point stencil reaches 2 points and higher
-        # orders are repeated applications of it (see fd_derivative).
+        # No smoothing kernel; the 5-point x1 stencil reaches 2 points and higher
+        # orders are repeated applications of it (see fd_derivative).  Slabs are
+        # only ever cut along x1, so the narrower periodic stencil never sets this.
         return 2 * int(order)
 
     def __repr__(self) -> str:
