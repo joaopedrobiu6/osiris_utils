@@ -1,46 +1,29 @@
+"""Cost of opening and reading one OSIRIS grid dump, with and without its metadata."""
+
 import time
+
+import numpy as np
+from _synthetic import field_series
 
 import osiris_utils as ou
 
+SHAPE = (1024, 256)  # grid points per frame
+N_READS = 100
 
-def benchmark_hdf5_io():
-    """Benchmark HDF5 file opening and reading."""
-    print("=" * 60)
-    print("Benchmarking HDF5 I/O Performance")
-    print("=" * 60)
 
-    filepath = "examples/example_data/MS/FLD/e3/e3-000100.h5"
-
-    # Warm-up (file may be cached by OS)
-    _ = ou.OsirisGridFile(filepath)
-
-    # Benchmark multiple loads
-    n_iterations = 100
-    times = []
-
-    print(f"\nLoading file {n_iterations} times...")
-    for _ in range(n_iterations):
-        start = time.time()
-        data = ou.OsirisGridFile(filepath)
-        times.append(time.time() - start)
-
-    avg_time = sum(times) / len(times)
-    min_time = min(times)
-    max_time = max(times)
-
-    print("\nResults:")
-    print(f"  Average load time: {avg_time * 1000:.2f}ms")
-    print(f"  Min load time: {min_time * 1000:.2f}ms")
-    print(f"  Max load time: {max_time * 1000:.2f}ms")
-    print(f"  Data shape: {data.data.shape}")
-    print(f"  Data size: {data.data.nbytes / 1024:.1f} KB")
-
-    # Calculate throughput
-    throughput = (data.data.nbytes / 1024 / 1024) / avg_time
-    print(f"  Throughput: {throughput:.1f} MB/s")
-
-    print("\n" + "=" * 60)
+def read_times(metadata: bool) -> np.ndarray:
+    path = next((field_series("e3", 4, SHAPE) / "MS" / "FLD" / "e3").glob("*.h5"))
+    ou.OsirisGridFile(str(path), metadata=metadata)  # warm-up
+    times = np.empty(N_READS)
+    for i in range(N_READS):
+        start = time.perf_counter()
+        ou.OsirisGridFile(str(path), metadata=metadata)
+        times[i] = time.perf_counter() - start
+    return times
 
 
 if __name__ == "__main__":
-    benchmark_hdf5_io()
+    size_mb = np.prod(SHAPE) * 4 / 1024**2
+    for metadata in (True, False):
+        t = read_times(metadata)
+        print(f"metadata={metadata!s:5}  mean {t.mean() * 1e3:6.2f} ms  min {t.min() * 1e3:6.2f} ms  ({size_mb / t.mean():6.0f} MB/s)")
