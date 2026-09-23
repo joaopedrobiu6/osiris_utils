@@ -26,8 +26,8 @@ Typical usage
     with ou.profile_block("load e1"):
         sim["e1"].load_all()
 
-    # Or instrument automatically via the built-in hooks:
-    # Every load_all() / _read_index() already calls profile_block internally.
+    # Diagnostic.load_all() and the database builders are already
+    # instrumented with profile_block.
 """
 
 from __future__ import annotations
@@ -132,30 +132,8 @@ def profile_block(label: str) -> Generator[None, None, None]:
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers (used by diagnostic.py instrumentation)
+# Internal helpers
 # ---------------------------------------------------------------------------
-
-
-def _start_timer(label: str) -> tuple[str, float] | None:
-    """Return ``(label, t0)`` if profiling is enabled, else ``None``.
-
-    Use this together with :func:`_stop_timer` when you cannot use the
-    ``with profile_block(...)`` form (e.g. the timed region spans an early
-    return or a pre-existing ``with`` block).
-    """
-    if _profile_log.isEnabledFor(logging.DEBUG):
-        return label, time.perf_counter()
-    return None
-
-
-def _stop_timer(token: tuple[str, float] | None) -> None:
-    """Emit a DEBUG timing log if *token* was returned by :func:`_start_timer`."""
-    if token is not None:
-        label, t0 = token
-        elapsed = time.perf_counter() - t0
-        mem = _rss_mb()
-        mem_str = f"  RSS={mem:.0f} MB" if mem is not None else ""
-        _profile_log.debug("%s: %.3fs%s", label, elapsed, mem_str)
 
 
 def _rss_mb() -> float | None:

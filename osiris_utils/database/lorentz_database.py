@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ..ar import AnomalousResistivityConfig
-from ..profiling import _start_timer, _stop_timer
+from ..profiling import profile_block
 from .burst import BurstAxis, BurstConfig
 from .database import _VALID_ETA_FORMULAS, DatabaseCreator, _resolve_filter, _stack_rows
 
@@ -359,17 +359,15 @@ class LorentzDatabaseCreator(DatabaseCreator):
                 frames.append(_stack_rows(q, LORENTZ_E_VLASOV_LABELS))
             return frames
 
-        _timer = _start_timer(
+        label = (
             f"create_lorentz_database({database}, T={self.T}, X={self.X}, "
             f"beta=[{cfg.boost_min:g}, {cfg.boost_max:g}], eta_formula={cfg.eta_formula!r}, filter={filt!r})"
         )
-        try:
+        with profile_block(label):
             for name, labels, _ in specs:
                 logger.info("Tensor '%s': %d features — %s", name, len(labels), labels)
             self._build_tensors(specs, frame_fn, desc=f"Building Lorentz-boosted '{database}' tensors")
             logger.info("All requested databases saved to '%s'.", self.save_folder)
-        finally:
-            _stop_timer(_timer)
 
     @property
     def feature_labels(self) -> list[str]:

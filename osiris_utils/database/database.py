@@ -12,7 +12,7 @@ import tqdm as tqdm
 
 from ..ar import AnomalousResistivityConfig
 from ..filters import NoFilter, SpatialFilter, as_filter
-from ..profiling import _start_timer, _stop_timer
+from ..profiling import profile_block
 from ..utils import resolve_rqm
 from .burst import BurstAxis, BurstConfig, BurstStencil
 
@@ -747,17 +747,15 @@ class DatabaseCreator:
                 frames.append(_stack_rows(qv, vnT_labels))
             return frames
 
-        _timer = _start_timer(
+        label = (
             f"create_database({database}, T={self.T}, X={self.X}, filter={filt!r}, "
             f"dtype={cfg.dtype.__name__ if hasattr(cfg.dtype, '__name__') else cfg.dtype})"
         )
-        try:
+        with profile_block(label):
             for name, labels, _ in specs:
                 logger.info("Tensor '%s': %d features — %s", name, len(labels), labels)
             self._build_tensors(specs, frame_fn, desc=f"Building '{database}' database")
             logger.info("All requested databases saved to '%s'.", self.save_folder)
-        finally:
-            _stop_timer(_timer)
 
     # ------------------------------------------------------------------
     # Raw field access

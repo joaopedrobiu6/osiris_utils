@@ -13,7 +13,7 @@ import h5py
 import numpy as np
 import tqdm
 
-from ..profiling import _start_timer, _stop_timer
+from ..profiling import profile_block
 from .data import OsirisGridFile
 
 if TYPE_CHECKING:
@@ -485,8 +485,20 @@ class Diagnostic:
         if size is None:
             raise RuntimeError("Cannot determine iteration count (no _maxiter).")
 
-        _timer = _start_timer(f"load_all({getattr(self, '_quantity', type(self).__name__)}, n={size})")
+        with profile_block(f"load_all({self._quantity or type(self).__name__}, n={size})"):
+            data = self._read_all_frames(size, n_workers, use_parallel)
 
+        # Assign under lock. If two threads both loaded (unlikely but possible), one
+        # result is discarded — safe because both read the same files and produce the
+        # same array. Locking here prevents a torn write being observed by other threads.
+        with self._load_lock:
+            if not self._all_loaded:
+                self._data = data
+                self._all_loaded = True
+        return self._data
+
+    def _read_all_frames(self, size: int, n_workers: int | None, use_parallel: bool | None) -> np.ndarray:
+        """Every frame, stacked into one preallocated array (see :meth:`load_all`)."""
         try:
             first = self[0]
         except Exception as e:
@@ -533,16 +545,7 @@ class Diagnostic:
                     data[i] = self[i]
                 except Exception as e:
                     raise RuntimeError(f"Error loading timestep {i}") from e
-
-        # Assign under lock. If two threads both loaded (unlikely but possible), one
-        # result is discarded — safe because both read the same files and produce the
-        # same array. Locking here prevents a torn write being observed by other threads.
-        with self._load_lock:
-            if not self._all_loaded:
-                self._data = data
-                self._all_loaded = True
-        _stop_timer(_timer)
-        return self._data
+        return data
 
     def unload(self) -> None:
         """Unload data from memory. This is useful to free memory when the data is not needed anymore."""
