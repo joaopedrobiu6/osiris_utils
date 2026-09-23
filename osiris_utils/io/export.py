@@ -68,7 +68,6 @@ from __future__ import annotations
 
 import json
 import os
-import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -83,61 +82,17 @@ if TYPE_CHECKING:
 # Beyond ~32 threads, Lustre MDS contention dominates on HPC clusters.
 _MAX_EXPORT_WORKERS = 32
 
-# WeakValueDictionary so locks are GC'd when their diagnostic is GC'd,
-# preventing unbounded growth for long-running scripts with many diagnostics.
-import weakref
-
-_cache_lock_registry: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
-_registry_lock = threading.Lock()
-
-
-def _get_cache_lock(diagnostic) -> threading.Lock:
-    """Return (creating if needed) a per-diagnostic-identity Lock."""
-    key = id(diagnostic)
-    with _registry_lock:
-        lock = _cache_lock_registry.get(key)
-        if lock is None:
-            lock = threading.Lock()
-            _cache_lock_registry[key] = lock
-        return lock
-
 
 def _read_frame(args: tuple) -> tuple[int, np.ndarray]:
     """Worker: read one frame and optionally reduce spatial axes.
 
     Uses ``_frame()`` — the universal interface for all diagnostic types
-    (base file-backed and derived via arithmetic / post-processing).
-
-    Locking strategy
-    ----------------
-    * No lock when ``_frame_cache`` is absent (the common case for base
-      diagnostics): each thread opens its own HDF5 handle with no shared
-      state, so reads are fully concurrent.
-    * Per-diagnostic lock only when ``_frame_cache`` is present: guards the
-      check-compute-insert triplet to prevent duplicate work and dict races
-      under concurrent access.
-
-    Spatial reduction is done inside the thread so that only the
-    (much smaller) reduced array crosses the thread boundary.
+    (base file-backed and derived via arithmetic / post-processing).  Spatial
+    reduction is done inside the thread so that only the (much smaller)
+    reduced array crosses the thread boundary.
     """
     diagnostic, index, reduce_axis = args
-
-    cache = getattr(diagnostic, "_frame_cache", None)
-    if cache is not None:
-        lock = _get_cache_lock(diagnostic)
-        with lock:
-            arr_found = index in cache
-            if arr_found:
-                arr = cache[index]
-        if not arr_found:
-            computed = diagnostic._frame(index)  # heavy work outside the lock
-            with lock:
-                if index not in cache:  # another thread may have inserted it
-                    cache[index] = computed
-                arr = cache[index]
-    else:
-        arr = diagnostic._frame(index)
-
+    arr = diagnostic._frame(index)
     if reduce_axis is not None:
         arr = arr.mean(axis=reduce_axis)
     return index, arr
@@ -163,12 +118,8 @@ def _is_derived(diagnostic) -> bool:
 def _collect_chain(diagnostic, _seen: set | None = None) -> list:
     """Recursively collect every Diagnostic in the computation chain.
 
-    Used to clear unbounded ``_frame_cache`` dicts after each chunk,
-    preventing memory explosion for long time-series exports.
-
-    Note: *only* ``_frame_cache`` is cleared — the bounded LRU ``_cache``
-    inside ``Derivative_Diagnostic`` is intentionally preserved because it
-    provides the sliding-window caching that makes sequential d/dt efficient.
+    Used to find the file-backed leaves to prefetch and the widest time
+    stencil in the chain (see :func:`_get_stencil_range`).
     """
     from ..data.diagnostic import Diagnostic
 
@@ -184,7 +135,7 @@ def _collect_chain(diagnostic, _seen: set | None = None) -> list:
     # Arithmetic-derived: _frame is a closure capturing 'self' and 'other'
     instance_frame = diagnostic.__dict__.get('_frame')
     if instance_frame is not None and hasattr(instance_frame, '__closure__') and instance_frame.__closure__:
-        for name, cell in zip(instance_frame.__code__.co_freevars, instance_frame.__closure__):
+        for cell in instance_frame.__closure__:
             try:
                 val = cell.cell_contents
                 if isinstance(val, Diagnostic):
@@ -321,21 +272,12 @@ def export_to_npy(
     # Derived-diagnostic detection
     # ------------------------------------------------------------------
     # Derived diagnostics (arithmetic results, Derivative_Diagnostic, FFT, …)
-    # have two properties that make parallel I/O counter-productive:
-    #
-    # 1. Their internal caches (especially Derivative_Diagnostic._cache with
-    #    maxsize=6) are designed for sequential sliding-window access.
-    #    With N workers, N×stencil_width frames are needed simultaneously,
-    #    causing constant LRU evictions and redundant re-reads.
-    #    With n_workers=1 sequential, only 1 new file read is needed per
-    #    frame after the stencil warmup (vs 10 with parallel workers).
-    #
-    # 2. The general _frame_cache on every Diagnostic in the chain is
-    #    unbounded. Without periodic clearing, it balloons to GB/TB over
-    #    thousands of frames, causing swap thrashing.
-    #
-    # Fix: force n_workers=1, collect the full chain of Diagnostics, and
-    # clear their _frame_cache after every chunk.
+    # keep a small per-instance LRU of frames (Diagnostic.frame_cache_size),
+    # sized for sequential sliding-window access.  With N workers,
+    # N x stencil_width frames are needed at once, the LRU evicts constantly
+    # and files are re-read; sequentially, each frame after the stencil
+    # warm-up costs one new read.  So derived diagnostics run on one worker,
+    # with the chain's file-backed leaves prefetched ahead of it.
     derived = _is_derived(diagnostic)
     if derived:
         chain = _collect_chain(diagnostic)
@@ -503,7 +445,7 @@ def _get_stencil_range(chain: list) -> tuple[int, int]:
 
     Only considers diagnostics with ``_deriv_type == 't'`` — spatial derivatives
     (x1, x2, x3) use the same ``_stencil`` attribute for spatial grid offsets, which
-    must not be confused with time-frame offsets when managing ``_frame_cache``.
+    must not be confused with time-frame offsets when sizing the prefetch window.
     Zero when no temporal ``Derivative_Diagnostic`` is present in the chain.
     """
     max_back = max_fwd = 0
@@ -536,34 +478,6 @@ def _prefetch_into_cache(diag, idx: int) -> None:
     diag._read_index(idx)
 
 
-def _clear_frame_caches_selective(chain: list, keep_from: int, keep_to: int) -> None:
-    """Evict ``_frame_cache`` entries outside ``[keep_from, keep_to]``.
-
-    Keeps the stencil window warm while preventing unbounded growth.
-    The bounded LRU ``_cache`` inside ``Derivative_Diagnostic`` is never
-    touched here — it manages its own eviction.
-    """
-    for diag in chain:
-        fc = diag.__dict__.get('_frame_cache')
-        if fc is None:
-            continue
-        stale = [k for k in list(fc) if not (keep_from <= k[0] <= keep_to)]
-        for k in stale:
-            del fc[k]
-
-
-def _clear_frame_caches(chain: list) -> None:
-    """Clear ALL ``_frame_cache`` entries on every diagnostic in the chain.
-
-    Used by the base (non-derived) path where there is no stencil window
-    to preserve.
-    """
-    for diag in chain:
-        fc = diag.__dict__.get('_frame_cache')
-        if fc is not None:
-            fc.clear()
-
-
 def _export_frames(
     diagnostic,
     output_path,
@@ -589,10 +503,8 @@ def _export_frames(
 
     **Derived diagnostics** (arithmetic / post-processing, n_workers = 1):
         Frames are computed and written one at a time directly into the
-        memmap slot — no chunk buffer.  ``_frame_cache`` is cleared after
-        *every frame* so intermediate results from the computation chain
-        never accumulate.  The derivative LRU cache (maxsize=6) is
-        intentionally preserved for stencil reuse across consecutive frames.
+        memmap slot — no chunk buffer — while the chain's file-backed leaves
+        are prefetched one stencil window ahead.
     """
     derived = len(chain) > 1 or n_workers == 1
     progress_path = _progress_path(output_path)
@@ -633,15 +545,12 @@ def _export_frames(
         # Fix: a dedicated I/O thread pool pre-reads every base-diagnostic
         # file for the NEXT frame while the main thread computes the current
         # one.  By the time computation finishes the next frame's data is
-        # already in _frame_cache — the lazy eval finds it without touching
-        # disk.
-        #
-        # Memory: selective cache eviction keeps only the stencil window
-        # [idx - max_back .. idx + max_fwd] alive, bounding RAM to
-        # (stencil_width) × (n_base_diags) × frame_size regardless of n_frames.
+        # already in that diagnostic's frame cache — the lazy eval finds it
+        # without touching disk.  The caches are bounded LRUs, so memory
+        # stays (frame_cache_size) x (n_base_diags) x frame_size.
         # ------------------------------------------------------------------
         base_diags = _find_base_diagnostics(chain)
-        max_back, max_fwd = _get_stencil_range(chain)
+        _, max_fwd = _get_stencil_range(chain)
         n_io = max(1, min(_MAX_EXPORT_WORKERS, len(base_diags) * (max_fwd + 1)))
 
         pbar = tqdm.tqdm(
@@ -669,7 +578,7 @@ def _export_frames(
                 for f in prefetch_futures:
                     f.result()
 
-                # Compute current frame — most reads hit _frame_cache.
+                # Compute current frame — most reads hit the frame cache.
                 arr = diagnostic._frame(idx)
                 if reduce_axis is not None:
                     arr = arr.mean(axis=reduce_axis)
@@ -685,10 +594,6 @@ def _export_frames(
                 # Write directly into the memmap slot (no chunk buffer).
                 out[idx] = arr
                 del arr
-
-                # Selective eviction: keep only the current stencil window.
-                # Entries outside [idx-max_back .. idx+max_fwd] are stale.
-                _clear_frame_caches_selective(chain, idx - max_back, idx + max_fwd)
 
                 completed.add(idx)
                 pbar.update(1)
@@ -816,7 +721,7 @@ def _export_time_average(
     if derived:
         # Derived path: same prefetch pipeline as _export_frames.
         base_diags = _find_base_diagnostics(chain)
-        max_back, max_fwd = _get_stencil_range(chain)
+        _, max_fwd = _get_stencil_range(chain)
         n_io = max(1, min(_MAX_EXPORT_WORKERS, len(base_diags) * (max_fwd + 1)))
 
         with ThreadPoolExecutor(max_workers=n_io) as io_pool:
@@ -841,7 +746,6 @@ def _export_time_average(
 
                 acc += arr
                 del arr
-                _clear_frame_caches_selective(chain, idx - max_back, idx + max_fwd)
                 completed.add(idx)
                 pbar.update(1)
 

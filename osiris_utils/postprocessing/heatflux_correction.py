@@ -43,10 +43,7 @@ class HeatfluxCorrection_Simulation(PostProcess):
         if key not in OSIRIS_H:
             raise ValueError(f"Invalid heatflux component {key}. Supported: {OSIRIS_H}.")
         if key not in self._heatflux_corrected:
-            print("Weird that it got here - heatflux is always species dependent on OSIRIS")
-            # This part seems to lack some arguments for HeatfluxCorrection_Diagnostic,
-            # but keeping as is for structural consistency if reached
-            # self._heatflux_corrected[key] = HeatfluxCorrection_Diagnostic(self._simulation[key], self._simulation)
+            raise KeyError("Heat-flux diagnostics are species-dependent. Use sim['species']['Q112'] not sim['Q112'].")
         return self._heatflux_corrected[key]
 
     def delete_all(self) -> None:

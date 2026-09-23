@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 import osiris_utils as ou
 
@@ -35,7 +34,7 @@ class TestParallelLoading:
     def test_load_all_parallel_threads(self, sim_dir: Path) -> None:
         d = _e3(sim_dir)
 
-        data = d.load_all(use_parallel=True, executor_type="thread")
+        data = d.load_all(use_parallel=True)
 
         assert data.shape == (N_TIMESTEPS, NX)
         assert d.all_loaded is True
@@ -44,7 +43,7 @@ class TestParallelLoading:
     def test_parallel_and_sequential_agree(self, sim_dir: Path) -> None:
         """Out-of-order future completion must not scramble the time axis."""
         sequential = _e3(sim_dir).load_all(use_parallel=False)
-        parallel = _e3(sim_dir).load_all(use_parallel=True, executor_type="thread")
+        parallel = _e3(sim_dir).load_all(use_parallel=True)
 
         np.testing.assert_allclose(sequential, parallel)
 
@@ -72,34 +71,6 @@ class TestParallelLoading:
         d.unload()
         assert d.all_loaded is False
         assert d._data is None
-
-    def test_process_executor_rejected_for_arithmetic_result(self, sim_dir: Path) -> None:
-        """_binary_op attaches _frame to the instance; workers would bypass it."""
-        derived = _e3(sim_dir) * 2.0
-
-        with pytest.raises(RuntimeError, match="executor_type='process'"):
-            derived.load_all(use_parallel=True, executor_type="process")
-
-    def test_process_executor_rejected_for_subclass_overriding_frame(self, sim_dir: Path) -> None:
-        """A subclass transforming frames must not be dispatched to raw-file workers."""
-
-        class Scaled(ou.Diagnostic):
-            def _frame(self, index, data_slice=None):
-                return 3.0 * super()._frame(index, data_slice=data_slice)
-
-        d = Scaled(simulation_folder=str(sim_dir))
-        d.get_quantity("e3")
-
-        with pytest.raises(RuntimeError, match="executor_type='process'"):
-            d.load_all(use_parallel=True, executor_type="process")
-
-    def test_postprocessing_load_all_does_not_accept_process_executor(self, sim_dir: Path) -> None:
-        """Post-processing classes narrow load_all(), so the kwarg is rejected outright."""
-        sim = ou.Simulation(str(sim_dir / "thermal.1d"))
-        deriv = ou.Derivative_Simulation(sim, "x1")["e3"]
-
-        with pytest.raises(TypeError, match="use_parallel"):
-            deriv.load_all(use_parallel=True, executor_type="process")
 
 
 class TestIterationOptimizations:

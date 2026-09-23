@@ -19,43 +19,6 @@ __all__ = [
 ]
 
 
-def _hdf5_chunk_cache_bytes() -> int:
-    """Return an HPC-tuned HDF5 chunk cache size in bytes.
-
-    Resolution order
-    ----------------
-    1. ``OSIRIS_HDF5_CACHE_MB`` environment variable — set this in your SLURM
-       job script for full control::
-
-           export OSIRIS_HDF5_CACHE_MB=256
-
-    2. 10 % of available RAM reported by ``psutil`` (capped at 512 MB,
-       floored at 64 MB). Adapts automatically to per-node memory limits on
-       HPC allocations.
-
-    3. 64 MB hard fallback (``psutil`` not installed).
-
-    Notes
-    -----
-    The cache is per open file handle, so setting a large value when loading
-    many files in parallel (``load_all``) multiplies accordingly. Keep
-    ``OSIRIS_HDF5_CACHE_MB`` ≤ (node RAM) / (n_workers * 2) to avoid OOM.
-    """
-    env = os.environ.get("OSIRIS_HDF5_CACHE_MB")
-    if env is not None:
-        try:
-            return max(1, int(env)) * 1024 * 1024
-        except ValueError:
-            pass  # malformed value — fall through
-    try:
-        import psutil
-
-        available_mb = psutil.virtual_memory().available // (1024 * 1024)
-        return min(512, max(64, available_mb // 10)) * 1024 * 1024
-    except ImportError:
-        return 64 * 1024 * 1024  # 64 MB safe fallback
-
-
 class OsirisData:
     """
     Base class for handling OSIRIS simulation data files (HDF5, HIST and TIMINGS formats).
@@ -91,7 +54,6 @@ class OsirisData:
 
     def __init__(self, filename):
         self._filename = str(filename)
-        # self._file = None
 
         self._verbose = False
 
@@ -341,18 +303,6 @@ class OsirisGridFile(OsirisData):
         if data_slice is None:
             return dset[()]
         return np.ascontiguousarray(dset[data_slice].T)
-
-    def _load_basic_attributes(self, f: h5py.File) -> None:
-        """Load common attributes from HDF5 file"""
-        self._dt = float(f["SIMULATION"].attrs["DT"][0])
-        self._dim = int(f["SIMULATION"].attrs["NDIMS"][0])
-        self._time = [
-            float(f.attrs["TIME"][0]),
-            f.attrs["TIME UNITS"][0].decode("utf-8"),
-        ]
-        self._iter = int(f.attrs["ITER"][0])
-        self._name = f.attrs["NAME"][0].decode("utf-8")
-        self._type = f.attrs["TYPE"][0].decode("utf-8")
 
     def _get_variable_key(self, f: h5py.File) -> str:
         return next(k for k in f.keys() if k not in {"AXIS", "SIMULATION"})

@@ -212,11 +212,7 @@ class FFT_Diagnostic(Diagnostic):
         # Detrend over transform axes (e.g., remove mean)
         f = self._detrend_data(f, data_axes)
 
-        # Choose spatial window; if user passed a slice and no window, you may want to force one
-        # (uncomment if you want forced windowing on cropped FFTs)
-        # spatial_window_kind = self._window_spatial
-        # if data_slice is not None and spatial_window_kind is None:
-        #     spatial_window_kind = "hann"
+        # A cropped (sliced) domain is not periodic, so it always gets a window.
         spatial_window_kind = self._window_spatial
         if data_slice is not None and spatial_window_kind is None:
             spatial_window_kind = "hann"

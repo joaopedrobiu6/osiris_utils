@@ -117,13 +117,8 @@ def main() -> None:
     e1.unload()
     #   threads — the right choice for HDF5: h5py releases the GIL, and the
     #   worker count is capped so a Lustre/GPFS metadata server is not flooded
-    e1.load_all(use_parallel=True, executor_type="thread", n_workers=4)
-    e1.unload()
-    #   processes — only for a *base* Diagnostic, and only when each frame
-    #   carries real CPU work.  A post-processed Diagnostic refuses, because
-    #   the workers would re-read the file and skip the transformation.
-    e1.load_all(use_parallel=True, executor_type="process", n_workers=2)
-    show("process pool result", e1.data.shape)
+    e1.load_all(use_parallel=True, n_workers=4)
+    show("thread pool result", e1.data.shape)
     e1.unload()
 
     # ------------------------------------------------------------------

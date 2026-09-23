@@ -41,7 +41,7 @@ python examples/scripts/synthetic_run.py --root /tmp/demo_run   # write it yours
 
 | script | covers |
 |---|---|
-| [`01_simulation_and_diagnostics.py`](01_simulation_and_diagnostics.py) | `Simulation`, `Species_Handler`, `Diagnostic`: metadata, lazy frames, spatial slicing, `load_all` (threads/processes), arithmetic, custom diagnostics, `to_h5` |
+| [`01_simulation_and_diagnostics.py`](01_simulation_and_diagnostics.py) | `Simulation`, `Species_Handler`, `Diagnostic`: metadata, lazy frames, spatial slicing, `load_all` (sequential or threaded), arithmetic, custom diagnostics, `to_h5` |
 | [`02_single_file_readers.py`](02_single_file_readers.py) | `OsirisGridFile` (slicing, `load_data`, `metadata`), `OsirisRawFile`, `OsirisTrackFile`, `OsirisHIST`, `OsirisTIMINGS` |
 | [`03_input_decks.py`](03_input_decks.py) | `InputDeckIO`: parsing, `get_param`/`set_param`/`set_tag`/`delete_param`, templating a scan, writing a deck back |
 | [`04_derivatives.py`](04_derivatives.py) | `Derivative_Simulation` / `Derivative_Diagnostic`: every `deriv_type`, order 2/4, custom stencils, higher `deriv_order`, periodic boundaries, chaining, accuracy against an exact derivative |

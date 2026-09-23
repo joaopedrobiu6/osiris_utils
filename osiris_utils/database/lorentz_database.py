@@ -395,7 +395,7 @@ class LorentzDatabaseCreator(DatabaseCreator):
         using it in every spatial derivative would be an inconsistent momentum
         equation, not a cheaper one.
         """
-        flags = self.build_config.ar_config or AnomalousResistivityConfig(species=self.species)
+        flags = (self.build_config.ar_config or AnomalousResistivityConfig()).checked_for(self.species)
         if not flags.include_time_derivative:
             logger.info("Lorentz build: forcing include_time_derivative=True (d/dx' contains d/dt).")
             flags = replace(flags, include_time_derivative=True)

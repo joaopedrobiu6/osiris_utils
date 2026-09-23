@@ -123,21 +123,7 @@ class Track_Diagnostic:
         self._path = os.path.join(self._simulation_folder, f"MS/TRACKS/{self._species.name}-tracks.h5")
         self._load_attributes()
 
-    def _load_attributes(
-        self,
-    ):  # this will be replaced by reading the input deck
-        # This can go wrong! NDUMP
-        # if input_deck is not None:
-        #     self._dt = float(input_deck["time_step"][0]["dt"])
-        #     self._ndump = int(input_deck["time_step"][0]["ndump"])
-        #     self._dim = get_dimension_from_deck(input_deck)
-        #     self._nx = np.array(list(map(int, input_deck["grid"][0][f"nx_p(1:{self._dim})"].split(','))))
-        #     xmin = [deval(input_deck["space"][0][f"xmin(1:{self._dim})"].split(',')[i]) for i in range(self._dim)]
-        #     xmax = [deval(input_deck["space"][0][f"xmax(1:{self._dim})"].split(',')[i]) for i in range(self._dim)]
-        #     self._grid = np.array([[xmin[i], xmax[i]] for i in range(self._dim)])
-        #     self._dx = (self._grid[:,1] - self._grid[:,0])/self._nx
-        #     self._x = [np.arange(self._grid[i,0], self._grid[i,1], self._dx[i]) for i in range(self._dim)]
-
+    def _load_attributes(self):
         if isinstance(self._input_deck, InputDeckIO):
             self._ndump = int(self._input_deck["time_step"][0]["ndump"])
         elif self._input_deck is None:

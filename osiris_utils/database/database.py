@@ -464,8 +464,6 @@ def _mean_field_frame_quantities(
             eta += np.abs(rqm) * q["dvfl1_dt_avg"]
         if flags.include_convection:
             eta += np.abs(rqm) * q["vfl1_avg"] * q["d1_vfl1_dx1_avg"]
-        # if flags.include_transverse_advection:
-        #     eta -= rqm * (q["vfl2_avg"] * avg(dvfl1_dx2_2d))
         if flags.include_pressure:
             eta += np.abs(rqm) * q["dnT11_dx1_over_n_avg"]
         if flags.include_magnetic_force:
@@ -670,7 +668,7 @@ class DatabaseCreator:
         if cfg.eta_formula not in _VALID_ETA_FORMULAS:
             raise ValueError(f"Invalid eta_formula '{cfg.eta_formula}'. Choose from: {sorted(_VALID_ETA_FORMULAS)}.")
 
-        flags = cfg.ar_config or AnomalousResistivityConfig(species=self.species)
+        flags = (cfg.ar_config or AnomalousResistivityConfig()).checked_for(self.species)
         if flags.include_time_derivative and cfg.burst is None:
             raise NotImplementedError(
                 "include_time_derivative=True needs burst dumps: a d/dt taken across ordinary dumps "

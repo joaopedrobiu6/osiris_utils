@@ -17,7 +17,7 @@ from ..profiling import _start_timer, _stop_timer
 from .data import OsirisGridFile
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable
 
     from ..decks.decks import InputDeckIO
     from ..decks.species import Species
@@ -136,26 +136,6 @@ __all__ = ["Diagnostic", "which_quantities"]
 # Capped well below cpu_count to avoid overwhelming parallel filesystems (Lustre/GPFS on HPC).
 # Concurrent HDF5 reads benefit from ~16-32 threads; beyond that, filesystem contention dominates.
 _MAX_IO_WORKERS = 32
-
-
-def _load_frame_worker(args: tuple) -> tuple[int, np.ndarray]:
-    """Standalone picklable worker for ProcessPoolExecutor.
-
-    Opens a fresh HDF5 handle per call — required because h5py file objects cannot
-    be shared across process boundaries. Use this when each frame involves significant
-    CPU computation in addition to I/O (e.g. custom post-processing chains).
-
-    Parameters
-    ----------
-    args : tuple
-        (index, filepath, quantity, species_q, data_slice)
-    """
-    i, filepath, quantity, species_q, data_slice = args
-    data_obj = OsirisGridFile(filepath, data_slice=data_slice, metadata=False)
-    arr = data_obj.data
-    if quantity in OSIRIS_DENSITY:
-        arr = arr / species_q  # charge dump holds rho = q n; see Diagnostic._read_index
-    return i, arr
 
 
 def which_quantities():
@@ -492,16 +472,6 @@ class Diagnostic:
             The input deck to load the diagnostic attributes. If None, the attributes are loaded from the files.
 
         """
-        # This can go wrong! NDUMP
-        # if input_deck is not None:
-        #     self._dt = float(input_deck["time_step"][0]["dt"])
-        #     self._nx = np.array(list(map(int, input_deck["grid"][0][f"nx_p(1:{self._dim})"].split(','))))
-        #     xmin = [deval(input_deck["space"][0][f"xmin(1:{self._dim})"].split(',')[i]) for i in range(self._dim)]
-        #     xmax = [deval(input_deck["space"][0][f"xmax(1:{self._dim})"].split(',')[i]) for i in range(self._dim)]
-        #     self._grid = np.array([[xmin[i], xmax[i]] for i in range(self._dim)])
-        #     self._dx = (self._grid[:,1] - self._grid[:,0])/self._nx
-        #     self._x = [np.arange(self._grid[i,0], self._grid[i,1], self._dx[i]) for i in range(self._dim)]
-
         if input_deck is not None:
             self._ndump = int(input_deck["time_step"][0]["ndump"])
         elif input_deck is None:
@@ -547,37 +517,16 @@ class Diagnostic:
     #
     ##########################################
 
-    def load_all(
-        self,
-        n_workers: int | None = None,
-        use_parallel: bool | None = None,
-        executor_type: Literal["thread", "process"] = "thread",
-    ) -> np.ndarray:
+    def load_all(self, n_workers: int | None = None, use_parallel: bool | None = None) -> np.ndarray:
         """Load all data into memory (all iterations), in a pre-allocated array.
 
         Parameters
         ----------
         n_workers : int, optional
-            Number of parallel workers. If None, an HPC-safe default is chosen:
-            - "thread": min(_MAX_IO_WORKERS, cpu_count, size-1)
-            - "process": min(cpu_count, size-1)
+            Number of reader threads. Default: ``min(_MAX_IO_WORKERS, cpu_count, size - 1)``.
         use_parallel : bool, optional
             If True, force parallel loading. If False, force sequential.
             If None (default), automatically choose based on data size.
-        executor_type : {"thread", "process"}, optional
-            Executor backend for parallel loading (default "thread").
-
-            - "thread" — ``ThreadPoolExecutor``. Correct for I/O-bound HDF5 reads:
-              h5py releases the GIL during reads, so threads genuinely run concurrently.
-              I/O workers are capped at ``_MAX_IO_WORKERS`` (default 32) to prevent
-              overwhelming parallel filesystems (Lustre/GPFS on HPC clusters such as
-              Marenostrum 5 or Deucalion).
-
-            - "process" — ``ProcessPoolExecutor``. Bypasses the GIL entirely; useful
-              when each frame involves heavy CPU computation beyond raw I/O. Each worker
-              opens its own HDF5 handle via the picklable ``_load_frame_worker`` helper.
-              Requires ``self._file_list`` to be populated (i.e. only valid on the base
-              ``Diagnostic``, not on post-processing wrappers that override ``_frame``).
 
         Returns
         -------
@@ -586,10 +535,11 @@ class Diagnostic:
 
         Notes
         -----
-        On HPC systems using vendor-tuned BLAS/FFTW (MKL on Marenostrum 5, AOCL on
-        Deucalion), post-processing numpy operations (FFT, gradient) are already
-        internally multi-threaded. Prefer ``executor_type="thread"`` for the I/O phase
-        and rely on ``OMP_NUM_THREADS`` / ``MKL_NUM_THREADS`` for the compute phase.
+        Parallel loading uses threads: h5py releases the GIL during reads, so they
+        genuinely overlap I/O, and the worker count is capped at ``_MAX_IO_WORKERS``
+        so a Lustre/GPFS metadata server is not flooded.  Numpy work inside a
+        derived diagnostic's frames is already multithreaded by MKL/OpenBLAS
+        (``OMP_NUM_THREADS`` / ``MKL_NUM_THREADS``).
         """
         # Fast path — reading a bool is atomic in CPython; no lock needed here.
         if getattr(self, "_all_loaded", False) and self._data is not None:
@@ -624,61 +574,22 @@ class Diagnostic:
             import os
 
             cpu = os.cpu_count() or 4
+            if n_workers is None:
+                n_workers = min(_MAX_IO_WORKERS, cpu, size - 1)
 
-            if executor_type == "process":
-                # ProcessPoolExecutor: each worker opens its own HDF5 handle and
-                # re-reads the file, so it only ever sees raw on-disk data.
-                #
-                # Any diagnostic that overrides _frame carries a transformation that
-                # exists solely in the parent process: post-processing subclasses
-                # (FFT, Derivative, ...) override it on the class, and arithmetic
-                # results from _binary_op attach it to the instance. Dispatching those
-                # to _load_frame_worker would silently return *unprocessed* data, so
-                # refuse rather than corrupt the result.
-                if type(self)._frame is not Diagnostic._frame or "_frame" in self.__dict__:
-                    raise RuntimeError(
-                        "executor_type='process' is only supported on a base Diagnostic that reads "
-                        "files directly. This diagnostic overrides _frame (post-processing such as "
-                        "FFT/Derivative, or the result of an arithmetic operation), and the worker "
-                        "processes would bypass that transformation and return raw file data — "
-                        "use executor_type='thread'."
-                    )
-                if not getattr(self, "_file_list", None):
-                    raise RuntimeError(
-                        "executor_type='process' requires _file_list to be populated. "
-                        "Call get_quantity() first, or use executor_type='thread'."
-                    )
-                if n_workers is None:
-                    n_workers = min(cpu, size - 1)
+            def load_single(i):
+                try:
+                    return i, self[i]
+                except Exception as e:
+                    raise RuntimeError(f"Error loading timestep {i}") from e
 
-                species_q = getattr(self._species, "q", 1.0) if hasattr(self, "_species") and self._species is not None else 1.0
-                worker_args = [(i, self._file_list[i], self._quantity, species_q, None) for i in range(1, size)]
-                with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
-                    futures = {executor.submit(_load_frame_worker, args): args[0] for args in worker_args}
-                    with tqdm.tqdm(total=size - 1, desc="Loading data (parallel, process)") as pbar:
-                        for future in concurrent.futures.as_completed(futures):
-                            i, result = future.result()
-                            data[i] = result
-                            pbar.update(1)
-            else:
-                # ThreadPoolExecutor: h5py releases the GIL during reads, threads run concurrently.
-                # Cap at _MAX_IO_WORKERS to avoid overloading parallel filesystems (Lustre/GPFS).
-                if n_workers is None:
-                    n_workers = min(_MAX_IO_WORKERS, cpu, size - 1)
-
-                def load_single(i):
-                    try:
-                        return i, self[i]
-                    except Exception as e:
-                        raise RuntimeError(f"Error loading timestep {i}") from e
-
-                with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as executor:
-                    futures = {executor.submit(load_single, i): i for i in range(1, size)}
-                    with tqdm.tqdm(total=size - 1, desc="Loading data (parallel)") as pbar:
-                        for future in concurrent.futures.as_completed(futures):
-                            i, result = future.result()
-                            data[i] = result
-                            pbar.update(1)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as executor:
+                futures = {executor.submit(load_single, i): i for i in range(1, size)}
+                with tqdm.tqdm(total=size - 1, desc="Loading data (parallel)") as pbar:
+                    for future in concurrent.futures.as_completed(futures):
+                        i, result = future.result()
+                        data[i] = result
+                        pbar.update(1)
         else:
             # Sequential loading (fallback or for small files)
             for i in tqdm.trange(1, size, desc="Loading data"):
@@ -707,26 +618,6 @@ class Diagnostic:
                 return
             self._data = None
             self._all_loaded = False
-
-    def _data_generator(self, index: int, data_slice: tuple | None = None) -> Iterator[np.ndarray]:
-        """Data generator for a given index or slice.
-
-        Parameters
-        ----------
-        index : int
-            The index of the file to load.
-        data_slice : tuple, optional
-            The slice to apply to the data. This is a tuple of slices, one for each dimension.
-
-        Returns
-        -------
-        Iterator[np.ndarray]
-            An iterator that yields the data for the given index or slice.
-
-        """
-        # Same read as _frame/_read_index — HDF5 pulls only the requested slice
-        # off disk — kept as a generator for the subclasses that override it.
-        yield self._read_index(index, data_slice=data_slice)
 
     def _read_index(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
         """Read and return the array for a single time index (keeps lazy behavior).
@@ -869,11 +760,6 @@ class Diagnostic:
                 # Apply spatial slicing to loaded data
                 return self._data[(time_index,) + data_slice]
             return self._data[time_index]
-
-        # Data generator must exist
-        data_gen = getattr(self, "_data_generator", None)
-        if not callable(data_gen):
-            raise IndexError("No data available for indexing; you did something wrong!")
 
         # Handle int indices (including negatives)
         if isinstance(time_index, int):

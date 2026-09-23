@@ -154,7 +154,3 @@ def show_simulation_info(deck_path: Path, brief: bool = False, verbose: bool = F
         if verbose:
             raise
         return 1
-
-
-# Make args available in scope for error handling
-args = None

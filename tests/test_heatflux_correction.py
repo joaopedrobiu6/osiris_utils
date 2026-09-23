@@ -97,3 +97,9 @@ def test_heatflux_correction_eager_matches_lazy(heatflux_sim: ou.Simulation) -> 
 def test_heatflux_correction_rejects_non_heatflux_quantity(heatflux_sim: ou.Simulation) -> None:
     with pytest.raises(ValueError, match="Invalid heatflux component"):
         _ = ou.HeatfluxCorrection_Simulation(heatflux_sim)["P12"]
+
+
+def test_simulation_level_heatflux_points_to_the_species(heatflux_sim: ou.Simulation) -> None:
+    """Heat flux only exists per species; sim['Q112'] says so instead of printing and failing."""
+    with pytest.raises(KeyError, match="species-dependent"):
+        ou.HeatfluxCorrection_Simulation(heatflux_sim)["Q112"]

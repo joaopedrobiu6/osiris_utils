@@ -284,3 +284,26 @@ def test_filtered_ar_reproduces_the_burst_database(burst_sim, tmp_path):
 
     # the time-derivative term is defined on the midpoints (NaN elsewhere)
     assert np.isfinite(np.asarray(ar["dvfl1_dt_avg"][frames[1]])).all()
+
+
+# --- the config's species ---------------------------------------------------
+
+
+def test_config_species_must_match_the_species_argument(sim, tmp_path):
+    """AnomalousResistivityConfig.species used to be ignored: a config saying "ions"
+    silently computed electrons. Set, it must now agree; unset, the argument decides."""
+    with pytest.raises(ValueError, match="species='ions'"):
+        ou.AnomalousResistivity(sim, SPECIES, ou.AnomalousResistivityConfig(species="ions"))
+
+    unset = ou.AnomalousResistivity(sim, SPECIES, ou.AnomalousResistivityConfig())
+    assert unset.species == SPECIES
+
+    creator = DatabaseCreator(
+        simulation=sim,
+        species=SPECIES,
+        save_folder=str(tmp_path),
+        build_config=DatabaseBuildConfig(ar_config=ou.AnomalousResistivityConfig(species="ions")),
+    )
+    creator.set_limits(0, N_DUMPS)
+    with pytest.raises(ValueError, match="species='ions'"):
+        creator.create_database(database="output")

@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from weakref import WeakKeyDictionary
@@ -58,6 +57,11 @@ class AnomalousResistivityConfig:
 
     Parameters
     ----------
+    species :
+        Optional.  When set, it must match the ``species`` argument of
+        :class:`AnomalousResistivity`, which is what selects the momentum
+        equation; a disagreement raises instead of silently computing the
+        other species.  None (default) leaves the choice to that argument.
     filters :
         Spatial filters applied to every raw 2-D frame *before* any physics,
         and whose own derivative scheme then replaces finite differences —
@@ -69,7 +73,7 @@ class AnomalousResistivityConfig:
         :mod:`osiris_utils.filters`.
     """
 
-    species: str = "electrons"
+    species: str | None = None
     mft_axis: int = 2
     include_time_derivative: bool = False
     include_convection: bool = True
@@ -78,28 +82,17 @@ class AnomalousResistivityConfig:
     include_magnetic_force: bool = True
     filters: Sequence[SpatialFilter] | SpatialFilter | None = ()
 
-
-class AnomalousResistivityABC(ABC):
-    """Abstract base class for computing anomalous resistivity."""
-
-    def __init__(self, simulation, species: str = "electrons"):
-        self.simulation = simulation
-        self.species = species
-
-    @abstractmethod
-    def compute_vlasov_electric_field(self):
-        pass
-
-    @abstractmethod
-    def compute_mean_field_terms(self):
-        pass
-
-    @abstractmethod
-    def __getitem__(self, item: str):
-        pass
+    def checked_for(self, species: str) -> AnomalousResistivityConfig:
+        """This config, after checking that its ``species`` (if set) is *species*."""
+        if self.species is not None and self.species != species:
+            raise ValueError(
+                f"AnomalousResistivityConfig(species={self.species!r}) is being used for species={species!r}. "
+                "The species argument selects the momentum equation; drop species from the config or make them match."
+            )
+        return self
 
 
-class AnomalousResistivity(AnomalousResistivityABC):
+class AnomalousResistivity:
     """
     Compute Vlasov electric field and mean-field terms required for anomalous resistivity.
 
@@ -162,7 +155,7 @@ class AnomalousResistivity(AnomalousResistivityABC):
     ):
         self._raw_simulation = simulation
         self.species = species
-        self._config = config or AnomalousResistivityConfig(species=species)
+        self._config = (config or AnomalousResistivityConfig()).checked_for(species)
 
         self._validate_inputs()
 
@@ -445,9 +438,8 @@ class AnomalousResistivity(AnomalousResistivityABC):
             terms["lhs_conv_v1_dv1dx1"] = mag * sm[sp]["vfl1"]["avg"] * sm[sp]["dvfl1_dx1"]["avg"]
             coeffs["lhs_conv_v1_dv1dx1"] = mag
 
-        # This is zero! d/dx2 of a mean term is zero
-        # if self._config.include_transverse_advection:
-        #     terms["lhs_conv_v2_dv1dx2"] = mag * sm[sp]["vfl2"]["avg"] * sm[sp]["dvfl1_dx2"]["avg"]
+        # No transverse-advection term: <v2> d/dx2 <v1> vanishes, since <v1>
+        # does not depend on x2.
 
         if self._config.include_pressure:
             terms["lhs_press_dnT11_dx1"] = mag * (1 / sm[sp]["n"]["avg"]) * dnT11_dx_avg
