@@ -12,6 +12,16 @@ if TYPE_CHECKING:
 
 __all__ = ["FieldCentering_Simulation", "FieldCentering_Diagnostic"]
 
+#: OSIRIS axes (1-indexed) along which each field component sits half a cell
+#: off the cell centre on the Yee mesh, per dimensionality; the part_ and ext_
+#: fields share their component's staggering.  E is staggered along itself, B
+#: along the other two axes.
+_YEE_STAGGER: dict[int, dict[str, tuple[int, ...]]] = {
+    1: {"e1": (1,), "b2": (1,), "b3": (1,)},
+    2: {"e1": (1,), "e2": (2,), "b1": (2,), "b2": (1,), "b3": (1, 2)},
+    3: {"e1": (1,), "e2": (2,), "e3": (3,), "b1": (2, 3), "b2": (1, 3), "b3": (1, 2)},
+}
+
 
 class FieldCentering_Simulation(PostProcess):
     """
@@ -77,53 +87,10 @@ class FieldCentering_Diagnostic(Diagnostic):
         self._original_name = diagnostic._name
         self._name = diagnostic._name + "_centered"
 
-        # Pre-compute centering axes once — avoids repeated string matching on every _frame call
-        self._center_axes_cached = self._needs_center_axes_osiris()
-
-    def _needs_center_axes_osiris(self) -> tuple[int, ...]:
-        """
-        Return OSIRIS spatial axes (1..3) along which this field must be averaged
-        to move it to cell centers.
-        """
-        name = self._original_name.lower()
-
-        if self._dim == 1:
-            # data shape: (t, x1) or per-frame (x1)
-            # E1 is staggered in x1; B2/B3 staggered in x1 in 1D Yee
-            if name in {"e1", "part_e1", "ext_e1", "b2", "part_b2", "ext_b2", "b3", "part_b3", "ext_b3"}:
-                return (1,)
-            return ()
-
-        if self._dim == 2:
-            # E1,B2 staggered in x1; E2,B1 staggered in x2; B3 staggered in both x1 and x2; E3 centered
-            if name in {"e1", "part_e1", "ext_e1", "b2", "part_b2", "ext_b2"}:
-                return (1,)
-            if name in {"e2", "part_e2", "ext_e2", "b1", "part_b1", "ext_b1"}:
-                return (2,)
-            if name in {"b3", "part_b3", "ext_b3"}:
-                return (1, 2)
-            return ()
-
-        if self._dim == 3:
-            # Typical Yee: E components are staggered along their own axis; B components staggered in the other two axes.
-            # Your original code implements that. We'll preserve it:
-            if name in {"e1", "part_e1", "ext_e1"}:
-                return (1,)
-            if name in {"e2", "part_e2", "ext_e2"}:
-                return (2,)
-            if name in {"e3", "part_e3", "ext_e3"}:
-                return (3,)
-
-            if name in {"b1", "part_b1", "ext_b1"}:
-                return (2, 3)
-            if name in {"b2", "part_b2", "ext_b2"}:
-                return (1, 3)
-            if name in {"b3", "part_b3", "ext_b3"}:
-                return (1, 2)
-
-            return ()
-
-        raise ValueError(f"Unknown dimension {self._dim}.")
+        if self._dim not in _YEE_STAGGER:
+            raise ValueError(f"Unknown dimension {self._dim}.")
+        component = self._original_name.lower().removeprefix("part_").removeprefix("ext_")
+        self._center_axes_cached = _YEE_STAGGER[self._dim].get(component, ())
 
     @staticmethod
     def _center_along_axis(data: np.ndarray, axis: int, periodic: bool = True) -> np.ndarray:
