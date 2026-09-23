@@ -40,10 +40,6 @@ Finally, you can install it in editor mode if you want to contribute to the code
 Quick-start
 -----------
 
-.. image:: https://mybinder.org/badge_logo.svg
-   :target: https://mybinder.org/v2/gh/joaopedrobiu6/osiris_utils/main?filepath=examples%2Fquick_start.ipynb
-   :alt: Launch quick-start on Binder
-
 .. code-block:: bash
 
    pip install osiris_utils              # from PyPI
@@ -53,9 +49,9 @@ Quick-start
    python examples/scripts/01_simulation_and_diagnostics.py --plot
 
 That first script needs no data -- it writes a small synthetic OSIRIS run for
-itself.  Point ``examples/quick_start.py`` at a run of your own instead::
+itself.  Pass ``--sim`` to run it on a run of your own instead::
 
-   python examples/quick_start.py path/to/os-stdin
+   python examples/scripts/01_simulation_and_diagnostics.py --sim path/to/os-stdin
 
 Example scripts
 ---------------

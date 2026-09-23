@@ -37,6 +37,10 @@ Script                                  Covers
 Notebooks
 ---------
 
+These tutorials were rendered from notebooks that ran on a real OSIRIS run
+(``example_data/``), which is no longer distributed.  The scripts above cover
+the same ground and run with no data.
+
 .. toctree::
    :maxdepth: 1
    :caption: Tutorials:

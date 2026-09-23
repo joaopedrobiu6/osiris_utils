@@ -6,7 +6,7 @@ the suite unrunnable. Instead of re-committing binary data, this module *writes*
 a small synthetic simulation tree that follows the exact OSIRIS output layout
 and HDF5 schema, so tests are hermetic, fast and reproducible.
 
-The synthetic run mirrors ``examples/example_data/thermal.1d``:
+The synthetic run mirrors the deck ``tests/data/thermal.1d``:
 1D, ``nx = 500``, ``x in [0, 5]``, ``dt = 0.0099``, ``ndump = 20``, one
 species ``electrons`` with ``rqm = -1``.
 
@@ -25,9 +25,7 @@ import h5py
 import numpy as np
 import pytest
 
-# Canonical input deck for the test suite. Lives under tests/ so the suite owns
-# its own inputs — it previously read examples/example_data/thermal.1d, which a
-# git history rewrite removed along with the large binaries in that directory.
+# Canonical input deck for the test suite; the suite owns its own inputs.
 DECK_PATH = Path(__file__).resolve().parent / "data" / "thermal.1d"
 
 # --- Parameters of the synthetic run (kept in sync with thermal.1d) --------
