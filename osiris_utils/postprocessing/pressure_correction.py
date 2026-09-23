@@ -59,38 +59,17 @@ class PressureCorrection_Simulation(PostProcess):
 
 class PressureCorrection_Diagnostic(Diagnostic):
     def __init__(self, diagnostic: Diagnostic, n: Diagnostic, ufl_j: Diagnostic, vfl_k: Diagnostic):
-        if hasattr(diagnostic, "_species"):
-            super().__init__(
-                simulation_folder=getattr(diagnostic, "_simulation_folder", None),
-                species=getattr(diagnostic, "_species", None),
-            )
-        else:
-            super().__init__(None)
+        super().__init__()
+        self._derive_from(diagnostic)
 
         self.postprocess_name = "P_CORR"
 
         if diagnostic._name not in OSIRIS_P:
             raise ValueError(f"Invalid pressure component {diagnostic._name}. Supported: {OSIRIS_P}")
 
-        self._diag = diagnostic
         self._n = n
         self._ufl_j = ufl_j
         self._vfl_k = vfl_k
-
-        for attr in [
-            "_dt",
-            "_dx",
-            "_ndump",
-            "_axis",
-            "_nx",
-            "_x",
-            "_grid",
-            "_dim",
-            "_maxiter",
-            "_type",
-        ]:
-            if hasattr(diagnostic, attr):
-                setattr(self, attr, getattr(diagnostic, attr))
 
         self._original_name = diagnostic._name
         self._name = diagnostic._name + "_corrected"

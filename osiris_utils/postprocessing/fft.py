@@ -104,21 +104,13 @@ class FFT_Diagnostic(Diagnostic):
         normalize: str = "ortho",  # "none" or "ortho" or "density"
         assume_periodic: bool = False,  # affects default windowing for spatial FFT)
     ) -> None:
-        if hasattr(diagnostic, "_species"):
-            super().__init__(
-                simulation_folder=(diagnostic._simulation_folder if hasattr(diagnostic, "_simulation_folder") else None),
-                species=diagnostic._species,
-            )
-        else:
-            super().__init__(None)
+        super().__init__()
+        self._derive_from(diagnostic)
 
         self.postprocess_name = "FFT"
 
         self._name = f"FFT[{diagnostic._name}, {fft_axis}]"
-        self._diag = diagnostic
         self._fft_axis = fft_axis
-        self._data = None
-        self._all_loaded = False
 
         self._assume_periodic = assume_periodic
         self._detrend = detrend
@@ -133,22 +125,6 @@ class FFT_Diagnostic(Diagnostic):
 
         # numpy supports norm=None or "ortho"
         self._np_norm = "ortho" if self._normalize == "ortho" else None
-
-        # Copy all relevant attributes from diagnostic
-        for attr in [
-            "_dt",
-            "_dx",
-            "_ndump",
-            "_axis",
-            "_nx",
-            "_x",
-            "_grid",
-            "_dim",
-            "_maxiter",
-            "_type",
-        ]:
-            if hasattr(diagnostic, attr):
-                setattr(self, attr, getattr(diagnostic, attr))
 
         if isinstance(self._dx, (int, float)):
             self._kmax = np.pi / (self._dx)

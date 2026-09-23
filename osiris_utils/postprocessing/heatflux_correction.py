@@ -69,40 +69,18 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         diagnostic : Diagnostic
             The diagnostic object.
         """
-        if hasattr(diagnostic, "_species"):
-            super().__init__(
-                simulation_folder=(diagnostic._simulation_folder if hasattr(diagnostic, "_simulation_folder") else None),
-                species=diagnostic._species,
-            )
-        else:
-            super().__init__(None)
+        super().__init__()
+        self._derive_from(diagnostic)
 
         self.postprocess_name = "HFL_CORR"
 
         if diagnostic._name not in OSIRIS_H:
             raise ValueError(f"Invalid heatflux component {diagnostic._name}. Supported: {OSIRIS_H}")
 
-        self._diag = diagnostic
-
         # The density and velocities are now passed as arguments (so it can doesn't depend on the simulation)
         self._P_list = P_list
         self._vfl_list = vfl_list
         self._n = n
-
-        for attr in [
-            "_dt",
-            "_dx",
-            "_ndump",
-            "_axis",
-            "_nx",
-            "_x",
-            "_grid",
-            "_dim",
-            "_maxiter",
-            "_type",
-        ]:
-            if hasattr(diagnostic, attr):
-                setattr(self, attr, getattr(diagnostic, attr))
 
         self._original_name = diagnostic._name
         self._name = diagnostic._name + "_corrected"

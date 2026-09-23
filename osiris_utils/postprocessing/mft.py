@@ -63,10 +63,8 @@ class MFT_Diagnostic(Diagnostic):
     """
 
     def __init__(self, diagnostic: Diagnostic, mft_axis: int):
-        if hasattr(diagnostic, "_species"):
-            super().__init__(simulation_folder=getattr(diagnostic, "_simulation_folder", None), species=diagnostic._species)
-        else:
-            super().__init__(None)
+        super().__init__()
+        self._derive_from(diagnostic)
 
         if mft_axis is None:
             raise ValueError("Mean field theory axis must be specified (1..dim).")
@@ -74,14 +72,8 @@ class MFT_Diagnostic(Diagnostic):
             raise ValueError(f"mft_axis must be in 1..{diagnostic._dim}, got {mft_axis}")
 
         self._name = f"MFT[{diagnostic._name}]"
-        self._diag = diagnostic
         self._mft_axis = mft_axis
         self._components: dict[str, Diagnostic] = {}
-
-        # copy metadata if needed
-        for attr in ["_dt", "_dx", "_ndump", "_axis", "_nx", "_x", "_grid", "_dim", "_maxiter", "_tunits", "_type"]:
-            if hasattr(diagnostic, attr):
-                setattr(self, attr, getattr(diagnostic, attr))
 
     def __getitem__(self, key: str) -> Diagnostic:
         if key == "avg":
@@ -110,10 +102,8 @@ class MFT_Diagnostic_Average(Diagnostic):
     """
 
     def __init__(self, diagnostic: Diagnostic, mft_axis: int):
-        if hasattr(diagnostic, "_species"):
-            super().__init__(simulation_folder=getattr(diagnostic, "_simulation_folder", None), species=diagnostic._species)
-        else:
-            super().__init__(None)
+        super().__init__()
+        self._derive_from(diagnostic)
 
         if mft_axis is None:
             raise ValueError("Mean field theory axis must be specified (1..dim).")
@@ -122,14 +112,7 @@ class MFT_Diagnostic_Average(Diagnostic):
 
         self.postprocess_name = "MFT_AVG"
         self._name = f"MFT_avg[{diagnostic._name}, x{mft_axis}]"
-        self._diag = diagnostic
         self._mft_axis = mft_axis
-        self._data = None
-        self._all_loaded = False
-
-        for attr in ["_dt", "_dx", "_ndump", "_axis", "_nx", "_x", "_grid", "_dim", "_maxiter", "_type"]:
-            if hasattr(diagnostic, attr):
-                setattr(self, attr, getattr(diagnostic, attr))
 
     def load_all(self) -> np.ndarray:
         if self._data is not None:
@@ -156,10 +139,8 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
     """
 
     def __init__(self, diagnostic: Diagnostic, mft_axis: int):
-        if hasattr(diagnostic, "_species"):
-            super().__init__(simulation_folder=getattr(diagnostic, "_simulation_folder", None), species=diagnostic._species)
-        else:
-            super().__init__(None)
+        super().__init__()
+        self._derive_from(diagnostic)
 
         if mft_axis is None:
             raise ValueError("Mean field theory axis must be specified (1..dim).")
@@ -168,14 +149,7 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
 
         self.postprocess_name = "MFT_FLT"
         self._name = f"MFT_delta[{diagnostic._name}, x{mft_axis}]"
-        self._diag = diagnostic
         self._mft_axis = mft_axis
-        self._data = None
-        self._all_loaded = False
-
-        for attr in ["_dt", "_dx", "_ndump", "_axis", "_nx", "_x", "_grid", "_dim", "_maxiter", "_type"]:
-            if hasattr(diagnostic, attr):
-                setattr(self, attr, getattr(diagnostic, attr))
 
     def load_all(self) -> np.ndarray:
         if self._data is not None:

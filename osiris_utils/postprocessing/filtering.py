@@ -59,10 +59,6 @@ __all__ = [
     "Filtered_Species_Handler",
 ]
 
-#: Metadata carried over from the wrapped diagnostic — smoothing changes the
-#: values, never the grid.
-_METADATA_ATTRS = ["_dt", "_dx", "_ndump", "_axis", "_nx", "_x", "_grid", "_dim", "_maxiter", "_tunits", "_type", "_iterations"]
-
 
 def _periodic_flags(ndim: int, periodic_axes: Sequence[int]) -> tuple[bool, ...]:
     """Per-axis boundary flags for a frame with *ndim* axes.
@@ -104,26 +100,14 @@ class Filtered_Diagnostic(Diagnostic):
         filter: SpatialFilter | Sequence[SpatialFilter] | None,  # noqa: A002
         periodic_axes: Sequence[int] = (2,),
     ) -> None:
-        if hasattr(diagnostic, "_species"):
-            super().__init__(
-                simulation_folder=getattr(diagnostic, "_simulation_folder", None),
-                species=getattr(diagnostic, "_species", None),
-            )
-        else:
-            super().__init__(None)
+        super().__init__()
+        self._derive_from(diagnostic)
 
         self.postprocess_name = "FILTER"
 
         self._filter = as_filter(filter)
         self._periodic_axes = tuple(int(a) for a in periodic_axes)
-        self._diag = diagnostic
         self._name = f"Filtered[{getattr(diagnostic, '_name', '?')}, {self._filter!r}]"
-        self._data = None
-        self._all_loaded = False
-
-        for attr in _METADATA_ATTRS:
-            if hasattr(diagnostic, attr):
-                setattr(self, attr, getattr(diagnostic, attr))
 
     @property
     def filter(self) -> SpatialFilter:

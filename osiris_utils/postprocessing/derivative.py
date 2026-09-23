@@ -396,22 +396,13 @@ class Derivative_Diagnostic(Diagnostic):
         periodic: bool = False,
         filter: SpatialFilter | Sequence[SpatialFilter] | None = None,  # noqa: A002
     ) -> None:
-        # Initialize using parent's __init__ with the same species
-        if hasattr(diagnostic, "_species"):
-            super().__init__(
-                simulation_folder=(getattr(diagnostic, "_simulation_folder", None)),
-                species=getattr(diagnostic, "_species", None),
-            )
-        else:
-            super().__init__(None)
+        super().__init__()
+        self._derive_from(diagnostic)
 
         self.postprocess_name = "DERIV"
 
-        self._diag = diagnostic
         self._deriv_type = deriv_type
         self._op_axis = axis
-        self._data = None
-        self._all_loaded = False
         self._order = int(order)
 
         self._stencil = None if stencil is None else tuple(int(s) for s in stencil)
@@ -424,22 +415,6 @@ class Derivative_Diagnostic(Diagnostic):
                 "Drop filter= for deriv_type='t' (the frames it differences are "
                 "already smoothed if the input diagnostic is filtered)."
             )
-
-        # Copy all relevant attributes from diagnostic
-        for attr in [
-            "_dt",
-            "_dx",
-            "_ndump",
-            "_axis",
-            "_nx",
-            "_x",
-            "_grid",
-            "_dim",
-            "_maxiter",
-            "_type",
-        ]:
-            if hasattr(diagnostic, attr):
-                setattr(self, attr, getattr(diagnostic, attr))
 
     @staticmethod
     def _validate_stencil(stencil: tuple[int, ...], deriv_order: int) -> None:

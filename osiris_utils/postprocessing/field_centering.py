@@ -76,40 +76,18 @@ class FieldCentering_Diagnostic(Diagnostic):
             cell along a centered axis keeps its own value instead of borrowing
             from the opposite edge.
         """
-        if hasattr(diagnostic, "_species"):
-            super().__init__(
-                simulation_folder=(diagnostic._simulation_folder if hasattr(diagnostic, "_simulation_folder") else None),
-                species=diagnostic._species,
-            )
-        else:
-            super().__init__(None)
+        super().__init__()
+        self._derive_from(diagnostic)
 
         self.postprocess_name = "FLD_CTR"
 
         if diagnostic._name not in OSIRIS_FLD:
             raise ValueError(f"Does it make sense to center {diagnostic._name} field? Only {OSIRIS_FLD} are supported.")
 
-        self._diag = diagnostic
         self._periodic = periodic
-
-        for attr in [
-            "_dt",
-            "_dx",
-            "_ndump",
-            "_axis",
-            "_nx",
-            "_x",
-            "_grid",
-            "_dim",
-            "_maxiter",
-        ]:
-            if hasattr(diagnostic, attr):
-                setattr(self, attr, getattr(diagnostic, attr))
 
         self._original_name = diagnostic._name
         self._name = diagnostic._name + "_centered"
-        self._all_loaded = False
-        self._data = None
 
         # Pre-compute centering axes once — avoids repeated string matching on every _frame call
         self._center_axes_cached = self._needs_center_axes_osiris()

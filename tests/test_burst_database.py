@@ -433,6 +433,53 @@ def test_burst_time_derivative_matches_between_eager_and_lazy_paths(burst_sim):
         np.testing.assert_allclose(np.asarray(lazy[i]), np.asarray(eager.data)[i])
 
 
+def _wrappers(diag):
+    """One of every post-processing wrapper around *diag*."""
+    from osiris_utils.filters import GaussianFilter
+    from osiris_utils.postprocessing.derivative import Derivative_Diagnostic
+    from osiris_utils.postprocessing.fft import FFT_Diagnostic
+    from osiris_utils.postprocessing.field_centering import FieldCentering_Diagnostic
+    from osiris_utils.postprocessing.filtering import Filtered_Diagnostic
+    from osiris_utils.postprocessing.mft import MFT_Diagnostic_Average, MFT_Diagnostic_Fluctuations
+
+    return [
+        Derivative_Diagnostic(diag, "x1"),
+        MFT_Diagnostic_Average(diag, 2),
+        MFT_Diagnostic_Fluctuations(diag, 2),
+        FieldCentering_Diagnostic(diag),
+        FFT_Diagnostic(diag, 1),
+        Filtered_Diagnostic(diag, GaussianFilter(1.0)),
+    ]
+
+
+def test_every_wrapper_keeps_the_burst_time_axis(burst_sim):
+    """Post-processing changes values, never frames: the iteration axis carries over."""
+    b2 = burst_sim["b2"]
+    for wrapped in _wrappers(b2):
+        np.testing.assert_array_equal(wrapped.iterations, b2.iterations, err_msg=type(wrapped).__name__)
+        assert wrapped.time(7) == b2.time(7), type(wrapped).__name__
+
+
+def test_time_derivative_of_a_transverse_average_sees_the_burst_axis(burst_sim):
+    """d/dt <b2> = <d/dt b2> = the analytic rate, at every burst midpoint.
+
+    The averaging wrapper used to drop the iteration axis, so the derivative
+    fell back to h = dt * ndump and came out ndump = 10 times too small.
+    """
+    from osiris_utils.postprocessing.derivative import Derivative_Diagnostic
+    from osiris_utils.postprocessing.mft import MFT_Diagnostic_Average
+
+    b2 = burst_sim["b2"]
+    avg_then_dt = Derivative_Diagnostic(MFT_Diagnostic_Average(b2, 2), "t", stencil=[-1, 0, 1])
+    dt_then_avg = MFT_Diagnostic_Average(Derivative_Diagnostic(b2, "t", stencil=[-1, 0, 1]), 2)
+
+    rate = _rate(float(sum(b"b2") % 7)).mean(axis=1, keepdims=True)  # (NX1, 1); the rate is x2-independent
+    for n in (10, 20):
+        i = b2.index_of_iteration(n)
+        np.testing.assert_allclose(avg_then_dt[i], rate, rtol=1e-4, atol=1e-5)
+        np.testing.assert_allclose(dt_then_avg[i], rate, rtol=1e-4, atol=1e-5)
+
+
 def test_burst_stencil_must_fit_inside_the_burst_window(burst_sim):
     """burst_dump_range = -1, 1 gives one neighbour per side: no 5-point stencil."""
     from osiris_utils.postprocessing.derivative import _frame_dt_axis

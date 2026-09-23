@@ -106,16 +106,17 @@ OSIRIS_PHA = [
 ]  # there may be more that I don't know
 OSIRIS_ALL = OSIRIS_DENSITY + OSIRIS_SPECIE_REPORTS + OSIRIS_SPECIE_REP_UDIST + OSIRIS_FLD + OSIRIS_PHA
 
-_ATTRS_TO_CLONE = [
+#: Grid and time-axis metadata.  Anything derived from a diagnostic (an
+#: arithmetic result, a post-processing wrapper) lives on the same grid and the
+#: same frames, so it copies all of these.  ``_iterations`` is the one that keeps
+#: a burst time axis visible to a time derivative further down the chain.
+_GRID_ATTRS = [
     "_dx",
     "_nx",
     "_x",
     "_dt",
     "_grid",
     "_axis",
-    "_units",
-    "_name",
-    "_label",
     "_dim",
     "_ndump",
     "_iter",
@@ -124,9 +125,10 @@ _ATTRS_TO_CLONE = [
     "_maxiter",
     "_tunits",
     "_type",
-    "_simulation_folder",
-    "_quantity",
 ]
+
+#: What an arithmetic result carries over from its left operand on top of the grid.
+_ATTRS_TO_CLONE = [*_GRID_ATTRS, "_units", "_name", "_label", "_simulation_folder", "_quantity"]
 
 __all__ = ["Diagnostic", "which_quantities"]
 
@@ -939,6 +941,18 @@ class Diagnostic:
         if hasattr(self, "_file_indices"):
             clone._file_indices = self._file_indices
         return clone
+
+    def _derive_from(self, source: Diagnostic) -> None:
+        """Start a post-processed diagnostic on *source*'s grid, frames and species.
+
+        Called by every post-processing wrapper right after ``Diagnostic.__init__``;
+        *source* becomes ``self._diag``, the input its ``_frame`` transforms.
+        """
+        self._diag = source
+        self._species = getattr(source, "_species", None)
+        self._simulation_folder = getattr(source, "_simulation_folder", None)
+        for attr in _GRID_ATTRS:
+            setattr(self, attr, getattr(source, attr, None))
 
     def _binary_op(self, other: Diagnostic | float | np.ndarray, op_func: Callable) -> Diagnostic:
         """Universal helper for `self (op) other`.
