@@ -1189,38 +1189,16 @@ class Derivative_Diagnostic(Diagnostic):
             g = d_dx_frame(f, ax1_np)
             return d_dx_frame(g, ax2_np)
 
-        if self._deriv_type == "xt":
+        if self._deriv_type in ("xt", "tx"):
+            # The time stencil and the spatial one act on different axes, so the
+            # two operators commute exactly (edge stencils included): "tx" and
+            # "xt" are the same operator, computed one way.
             if not isinstance(self._op_axis, int):
-                raise ValueError("For 'xt', axis must be an OSIRIS spatial axis int (1..3).")
+                raise ValueError(f"For '{self._deriv_type}', axis must be an OSIRIS spatial axis int (1..3).")
             ax_np = spatial_axis_np_from_osiris(self._op_axis)
 
             ft = d_dt_at(index)
             return d_dx_frame(ft, ax_np)
-
-        if self._deriv_type == "tx":
-            if not isinstance(self._op_axis, int):
-                raise ValueError("For 'tx', axis must be an OSIRIS spatial axis int (1..3).")
-            ax_np = spatial_axis_np_from_osiris(self._op_axis)
-
-            def spatial_frame(i: int) -> np.ndarray:
-                fi = self._base(i, data_slice)
-                return d_dx_frame(fi, ax_np)
-
-            if self._order == 2:
-                if index == 0:
-                    return (-3 * spatial_frame(0) + 4 * spatial_frame(1) - spatial_frame(2)) / (2 * dt)
-                if index == n - 1:
-                    return (3 * spatial_frame(n - 1) - 4 * spatial_frame(n - 2) + spatial_frame(n - 3)) / (2 * dt)
-                return (spatial_frame(index + 1) - spatial_frame(index - 1)) / (2 * dt)
-
-            if self._order == 4:
-                if index < 2 or index > n - 3:
-                    return (spatial_frame(min(index + 1, n - 1)) - spatial_frame(max(index - 1, 0))) / (2 * dt)
-                return (
-                    -spatial_frame(index + 2) + 8 * spatial_frame(index + 1) - 8 * spatial_frame(index - 1) + spatial_frame(index - 2)
-                ) / (12 * dt)
-
-            raise ValueError("Only order 2 and 4 supported.")
 
         raise ValueError("Invalid derivative type.")
 

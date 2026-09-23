@@ -156,3 +156,65 @@ def test_order2_spatial_is_less_accurate_than_order4() -> None:
     order2 = ou.Derivative_Diagnostic(_Mock(data, dx=dx), deriv_type="x1", order=2, periodic=True).load_all()
 
     assert np.max(np.abs(order2[0] - np.cos(x))) > 1e-4
+
+
+# --- mixed derivatives --------------------------------------------------------
+# The field in _CONFIGS, sin(x1)cos(x2) + 0.1 t, has d/dt d/dx1 = 0, so any time
+# stencil passes on it.  These use f = sin(x1 + w t) cos(x2), which does not.
+
+_OMEGA = 1.0
+
+
+def _coupled_2d(nt: int = 10, n1: int = 32, n2: int = 8, dt: float = 0.1) -> tuple[np.ndarray, float, float, np.ndarray]:
+    """``(f, dt, dx, exact d/dt d/dx1 f)`` for ``f = sin(x1 + w t) cos(x2)`` on a (t, x1, x2) grid."""
+    dx = 2 * np.pi / n1
+    t = (np.arange(nt) * dt)[:, None, None]
+    x1 = (np.arange(n1) * dx)[None, :, None]
+    x2 = np.linspace(0, 2 * np.pi, n2, endpoint=False)[None, None, :]
+    f = np.sin(x1 + _OMEGA * t) * np.cos(x2)
+    exact = -_OMEGA * np.sin(x1 + _OMEGA * t) * np.cos(x2)
+    return f, dt, dx, exact
+
+
+_MIXED_CONFIGS = [
+    {"axis": 1, "order": 2},
+    {"axis": 1, "order": 4},
+    {"axis": 1, "order": 2, "periodic": True},
+    {"axis": 1, "order": 4, "periodic": True},
+    {"axis": 1, "stencil": [-1, 0, 1]},
+    {"axis": 1, "stencil": [-2, -1, 0, 1, 2]},
+]
+
+
+@pytest.mark.parametrize("kwargs", _MIXED_CONFIGS, ids=_ids([("tx", kw) for kw in _MIXED_CONFIGS]))
+def test_tx_and_xt_are_the_same_operator(kwargs: dict) -> None:
+    """d/dt d/dx1 = d/dx1 d/dt exactly: the two stencils act on different axes.
+
+    The lazy 'tx' used to carry a time stencil of its own, which ignored
+    periodic= and stencil= and divided the one-sided end differences by 2 dt.
+    """
+    f, dt, dx, _ = _coupled_2d()
+    n = f.shape[0]
+
+    def lazy(deriv_type: str) -> np.ndarray:
+        diag = ou.Derivative_Diagnostic(_Mock(f, dt=dt, dx=dx), deriv_type=deriv_type, **kwargs)
+        return np.stack([diag[i] for i in range(n)])
+
+    eager = ou.Derivative_Diagnostic(_Mock(f, dt=dt, dx=dx), deriv_type="tx", **kwargs).load_all()
+
+    np.testing.assert_allclose(lazy("tx"), lazy("xt"), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(lazy("tx"), eager, rtol=1e-10, atol=1e-12)
+
+
+def test_mixed_derivative_matches_its_closed_form() -> None:
+    """Default order=4 'tx' against the exact -w sin(x1 + w t) cos(x2), end frames included."""
+    f, dt, dx, exact = _coupled_2d()
+    diag = ou.Derivative_Diagnostic(_Mock(f, dt=dt, dx=dx), deriv_type="tx", axis=1)
+    got = np.stack([diag[i] for i in range(f.shape[0])])
+
+    inner = (slice(None), slice(2, -2))  # x1 edges fall back to 2nd order
+    # Interior frames: 4th order in t and x1, error ~ (w dt)^4, (k dx)^4 ~ 1e-4.
+    np.testing.assert_allclose(got[2:-2][inner], exact[2:-2][inner], atol=1e-3 * _OMEGA)
+    # End frames: 2nd-order one-sided in t, error ~ (w dt)^2 / 3 ~ 3e-3.  The old
+    # code returned (f1 - f0) / (2 dt) here, about half the true derivative.
+    np.testing.assert_allclose(got[[0, -1]][inner], exact[[0, -1]][inner], atol=1e-2 * _OMEGA)
