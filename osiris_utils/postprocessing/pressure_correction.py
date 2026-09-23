@@ -77,25 +77,6 @@ class PressureCorrection_Diagnostic(Diagnostic):
         self._data: np.ndarray | None = None
         self._all_loaded = False
 
-    def load_all(self) -> np.ndarray:
-        if self._data is not None:
-            return self._data
-
-        # Ensure all operands are loaded
-        if not getattr(self._diag, "_all_loaded", False) or self._diag._data is None:
-            self._diag.load_all()
-        if not getattr(self._n, "_all_loaded", False) or self._n._data is None:
-            self._n.load_all()
-        if not getattr(self._ufl_j, "_all_loaded", False) or self._ufl_j._data is None:
-            self._ufl_j.load_all()
-        if not getattr(self._vfl_k, "_all_loaded", False) or self._vfl_k._data is None:
-            self._vfl_k.load_all()
-
-        # Core formula: Pjk - n * u_j * v_k
-        self._data = self._diag._data - self._n._data * self._ufl_j._data * self._vfl_k._data
-        self._all_loaded = True
-        return self._data
-
     def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
         """
         Lazy per-timestep evaluation, supports spatial slicing.

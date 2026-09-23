@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import concurrent.futures
 import logging
 import math
-import multiprocessing
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
@@ -105,37 +103,6 @@ def _frame_dt_axis(diag, stencil=None, deriv_order: int = 1):
     )
     cache[key] = (h, valid)
     return cache[key]
-
-
-def _spatial_deriv_worker(args: tuple) -> np.ndarray:
-    """Top-level ProcessPoolExecutor worker for chunked spatial derivatives.
-
-    Must live at module level to be picklable.  Each chunk is an independent
-    slice of the time axis, so spatial derivatives can be computed without any
-    cross-chunk communication.
-
-    Handles all spatial-derivative flavours: a filter's native scheme, an
-    explicit stencil, order-2 and order-4 (periodic or non-periodic).
-
-    HPC note: launched via ``forkserver`` context (not ``fork``) to avoid
-    fork+MPI deadlocks on GPFS/Lustre-connected nodes.
-    """
-    data_chunk, h, ax, deriv_order, stencil, periodic, order, filt = args
-    from osiris_utils.postprocessing.derivative import Derivative_Diagnostic  # noqa: PLC0415
-
-    if filt is not None:
-        return filt.derivative(data_chunk, h, axis=ax, order=deriv_order, periodic=periodic)
-
-    d = object.__new__(Derivative_Diagnostic)
-    d._periodic = periodic
-    d._order = int(order)
-    if stencil is not None:
-        return d._fd_apply_along_axis(data_chunk, h=h, axis=ax, deriv_order=deriv_order, stencil=stencil)
-    if periodic:
-        return d._periodic_first_derivative(data_chunk, h=h, axis=ax, order=order)
-    if order == 4:
-        return d._compute_fourth_order_spatial(data_chunk, h, ax)
-    return np.gradient(data_chunk, h, axis=ax, edge_order=2)
 
 
 # ---------------------------------------------------------------------------
@@ -409,12 +376,46 @@ class Derivative_Diagnostic(Diagnostic):
         self._deriv_order = int(deriv_order)
         self._periodic = periodic
         self._filter = None if filter is None else as_filter(filter)
+
+        # Every deriv_type is an optional time derivative followed by spatial
+        # ones: 't' -> d/dt, 'x1' -> d/dx1, 'xx' -> d/dxa d/dxb, 'xt'/'tx' ->
+        # d/dt then d/dxa.  The whole configuration is checked here, once.
+        if deriv_type in ("x1", "x2", "x3"):
+            spatial = (int(deriv_type[1]),)
+        elif deriv_type == "xx":
+            if not isinstance(axis, (tuple, list)) or len(axis) != 2:
+                raise ValueError("For 'xx', axis must be a tuple of two OSIRIS spatial axes (1..3).")
+            spatial = tuple(int(a) for a in axis)
+        elif deriv_type in ("xt", "tx"):
+            if not isinstance(axis, (int, np.integer)):
+                raise ValueError(f"For '{deriv_type}', axis must be an OSIRIS spatial axis int (1..3).")
+            spatial = (int(axis),)
+        elif deriv_type == "t":
+            spatial = ()
+        else:
+            raise ValueError(f"Invalid derivative type {deriv_type!r}: use 't', 'x1', 'x2', 'x3', 'xx', 'xt' or 'tx'.")
+        for ax in spatial:
+            if not 1 <= ax <= (self._dim or 3):
+                raise ValueError(f"'{deriv_type}' along x{ax}, but the diagnostic is {self._dim}-D.")
+        self._spatial_axes = tuple(ax - 1 for ax in spatial)  # numpy axes of one frame, applied in order
+        self._has_time = deriv_type in ("t", "xt", "tx")
+
         if self._filter is not None and deriv_type == "t":
             raise ValueError(
                 "A spatial filter has no derivative scheme along the time axis. "
                 "Drop filter= for deriv_type='t' (the frames it differences are "
                 "already smoothed if the input diagnostic is filtered)."
             )
+        if self._stencil is not None:
+            self._validate_stencil(self._stencil, self._deriv_order)
+        elif self._order not in (2, 4) and (self._filter is None or self._has_time):
+            raise ValueError("Only order 2 and 4 supported.")
+
+        # Step of every frame, and where the time stencil means anything (a
+        # burst axis); refuses a non-uniform axis without an explicit stencil.
+        self._frame_h, self._frame_h_valid = (
+            _frame_dt_axis(diagnostic, self._stencil, self._deriv_order) if self._has_time else (None, None)
+        )
 
     @staticmethod
     def _validate_stencil(stencil: tuple[int, ...], deriv_order: int) -> None:
@@ -848,334 +849,105 @@ class Derivative_Diagnostic(Diagnostic):
 
         return result
 
-    def load_all(self, n_workers: int | None = None) -> np.ndarray:
-        """Load all data and compute the derivative.
-
-        Parameters
-        ----------
-        n_workers : int or None
-            Number of ProcessPoolExecutor workers for **spatial** derivatives
-            (``deriv_type`` in ``{"x1", "x2", "x3"}``).  Spatial derivatives
-            are independent across the time axis, so the data is split into
-            ``n_workers`` chunks along axis 0 and processed in parallel.
-
-            * ``None`` (default) — single-process (safe everywhere, uses
-              NumPy's internal threading via MKL/OpenBLAS).
-            * ``> 1`` — activates chunked ProcessPoolExecutor.  Uses the
-              ``forkserver`` multiprocessing context, which is **MPI-safe** on
-              HPC nodes (unlike ``fork``, which can deadlock with MPI).  Set
-              ``NUMBA_NUM_THREADS`` / ``OMP_NUM_THREADS`` to 1 per worker when
-              also using Numba to avoid thread over-subscription.
-
-            Only the spatial factor is chunked. A pure time derivative
-            (``"t"``) always runs single-process because its stencil spans
-            neighbouring time steps; the mixed types (``"xx"``, ``"xt"``,
-            ``"tx"``) parallelise their spatial factor(s) only.
-        """
-        if self._all_loaded and self._data is not None:
-            print("Using cached derivative")
-            return self._data
-
-        if not self._diag._all_loaded:
-            self._diag.load_all()
-
-        # Work off a local. Parking the source array in self._data before the
-        # derivative exists meant any failure below left the *undifferentiated*
-        # input cached, which the guard above then handed back as a result.
-        source = self._diag._data
-
-        def dx_for_axis_data(ax: int) -> float:
-            # data in load_all includes time axis at 0, spatial axes start at 1
-            if self._dim > 1:
-                return float(self._diag._dx[ax - 1])
-            dx0 = self._diag._dx
-            return float(dx0[0] if isinstance(dx0, (list, tuple, np.ndarray)) else dx0)
-
-        def _parallel_spatial(data: np.ndarray, h: float, ax: int) -> np.ndarray:
-            """Chunk data along time axis and apply spatial derivative in parallel.
-
-            Chunking along axis 0 (time) is always safe for spatial derivatives
-            because each time-slice is independent.
-            """
-            n_w = n_workers if n_workers is not None else 1
-            n_w = max(1, min(n_w, data.shape[0]))
-            if n_w == 1:
-                # Dispatch to the correct single-process variant.
-                if self._filter is not None:
-                    return self._filter.derivative(data, h, axis=ax, order=self._deriv_order, periodic=self._periodic)
-                if self._stencil is not None:
-                    return self._fd_apply_along_axis(
-                        data,
-                        h=h,
-                        axis=ax,
-                        deriv_order=self._deriv_order,
-                        stencil=self._stencil,
-                    )
-                if self._periodic:
-                    return self._periodic_first_derivative(data, h=h, axis=ax, order=self._order)
-                if self._order == 4:
-                    return self._compute_fourth_order_spatial(data, h, ax)
-                return np.gradient(data, h, axis=ax, edge_order=2)
-            chunks = np.array_split(data, n_w, axis=0)
-            worker_args = [(chunk, h, ax, self._deriv_order, self._stencil, self._periodic, self._order, self._filter) for chunk in chunks]
-            ctx = multiprocessing.get_context("forkserver")  # MPI-safe on HPC
-            with concurrent.futures.ProcessPoolExecutor(max_workers=n_w, mp_context=ctx) as executor:
-                result_chunks = list(executor.map(_spatial_deriv_worker, worker_args))
-            return np.concatenate(result_chunks, axis=0)
-
-        # ------------------------------------------------------------------
-        # Both the eager path here and the lazy _frame path must accept the same
-        # configurations and produce the same numbers. Express every deriv_type
-        # as a composition of two primitives so there is one place per axis kind
-        # where the scheme (stencil / periodic / order) is selected.
-        # ------------------------------------------------------------------
-        if self._stencil is not None:
-            self._validate_stencil(self._stencil, self._deriv_order)
-
-        def d_dt(data: np.ndarray) -> np.ndarray:
-            """Configured derivative along the time axis (axis 0)."""
-            h, valid = _frame_dt_axis(self._diag, self._stencil, self._deriv_order)
-            if self._stencil is not None:
-                if valid is None:
-                    return self._fd_apply_along_axis(data, h=h, axis=0, deriv_order=self._deriv_order, stencil=self._stencil)
-                # Burst axis: the step differs frame to frame.  h enters the
-                # scheme only as c_unit / h**deriv_order, so applying the stencil
-                # in frame units and rescaling per frame is exact.
-                out = self._fd_apply_along_axis(data, h=1.0, axis=0, deriv_order=self._deriv_order, stencil=self._stencil)
-                scale = np.asarray(h, dtype=np.float64) ** self._deriv_order
-                out = out / scale.reshape((-1,) + (1,) * (out.ndim - 1))
-                out[~np.asarray(valid)] = np.nan
-                return out
-            if self._periodic:
-                return self._periodic_first_derivative(data, h=h, axis=0, order=self._order)
-            if self._order == 4:
-                # Same 4th-order central scheme with 2nd-order one-sided edges
-                # that _frame's d_dt_at applies index-for-index; the helper is
-                # axis-agnostic despite its name.
-                return self._compute_fourth_order_spatial(data, h, 0)
-            if self._order == 2:
-                return np.gradient(data, h, axis=0, edge_order=2)
-            raise ValueError("Only order 2 and 4 supported.")
-
-        def d_dx(data: np.ndarray, ax_osiris: int) -> np.ndarray:
-            """Configured derivative along an OSIRIS spatial axis (1..3).
-
-            In the loaded array time occupies axis 0, so x1 -> 1, x2 -> 2, x3 -> 3.
-            """
-            if not isinstance(ax_osiris, (int, np.integer)):
-                raise ValueError("Axis must be an integer for spatial derivatives.")
-            if not (1 <= ax_osiris <= 3):
-                raise ValueError(f"Spatial axis must be 1..3, got {ax_osiris}")
-            if ax_osiris > self._dim:
-                raise ValueError(f"x{ax_osiris} requested but diagnostic dim={self._dim}")
-            if self._order not in (2, 4) and self._stencil is None and self._filter is None:
-                raise ValueError("Only order 2 and 4 supported.")
-            return _parallel_spatial(data, dx_for_axis_data(ax_osiris), ax_osiris)
-
-        if self._deriv_type == "t":
-            result = d_dt(source)
-
-        elif self._deriv_type in ("x1", "x2", "x3"):
-            result = d_dx(source, {"x1": 1, "x2": 2, "x3": 3}[self._deriv_type])
-
-        elif self._deriv_type == "xx":
-            if not isinstance(self._op_axis, (tuple, list)) or len(self._op_axis) != 2:
-                raise ValueError("Axis must be a tuple with two elements.")
-            result = d_dx(d_dx(source, self._op_axis[0]), self._op_axis[1])
-
-        elif self._deriv_type == "tx":
-            # d/dt of d/dx
-            result = d_dt(d_dx(source, self._op_axis))
-
-        elif self._deriv_type == "xt":
-            # d/dx of d/dt
-            result = d_dx(d_dt(source), self._op_axis)
-
-        else:
-            raise ValueError("Invalid derivative type.")
-
-        self._all_loaded = True
-        self._data = result
-        return self._data
-
     def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
-        # dimension guards
-        if self._deriv_type in ("x2",) and self._diag._dim < 2:
-            raise ValueError(f"{self._deriv_type} requested but diagnostic dim={self._diag._dim}")
-        if self._deriv_type in ("x3",) and self._diag._dim < 3:
-            raise ValueError(f"{self._deriv_type} requested but diagnostic dim={self._diag._dim}")
-        if self._deriv_type in ("xt", "tx"):
-            # Check the requested axis, not the dimension: a mixed d/dt d/x1 on
-            # 1D data is legitimate, and load_all() has always allowed it.
-            if not isinstance(self._op_axis, (int, np.integer)):
-                raise ValueError(f"For '{self._deriv_type}', axis must be an OSIRIS spatial axis int (1..3).")
-            if self._op_axis > self._diag._dim:
-                raise ValueError(f"{self._deriv_type} requested for axis x{self._op_axis} but dim={self._diag._dim}")
-        if self._deriv_type == "xx":
-            if not isinstance(self._op_axis, (tuple, list)) or len(self._op_axis) != 2:
-                raise ValueError("For 'xx', axis must be a tuple/list of two spatial axes (1..3).")
-            if max(self._op_axis) > self._diag._dim:
-                raise ValueError(f"xx requested for axes {self._op_axis} but dim={self._diag._dim}")
+        f = self._d_dt(index, data_slice) if self._has_time else self._base(index, data_slice)
+        for ax in self._spatial_axes:
+            f = self._d_dx(f, ax)
+        return f
 
-        n = int(self._diag._maxiter)
-        if self._deriv_type in ("t", "xt", "tx"):
-            dt, dt_valid = _frame_dt_axis(self._diag, self._stencil, self._deriv_order)
+    def _d_dx(self, f: np.ndarray, ax_np: int) -> np.ndarray:
+        """Configured spatial derivative of one frame *f* along its numpy axis *ax_np*."""
+        dx = float(np.atleast_1d(self._dx)[ax_np])
+
+        # a filter brings its own single-pass scheme and overrides both
+        if self._filter is not None:
+            return self._filter.derivative(f, dx, axis=ax_np, order=self._deriv_order, periodic=self._periodic)
+
+        # stencil overrides legacy order
+        if self._stencil is not None:
+            return self._fd_apply_along_axis(f, h=dx, axis=ax_np, deriv_order=self._deriv_order, stencil=self._stencil)
+
+        if self._order == 2:
+            if self._periodic:
+                return self._periodic_first_derivative(f, h=dx, axis=ax_np, order=2)
+            return np.gradient(f, dx, axis=ax_np, edge_order=2)
+        if self._periodic:
+            return self._periodic_first_derivative(f, h=dx, axis=ax_np, order=4)
+        return self._compute_fourth_order_spatial(f, dx, ax_np)
+
+    def _d_dt(self, i: int, data_slice: tuple | None) -> np.ndarray:
+        """Configured time derivative at frame *i*, from the input's neighbouring frames."""
+        n = int(self._maxiter)
+        # On a burst axis the step is per-frame and the stencil is only
+        # meaningful on the midpoints; elsewhere there is no right answer,
+        # so return NaN rather than a plausible wrong number.
+        if self._frame_h_valid is not None:
+            if not self._frame_h_valid[i]:
+                return self._base(i, data_slice) * np.nan
+            dt_i = float(self._frame_h[i])
         else:
-            dt, dt_valid = float(self._diag._dt * self._diag._ndump), None
+            dt_i = float(self._frame_h)
 
-        # ---------- helpers ----------
-        def spatial_axis_np_from_osiris(ax_osiris: int) -> int:
-            # OSIRIS spatial axes are 1..3; per-timestep frame axes are 0..2
-            if not isinstance(ax_osiris, int):
-                raise ValueError("Axis must be int for spatial derivatives.")
-            if ax_osiris < 1 or ax_osiris > 3:
-                raise ValueError(f"Spatial axis must be 1..3, got {ax_osiris}")
-            return ax_osiris - 1
-
-        def dx_for_np_axis(ax_np: int) -> float:
-            dx = self._diag._dx
-            if self._diag._dim == 1:
-                return float(dx[0] if isinstance(dx, (list, tuple, np.ndarray)) else dx)
-            return float(dx[ax_np])
-
-        def d_dx_frame(f: np.ndarray, ax_np: int) -> np.ndarray:
-            dx = dx_for_np_axis(ax_np)
-
-            # a filter brings its own single-pass scheme and overrides both
-            if self._filter is not None:
-                return self._filter.derivative(f, dx, axis=ax_np, order=self._deriv_order, periodic=self._periodic)
-
-            # stencil overrides legacy order
-            if self._stencil is not None:
-                self._validate_stencil(self._stencil, self._deriv_order)
-                return self._fd_apply_along_axis(f, h=dx, axis=ax_np, deriv_order=self._deriv_order, stencil=self._stencil)
-
-            if self._order == 2:
-                if self._periodic:
-                    return self._periodic_first_derivative(f, h=dx, axis=ax_np, order=2)
-                return np.gradient(f, dx, axis=ax_np, edge_order=2)
-            if self._order == 4:
-                if self._periodic:
-                    return self._periodic_first_derivative(f, h=dx, axis=ax_np, order=4)
-                return self._compute_fourth_order_spatial(f, dx, ax_np)
-            raise ValueError("Only order 2 and 4 supported.")
-
-        def d_dt_at(i: int) -> np.ndarray:
-            # On a burst axis the step is per-frame and the stencil is only
-            # meaningful on the midpoints; elsewhere there is no right answer,
-            # so return NaN rather than a plausible wrong number.
-            if dt_valid is not None:
-                if not dt_valid[i]:
-                    return self._base(i, data_slice) * np.nan
-                dt_i = float(dt[i])
+        # stencil overrides legacy order
+        if self._stencil is not None:
+            if self._periodic:
+                s_i = np.asarray(self._stencil, dtype=int)
+                idx = (i + s_i) % n
             else:
-                dt_i = float(dt)
+                s_i = self._shift_stencil_to_fit(np.asarray(self._stencil, dtype=int), i=i, n=n)
+                idx = i + s_i
+            c = self._fd_unit_coeffs(tuple(int(x) for x in s_i), self._deriv_order) / dt_i**self._deriv_order
+            acc = 0.0
+            for cj, j in zip(c, idx, strict=True):
+                acc = acc + cj * self._base(int(j), data_slice)
+            return acc
 
-            # stencil overrides legacy order
-            if self._stencil is not None:
-                self._validate_stencil(self._stencil, self._deriv_order)
-
-                if self._periodic:
-                    s_i = np.asarray(self._stencil, dtype=int)
-                    s_i_tup = tuple(int(x) for x in s_i.tolist())
-
-                    def idx_fn(jj):
-                        return (i + int(jj)) % n
-
-                else:
-                    s0 = np.asarray(self._stencil, dtype=int)
-                    s_i = self._shift_stencil_to_fit(s0, i=i, n=n)
-                    s_i_tup = tuple(int(x) for x in s_i.tolist())
-
-                    def idx_fn(jj):
-                        return i + int(jj)
-
-                c_unit = self._fd_unit_coeffs(s_i_tup, self._deriv_order)
-                c = c_unit / (dt_i**self._deriv_order)
-
-                acc = 0.0
-                for cj, sj in zip(c, s_i, strict=False):
-                    acc = acc + cj * self._base(idx_fn(sj), data_slice)
-                return acc
-
-            if self._order == 2:
-                if self._periodic:
-                    fp = self._base((i + 1) % n, data_slice)
-                    fm = self._base((i - 1) % n, data_slice)
-                    return (fp - fm) / (2 * dt_i)
-                if i == 0:
-                    f0 = self._base(0, data_slice)
-                    f1 = self._base(1, data_slice)
-                    f2 = self._base(2, data_slice)
-                    return (-3 * f0 + 4 * f1 - f2) / (2 * dt_i)
-                if i == n - 1:
-                    f0 = self._base(n - 1, data_slice)
-                    f1 = self._base(n - 2, data_slice)
-                    f2 = self._base(n - 3, data_slice)
-                    return (3 * f0 - 4 * f1 + f2) / (2 * dt_i)
-                fp = self._base(i + 1, data_slice)
-                fm = self._base(i - 1, data_slice)
+        if self._order == 2:
+            if self._periodic:
+                fp = self._base((i + 1) % n, data_slice)
+                fm = self._base((i - 1) % n, data_slice)
                 return (fp - fm) / (2 * dt_i)
+            if i == 0:
+                f0 = self._base(0, data_slice)
+                f1 = self._base(1, data_slice)
+                f2 = self._base(2, data_slice)
+                return (-3 * f0 + 4 * f1 - f2) / (2 * dt_i)
+            if i == n - 1:
+                f0 = self._base(n - 1, data_slice)
+                f1 = self._base(n - 2, data_slice)
+                f2 = self._base(n - 3, data_slice)
+                return (3 * f0 - 4 * f1 + f2) / (2 * dt_i)
+            fp = self._base(i + 1, data_slice)
+            fm = self._base(i - 1, data_slice)
+            return (fp - fm) / (2 * dt_i)
 
-            if self._order == 4:
-                if self._periodic:
-                    f_p2 = self._base((i + 2) % n, data_slice)
-                    f_p1 = self._base((i + 1) % n, data_slice)
-                    f_m1 = self._base((i - 1) % n, data_slice)
-                    f_m2 = self._base((i - 2) % n, data_slice)
-                    return (-f_p2 + 8 * f_p1 - 8 * f_m1 + f_m2) / (12 * dt_i)
-                if i < 2 or i > n - 3:
-                    # edge fallback to 2nd-order
-                    if i == 0:
-                        f0 = self._base(0, data_slice)
-                        f1 = self._base(1, data_slice)
-                        f2 = self._base(2, data_slice)
-                        return (-3 * f0 + 4 * f1 - f2) / (2 * dt_i)
-                    if i == n - 1:
-                        f0 = self._base(n - 1, data_slice)
-                        f1 = self._base(n - 2, data_slice)
-                        f2 = self._base(n - 3, data_slice)
-                        return (3 * f0 - 4 * f1 + f2) / (2 * dt_i)
-                    fp = self._base(min(i + 1, n - 1), data_slice)
-                    fm = self._base(max(i - 1, 0), data_slice)
-                    return (fp - fm) / (2 * dt_i)
+        if self._periodic:
+            f_p2 = self._base((i + 2) % n, data_slice)
+            f_p1 = self._base((i + 1) % n, data_slice)
+            f_m1 = self._base((i - 1) % n, data_slice)
+            f_m2 = self._base((i - 2) % n, data_slice)
+            return (-f_p2 + 8 * f_p1 - 8 * f_m1 + f_m2) / (12 * dt_i)
+        if i < 2 or i > n - 3:
+            # edge fallback to 2nd-order
+            if i == 0:
+                f0 = self._base(0, data_slice)
+                f1 = self._base(1, data_slice)
+                f2 = self._base(2, data_slice)
+                return (-3 * f0 + 4 * f1 - f2) / (2 * dt_i)
+            if i == n - 1:
+                f0 = self._base(n - 1, data_slice)
+                f1 = self._base(n - 2, data_slice)
+                f2 = self._base(n - 3, data_slice)
+                return (3 * f0 - 4 * f1 + f2) / (2 * dt_i)
+            fp = self._base(min(i + 1, n - 1), data_slice)
+            fm = self._base(max(i - 1, 0), data_slice)
+            return (fp - fm) / (2 * dt_i)
 
-                f_p2 = self._base(i + 2, data_slice)
-                f_p1 = self._base(i + 1, data_slice)
-                f_m1 = self._base(i - 1, data_slice)
-                f_m2 = self._base(i - 2, data_slice)
-                return (-f_p2 + 8 * f_p1 - 8 * f_m1 + f_m2) / (12 * dt_i)
-
-            raise ValueError("Only order 2 and 4 supported.")
-
-        if self._deriv_type in ("x1", "x2", "x3"):
-            f = self._base(index, data_slice)
-            ax_np = {"x1": 0, "x2": 1, "x3": 2}[self._deriv_type]
-            return d_dx_frame(f, ax_np)
-
-        if self._deriv_type == "t":
-            return d_dt_at(index)
-
-        if self._deriv_type == "xx":
-            ax1_np = spatial_axis_np_from_osiris(self._op_axis[0])
-            ax2_np = spatial_axis_np_from_osiris(self._op_axis[1])
-
-            f = self._base(index, data_slice)
-            g = d_dx_frame(f, ax1_np)
-            return d_dx_frame(g, ax2_np)
-
-        if self._deriv_type in ("xt", "tx"):
-            # The time stencil and the spatial one act on different axes, so the
-            # two operators commute exactly (edge stencils included): "tx" and
-            # "xt" are the same operator, computed one way.
-            if not isinstance(self._op_axis, int):
-                raise ValueError(f"For '{self._deriv_type}', axis must be an OSIRIS spatial axis int (1..3).")
-            ax_np = spatial_axis_np_from_osiris(self._op_axis)
-
-            ft = d_dt_at(index)
-            return d_dx_frame(ft, ax_np)
-
-        raise ValueError("Invalid derivative type.")
+        f_p2 = self._base(i + 2, data_slice)
+        f_p1 = self._base(i + 1, data_slice)
+        f_m1 = self._base(i - 1, data_slice)
+        f_m2 = self._base(i - 2, data_slice)
+        return (-f_p2 + 8 * f_p1 - 8 * f_m1 + f_m2) / (12 * dt_i)
 
     def _base(self, idx: int, data_slice: tuple | None):
         """One frame of the input, from Diagnostic's LRU (frame_cache_size deep)."""

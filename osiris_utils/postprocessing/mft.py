@@ -114,17 +114,6 @@ class MFT_Diagnostic_Average(Diagnostic):
         self._name = f"MFT_avg[{diagnostic._name}, x{mft_axis}]"
         self._mft_axis = mft_axis
 
-    def load_all(self) -> np.ndarray:
-        if self._data is not None:
-            return self._data
-
-        self._diag.load_all()
-        # loaded data includes time at axis 0; spatial x1..xd are axes 1..d
-        ax = self._mft_axis  # OSIRIS axis -> numpy axis in loaded array
-        self._data = self._diag.data.mean(axis=ax, keepdims=True)
-        self._all_loaded = True
-        return self._data
-
     def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
         # per-frame array has only spatial dims; x1..xd -> numpy 0..d-1
         ax = self._mft_axis - 1
@@ -150,17 +139,6 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
         self.postprocess_name = "MFT_FLT"
         self._name = f"MFT_delta[{diagnostic._name}, x{mft_axis}]"
         self._mft_axis = mft_axis
-
-    def load_all(self) -> np.ndarray:
-        if self._data is not None:
-            return self._data
-
-        self._diag.load_all()
-        ax = self._mft_axis  # spatial axis in loaded array (time is 0)
-        avg = self._diag.data.mean(axis=ax, keepdims=True)
-        self._data = self._diag.data - avg
-        self._all_loaded = True
-        return self._data
 
     def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
         ax = self._mft_axis - 1

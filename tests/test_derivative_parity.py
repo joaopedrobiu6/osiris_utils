@@ -124,10 +124,8 @@ def test_mixed_derivative_on_1d_data_works_both_ways() -> None:
 
 def test_spatial_axis_beyond_dimension_still_rejected() -> None:
     """Relaxing the 1D guard must not let x2 through on 1D data."""
-    diag = ou.Derivative_Diagnostic(_Mock(_smooth_1d()), deriv_type="x2", order=2)
-
-    with pytest.raises((ValueError, RuntimeError, IndexError, np.exceptions.AxisError)):
-        _ = diag[0]
+    with pytest.raises(ValueError, match="along x2, but the diagnostic is 1-D"):
+        ou.Derivative_Diagnostic(_Mock(_smooth_1d()), deriv_type="x2", order=2)
 
 
 def test_order4_spatial_matches_analytic_derivative() -> None:

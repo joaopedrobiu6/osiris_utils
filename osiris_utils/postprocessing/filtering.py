@@ -126,22 +126,6 @@ class Filtered_Diagnostic(Diagnostic):
             return cached
         return self._cache_put(key, self._smooth(self._diag._frame(index, data_slice=data_slice)))
 
-    def load_all(self) -> np.ndarray:
-        """Smooth every timestep eagerly.
-
-        Frames are smoothed one at a time: the loaded array carries time on
-        axis 0, and a filter configured for "every axis" would otherwise
-        smooth along it.
-        """
-        if self._data is not None:
-            return self._data
-
-        self._diag.load_all()
-        source = np.asarray(self._diag.data, dtype=np.float64)
-        self._data = np.stack([self._smooth(source[i]) for i in range(source.shape[0])])
-        self._all_loaded = True
-        return self._data
-
 
 class Filtered_Species_Handler:
     """Species-level filtered view. Built by :class:`Filtered_Simulation`."""

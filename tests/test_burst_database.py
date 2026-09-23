@@ -219,11 +219,8 @@ def test_time_derivative_refuses_non_uniform_frames(burst_sim):
     with pytest.raises(ValueError, match="non-uniform frame spacing"):
         _uniform_frame_dt(vfl1)
 
-    d = Derivative_Diagnostic(vfl1, "t", order=2)
-    with pytest.raises(RuntimeError) as exc:  # Diagnostic.__getitem__ wraps loader errors
-        _ = d[1]
-    assert isinstance(exc.value.__cause__, ValueError)
-    assert "non-uniform frame spacing" in str(exc.value.__cause__)
+    with pytest.raises(ValueError, match="non-uniform frame spacing"):
+        Derivative_Diagnostic(vfl1, "t", order=2)  # refused when built, not on the first frame
 
 
 def test_uniform_frame_dt_unchanged_for_regular_dumps(mixed_sim):

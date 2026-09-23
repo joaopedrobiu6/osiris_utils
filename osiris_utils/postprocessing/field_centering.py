@@ -176,30 +176,6 @@ class FieldCentering_Diagnostic(Diagnostic):
                     "Either use full domain on that axis, or implement halo reads."
                 )
 
-        # ---- eager path ----
-
-    def load_all(self) -> np.ndarray:
-        if self._data is not None:
-            return self._data
-
-        self._diag.load_all()
-        data = self._diag.data  # shape: (t, x1[,x2[,x3]])
-
-        axes_to_center = self._center_axes_cached
-
-        # Map OSIRIS spatial axes (1..3) to numpy axes in the loaded array:
-        # loaded includes time at axis 0, so x1->1, x2->2, x3->3
-        result = data
-        for ax_osiris in axes_to_center:
-            np_axis = ax_osiris  # because time is axis 0
-            result = self._center_along_axis(result, axis=np_axis, periodic=self._periodic)
-
-        self._data = result
-        self._all_loaded = True
-        return self._data
-
-    # ---- lazy path ----
-
     def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
         axes_to_center = self._center_axes_cached
 

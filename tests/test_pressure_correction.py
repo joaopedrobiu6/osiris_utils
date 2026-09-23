@@ -9,6 +9,7 @@ class MockDiagnostic:
         self._data = data
         self._name = name
         self._dim = dim
+        self._maxiter = data.shape[0]
         self._all_loaded = True
         self._simulation_folder = "/tmp"
         self._species = None

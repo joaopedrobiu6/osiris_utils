@@ -152,12 +152,12 @@ def main() -> None:
     # ------------------------------------------------------------------
     section("7. load_all() on a derivative")
     # ------------------------------------------------------------------
-    # Whole-array mode: reads every frame, then differentiates the stacked
-    # array in one vectorised pass.  Spatial derivatives can be split over
-    # processes with n_workers; numba, if installed, accelerates the stencil.
+    # The generic Diagnostic.load_all: frame by frame into one preallocated
+    # array, each input frame read once (the frame cache holds the stencil's
+    # neighbours).  numba, if installed, accelerates the stencil sums.
     show("numba available", _NUMBA_AVAILABLE)
     d = ou.Derivative_Diagnostic(sim["b3"], "x1", order=4)
-    d.load_all(n_workers=2)
+    d.load_all()
     show("d.data.shape", d.data.shape)
     show("same as the lazy path", np.allclose(d.data[3], ou.Derivative_Diagnostic(sim["b3"], "x1", order=4)[3]))
     d.unload()

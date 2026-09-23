@@ -526,7 +526,9 @@ class Diagnostic:
             Number of reader threads. Default: ``min(_MAX_IO_WORKERS, cpu_count, size - 1)``.
         use_parallel : bool, optional
             If True, force parallel loading. If False, force sequential.
-            If None (default), automatically choose based on data size.
+            If None (default), threads for a file-backed diagnostic with more
+            than 10 frames of over 1 MB each, sequential otherwise — and always
+            sequential for a derived one (see :attr:`is_derived`).
 
         Returns
         -------
@@ -562,11 +564,12 @@ class Diagnostic:
         data = np.empty((size, *slice_shape), dtype=dtype)
         data[0] = first
 
-        # Auto-detect whether to use parallel loading
+        # Auto-detect whether to use parallel loading.  A derived diagnostic's
+        # frame caches are sized for frames visited in order (a time stencil
+        # reuses its neighbours); threads visiting frames out of order would
+        # evict them and re-read files, so it loads sequentially.
         if use_parallel is None:
-            # Use parallel for large datasets: >10 timesteps AND >1MB per file
-            bytes_per_timestep = first.nbytes
-            use_parallel = (size > 10) and (bytes_per_timestep > 1_000_000)
+            use_parallel = size > 10 and first.nbytes > 1_000_000 and not self.is_derived
 
         # Parallel loading for significant performance improvement
         if use_parallel and size > 1:
@@ -1213,6 +1216,11 @@ class Diagnostic:
     @property
     def quantity(self) -> str:
         return self._quantity
+
+    @property
+    def is_derived(self) -> bool:
+        """True when frames are computed (arithmetic, post-processing) rather than read from files."""
+        return "_frame" in self.__dict__ or type(self)._frame is not Diagnostic._frame
 
     @property
     def file_list(self) -> list[str] | None:

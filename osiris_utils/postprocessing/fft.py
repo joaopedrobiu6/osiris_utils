@@ -4,7 +4,6 @@ from functools import lru_cache
 from typing import Any
 
 import numpy as np
-import tqdm as tqdm
 
 from ..data.diagnostic import Diagnostic
 from ..data.simulation import Simulation
@@ -133,13 +132,16 @@ class FFT_Diagnostic(Diagnostic):
             axes = [self._fft_axis] if isinstance(self._fft_axis, int) else self._fft_axis
             self._kmax = np.pi / np.array([self._dx[ax - 1] for ax in axes if ax != 0])
 
-    def load_all(self) -> np.ndarray:
-        r"""
-        Load all data and compute FFT (possibly including time axis).
-        Returns power spectrum `|FFT|^2` stored in self._data.
+    def load_all(self, n_workers: int | None = None, use_parallel: bool | None = None) -> np.ndarray:
+        r"""Power spectrum ``|FFT|^2`` of every frame, stored in ``self._data``.
+
+        A purely spatial transform is taken frame by frame, like any other
+        diagnostic; one along time (axis 0) needs the whole series at once.
         """
+        axes_osiris = [self._fft_axis] if isinstance(self._fft_axis, int) else list(self._fft_axis)
+        if 0 not in axes_osiris:
+            return super().load_all(n_workers=n_workers, use_parallel=use_parallel)
         if self._data is not None:
-            print("Using cached data.")
             return self._data
 
         # Ensure base diagnostic is loaded
@@ -147,8 +149,6 @@ class FFT_Diagnostic(Diagnostic):
             self._diag.load_all()
 
         data = np.nan_to_num(self._diag._data, copy=True)
-
-        axes_osiris = [self._fft_axis] if isinstance(self._fft_axis, int) else list(self._fft_axis)
 
         # Detrend across transform axes in the FULL array
         # (here axes_osiris match numpy axes because loaded data includes time at axis 0)
@@ -164,22 +164,7 @@ class FFT_Diagnostic(Diagnostic):
                 w = self._get_window(result.shape[ax], self._window_spatial)
                 result = self._apply_window(result, w, axis=ax)
 
-        # FFT + shift
-        with tqdm.tqdm(total=1, desc="FFT calculation") as pbar:
-            if len(axes_osiris) == 1:
-                ax = axes_osiris[0]
-                fft = np.fft.fft(result, axis=ax, norm=self._np_norm)
-                pbar.update(0.5)
-                fft = np.fft.fftshift(fft, axes=ax)
-                pbar.update(0.5)
-            else:
-                fft = np.fft.fftn(result, axes=axes_osiris, norm=self._np_norm)
-                pbar.update(0.5)
-                fft = np.fft.fftshift(fft, axes=axes_osiris)
-                pbar.update(0.5)
-
-        # Useful for time FFT
-        # self.omega_max is a property, no need to set it
+        fft = np.fft.fftshift(np.fft.fftn(result, axes=axes_osiris, norm=self._np_norm), axes=axes_osiris)
 
         # Optional "density" scaling (includes dt/dx factors)
         if self._normalize == "density":
@@ -203,7 +188,7 @@ class FFT_Diagnostic(Diagnostic):
 
         # Read ONLY requested spatial slice from the underlying diagnostic
         # data_slice refers to spatial dimensions only (no time dimension here)
-        f = self._diag._frame(index, data_slice=data_slice)
+        f = np.nan_to_num(self._diag._frame(index, data_slice=data_slice))
 
         # Map OSIRIS axes (1,2,3) -> per-timestep numpy axes (0,1,2)
         spatial_axes_osiris = [ax for ax in axes_osiris if ax != 0]

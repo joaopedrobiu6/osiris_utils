@@ -58,6 +58,9 @@ class MockDiagnostic:
     def __getitem__(self, index):
         return self._data[index]
 
+    def _frame(self, index, data_slice=None):
+        return self._data[index] if data_slice is None else self._data[index][data_slice]
+
     def load_all(self):
         return self._data
 

@@ -103,18 +103,6 @@ def _read_frame(args: tuple) -> tuple[int, np.ndarray]:
 # -----------------------------------------------------------------------
 
 
-def _is_derived(diagnostic) -> bool:
-    """Return True when frames come from computation rather than direct HDF5 reads.
-
-    Covers:
-    * Arithmetic results: ``_frame`` set as an instance attribute by ``_binary_op``
-    * Post-processing subclasses: ``Derivative_Diagnostic``, ``FFT_Diagnostic``, etc.
-    """
-    from ..data.diagnostic import Diagnostic
-
-    return '_frame' in diagnostic.__dict__ or type(diagnostic) is not Diagnostic
-
-
 def _collect_chain(diagnostic, _seen: set | None = None) -> list:
     """Recursively collect every Diagnostic in the computation chain.
 
@@ -278,7 +266,7 @@ def export_to_npy(
     # and files are re-read; sequentially, each frame after the stencil
     # warm-up costs one new read.  So derived diagnostics run on one worker,
     # with the chain's file-backed leaves prefetched ahead of it.
-    derived = _is_derived(diagnostic)
+    derived = diagnostic.is_derived
     if derived:
         chain = _collect_chain(diagnostic)
         if n_workers is None:

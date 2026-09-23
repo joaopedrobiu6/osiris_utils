@@ -101,36 +101,6 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         """
         return Q - (vfl_i * P_jk + vfl_j * P_ki + vfl_k * P_ij) + 2 * vfl_i * vfl_j * vfl_k * n
 
-    def load_all(self) -> np.ndarray:
-        if self._data is not None:
-            return self._data
-
-        if not hasattr(self._diag, "_data") or self._diag._data is None:
-            self._diag.load_all()
-
-        print(f"Loading {self._species._name} {self._original_name} diagnostic")
-
-        for index in range(len(self._vfl_list)):
-            self._vfl_list[index].load_all()
-
-        for index in range(len(self._P_list)):
-            self._P_list[index].load_all()
-
-        self._n.load_all()
-
-        self._data = self._compute(
-            self._diag.data,
-            self._vfl_list[0].data,
-            self._vfl_list[1].data,
-            self._vfl_list[2].data,
-            self._P_list[0].data,
-            self._P_list[1].data,
-            self._P_list[2].data,
-            self._n.data,
-        )
-        self._all_loaded = True
-        return self._data
-
     def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
         """
         Lazy per-timestep correction. Reads only requested slices from disk,
