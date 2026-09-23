@@ -6,8 +6,6 @@ from ..data.diagnostic import Diagnostic
 from .postprocess import PostProcess
 
 if TYPE_CHECKING:
-    import numpy as np
-
     from ..data.simulation import Simulation
 
 OSIRIS_H = ["Q111", "Q222", "Q333", "Q112", "Q113", "Q221", "Q223", "Q331", "Q332"]
@@ -34,7 +32,7 @@ class HeatfluxCorrection_Simulation(PostProcess):
     def __init__(self, simulation: Simulation):
         super().__init__("HeatfluxCorrection Simulation", simulation)
 
-    def _process(self, container: Any, key: str) -> HeatfluxCorrection_Diagnostic:
+    def _process(self, container: Any, key: str) -> Diagnostic:
         if key not in OSIRIS_H:
             raise ValueError(f"Invalid heatflux component {key}. Supported: {OSIRIS_H}.")
         if container is self._simulation:
@@ -52,64 +50,27 @@ class HeatfluxCorrection_Simulation(PostProcess):
         return HeatfluxCorrection_Diagnostic(container[key], [P(i, j), P(j, k), P(k, i)], vfl, container["n"])
 
 
-class HeatfluxCorrection_Diagnostic(Diagnostic):
-    def __init__(self, diagnostic: Diagnostic, P_list: list[Diagnostic], vfl_list: list[Diagnostic], n: Diagnostic):
-        """
-        Class to correct the pressure in the simulation.
+def HeatfluxCorrection_Diagnostic(diagnostic: Diagnostic, P_list: list[Diagnostic], vfl_list: list[Diagnostic], n: Diagnostic) -> Diagnostic:  # noqa: N802
+    """``Q_ijk - (v_i P_jk + v_j P_ki + v_k P_ij) + 2 v_i v_j v_k n``: the heat flux in the fluid frame.
 
-        Parameters
-        ----------
-        diagnostic : Diagnostic
-            The diagnostic object.
-        """
-        super().__init__()
-        self._derive_from(diagnostic)
+    Parameters
+    ----------
+    diagnostic : Diagnostic
+        ``Q_ijk``.
+    P_list : list of Diagnostic
+        ``[P_ij, P_jk, P_ki]``.
+    vfl_list : list of Diagnostic
+        ``[v_i, v_j, v_k]``.
+    n : Diagnostic
+        Number density.
 
-        self.postprocess_name = "HFL_CORR"
-
-        if diagnostic._name not in OSIRIS_H:
-            raise ValueError(f"Invalid heatflux component {diagnostic._name}. Supported: {OSIRIS_H}")
-
-        # The density and velocities are now passed as arguments (so it can doesn't depend on the simulation)
-        self._P_list = P_list
-        self._vfl_list = vfl_list
-        self._n = n
-
-        self._original_name = diagnostic._name
-        self._name = diagnostic._name + "_corrected"
-
-        self._data: np.ndarray | None = None
-        self._all_loaded = False
-
-    def _compute(
-        self,
-        Q: np.ndarray,
-        vfl_i: np.ndarray,
-        vfl_j: np.ndarray,
-        vfl_k: np.ndarray,
-        P_ij: np.ndarray,
-        P_jk: np.ndarray,
-        P_ki: np.ndarray,
-        n: np.ndarray,
-    ) -> np.ndarray:
-        """
-        Centralize the correction formula so eager/lazy always match.
-        """
-        return Q - (vfl_i * P_jk + vfl_j * P_ki + vfl_k * P_ij) + 2 * vfl_i * vfl_j * vfl_k * n
-
-    def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
-        """
-        Lazy per-timestep correction. Reads only requested slices from disk,
-        provided the underlying diagnostics support data_slice.
-        """
-        # Read one timestep (and only the requested spatial slice)
-        Q = self._diag._frame(index, data_slice=data_slice)
-        vfl_i = self._vfl_list[0]._frame(index, data_slice=data_slice)
-        vfl_j = self._vfl_list[1]._frame(index, data_slice=data_slice)
-        vfl_k = self._vfl_list[2]._frame(index, data_slice=data_slice)
-
-        Pij = self._P_list[0]._frame(index, data_slice=data_slice)
-        Pjk = self._P_list[1]._frame(index, data_slice=data_slice)
-        Pki = self._P_list[2]._frame(index, data_slice=data_slice)
-
-        return self._compute(Q, vfl_i, vfl_j, vfl_k, Pij, Pjk, Pki, self._n._frame(index, data_slice=data_slice))
+    Plain Diagnostic arithmetic, so it stays lazy like any other expression.
+    """
+    if diagnostic._name not in OSIRIS_H:
+        raise ValueError(f"Invalid heatflux component {diagnostic._name}. Supported: {OSIRIS_H}")
+    P_ij, P_jk, P_ki = P_list
+    v_i, v_j, v_k = vfl_list
+    corrected = diagnostic - (v_i * P_jk + v_j * P_ki + v_k * P_ij) + 2 * v_i * v_j * v_k * n
+    corrected._name = diagnostic._name + "_corrected"
+    corrected.created_diagnostic_name = "HFL_CORR"  # to_h5's default folder
+    return corrected

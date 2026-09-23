@@ -7,8 +7,6 @@ from ..data.diagnostic import Diagnostic
 from .postprocess import PostProcess
 
 if TYPE_CHECKING:
-    import numpy as np
-
     from ..data.simulation import Simulation
 
 OSIRIS_P = ["P11", "P12", "P13", "P22", "P23", "P33"]
@@ -34,7 +32,7 @@ class PressureCorrection_Simulation(PostProcess):
     def __init__(self, simulation: Simulation):
         super().__init__("PressureCorrection Simulation", simulation)
 
-    def _process(self, container: Any, key: str) -> PressureCorrection_Diagnostic:
+    def _process(self, container: Any, key: str) -> Diagnostic:
         if key not in OSIRIS_P:
             raise ValueError(f"Invalid pressure component {key}. Supported: {OSIRIS_P}.")
         if container is self._simulation:
@@ -60,33 +58,15 @@ class PressureCorrection_Simulation(PostProcess):
         return PressureCorrection_Diagnostic(container[key], n, ufl, container[f"vfl{k}"])
 
 
-class PressureCorrection_Diagnostic(Diagnostic):
-    def __init__(self, diagnostic: Diagnostic, n: Diagnostic, ufl_j: Diagnostic, vfl_k: Diagnostic):
-        super().__init__()
-        self._derive_from(diagnostic)
+def PressureCorrection_Diagnostic(diagnostic: Diagnostic, n: Diagnostic, ufl_j: Diagnostic, vfl_k: Diagnostic) -> Diagnostic:  # noqa: N802
+    """``P_jk - n u_j v_k``: the pressure tensor with the Reynolds stress removed.
 
-        self.postprocess_name = "P_CORR"
-
-        if diagnostic._name not in OSIRIS_P:
-            raise ValueError(f"Invalid pressure component {diagnostic._name}. Supported: {OSIRIS_P}")
-
-        self._n = n
-        self._ufl_j = ufl_j
-        self._vfl_k = vfl_k
-
-        self._original_name = diagnostic._name
-        self._name = diagnostic._name + "_corrected"
-
-        self._data: np.ndarray | None = None
-        self._all_loaded = False
-
-    def _frame(self, index: int, data_slice: tuple | None = None) -> np.ndarray:
-        """
-        Lazy per-timestep evaluation, supports spatial slicing.
-        data_slice applies to spatial axes only (same convention as Diagnostic).
-        """
-        P = self._diag._frame(index, data_slice=data_slice)
-        n = self._n._frame(index, data_slice=data_slice)
-        u = self._ufl_j._frame(index, data_slice=data_slice)
-        v = self._vfl_k._frame(index, data_slice=data_slice)
-        return P - n * u * v
+    Plain Diagnostic arithmetic, so it stays lazy (one frame of each operand per
+    timestep, spatial slicing included) like any other expression.
+    """
+    if diagnostic._name not in OSIRIS_P:
+        raise ValueError(f"Invalid pressure component {diagnostic._name}. Supported: {OSIRIS_P}")
+    corrected = diagnostic - n * ufl_j * vfl_k
+    corrected._name = diagnostic._name + "_corrected"
+    corrected.created_diagnostic_name = "P_CORR"  # to_h5's default folder
+    return corrected
