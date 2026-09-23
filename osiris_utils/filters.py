@@ -51,6 +51,8 @@ import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import savgol_filter
 
+from .finite_differences import fd_apply
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -68,7 +70,7 @@ __all__ = [
 
 
 # ----------------------------------------------------------------------
-# Finite-difference fallback (moved from lorentz_database._grad4)
+# Finite-difference fallback
 # ----------------------------------------------------------------------
 
 
@@ -108,35 +110,11 @@ def fd_derivative(f: np.ndarray, dx: float, axis: int = 0, order: int = 1, perio
     """
     if order < 1:
         raise ValueError(f"order must be >= 1, got {order}.")
+    stencil = (-1, 0, 1) if periodic else (-2, -1, 0, 1, 2)
     out = np.asarray(f, dtype=np.float64)
     for _ in range(order):
-        out = _centred_periodic(out, dx, axis) if periodic else _grad4(out, dx, axis)
+        out = fd_apply(out, dx, axis, stencil, periodic=periodic)
     return out
-
-
-def _centred_periodic(f: np.ndarray, dx: float, axis: int) -> np.ndarray:
-    """(f[i+1] - f[i-1]) / (2 dx) with wrap-around along *axis*."""
-    return (np.roll(f, -1, axis=axis) - np.roll(f, 1, axis=axis)) / (2.0 * dx)
-
-
-def _grad4(f: np.ndarray, dx: float, axis: int) -> np.ndarray:
-    """One application of the 4th-order first-derivative stencil on an open axis."""
-    # Move the target axis to front for clean 1-D slicing
-    fm = np.moveaxis(f, axis, 0)
-    out = np.empty_like(fm)
-
-    # Interior: centered stencil
-    out[2:-2] = (fm[:-4] - 8.0 * fm[1:-3] + 8.0 * fm[3:-1] - fm[4:]) / (12.0 * dx)
-
-    # Left boundary: forward-biased
-    out[0] = (-25.0 * fm[0] + 48.0 * fm[1] - 36.0 * fm[2] + 16.0 * fm[3] - 3.0 * fm[4]) / (12.0 * dx)
-    out[1] = (-3.0 * fm[0] - 10.0 * fm[1] + 18.0 * fm[2] - 6.0 * fm[3] + fm[4]) / (12.0 * dx)
-
-    # Right boundary: backward-biased
-    out[-2] = (-fm[-5] + 6.0 * fm[-4] - 18.0 * fm[-3] + 10.0 * fm[-2] + 3.0 * fm[-1]) / (12.0 * dx)
-    out[-1] = (3.0 * fm[-5] - 16.0 * fm[-4] + 36.0 * fm[-3] - 48.0 * fm[-2] + 25.0 * fm[-1]) / (12.0 * dx)
-
-    return np.moveaxis(out, 0, axis)
 
 
 # ----------------------------------------------------------------------

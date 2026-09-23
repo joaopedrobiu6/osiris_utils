@@ -34,7 +34,7 @@ import numpy as np
 from _common import load_simulation, parse_args, savefig, section, show
 
 import osiris_utils as ou
-from osiris_utils.postprocessing.derivative import _NUMBA_AVAILABLE
+from osiris_utils.finite_differences import _NUMBA_AVAILABLE
 
 
 def main() -> None:

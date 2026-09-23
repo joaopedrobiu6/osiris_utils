@@ -213,20 +213,22 @@ def test_iteration_axis_unchanged_for_regular_dumps(mixed_sim):
 
 def test_time_derivative_refuses_non_uniform_frames(burst_sim):
     """A uniform-grid d/dt over a bursted series must fail loudly, not silently."""
-    from osiris_utils.postprocessing.derivative import Derivative_Diagnostic, _uniform_frame_dt
+    from osiris_utils.postprocessing.derivative import Derivative_Diagnostic, _frame_dt_axis
 
     vfl1 = burst_sim[SPECIES]["vfl1"]
     with pytest.raises(ValueError, match="non-uniform frame spacing"):
-        _uniform_frame_dt(vfl1)
+        _frame_dt_axis(vfl1)  # no stencil: no single step to use
 
     with pytest.raises(ValueError, match="non-uniform frame spacing"):
         Derivative_Diagnostic(vfl1, "t", order=2)  # refused when built, not on the first frame
 
 
 def test_uniform_frame_dt_unchanged_for_regular_dumps(mixed_sim):
-    from osiris_utils.postprocessing.derivative import _uniform_frame_dt
+    from osiris_utils.postprocessing.derivative import _frame_dt_axis
 
-    assert _uniform_frame_dt(mixed_sim["b2"]) == pytest.approx(DT * NDUMP)
+    h, valid = _frame_dt_axis(mixed_sim["b2"])
+    assert valid is None
+    assert h == pytest.approx(DT * NDUMP)
 
 
 # --- BurstAxis -------------------------------------------------------------
