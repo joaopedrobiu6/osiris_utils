@@ -15,45 +15,41 @@ OSIRIS_H = ["Q111", "Q222", "Q333", "Q112", "Q113", "Q221", "Q223", "Q331", "Q33
 __all__ = [
     "HeatfluxCorrection_Simulation",
     "HeatfluxCorrection_Diagnostic",
-    "HeatfluxCorrection_Species_Handler",
 ]
 
 
 class HeatfluxCorrection_Simulation(PostProcess):
+    """
+    Heat flux in the fluid frame:
+    ``Q_ijk - (v_i P_jk + v_j P_ki + v_k P_ij) + 2 v_i v_j v_k n``.
+
+    Heat flux is species-dependent, so only ``sim["species"]["Q112"]`` exists.
+
+    Parameters
+    ----------
+    simulation : Simulation
+        The simulation object.
+    """
+
     def __init__(self, simulation: Simulation):
         super().__init__("HeatfluxCorrection Simulation", simulation)
-        """
-        Class to correct pressure tensor components by subtracting Reynolds stress.
 
-        Parameters
-        ----------
-        sim : Simulation
-            The simulation object.
-        heatflux : str
-            The heatflux component to center.
-        """
-        self._heatflux_corrected: dict[str, HeatfluxCorrection_Diagnostic] = {}
-        self._species_handler: dict[str, HeatfluxCorrection_Species_Handler] = {}
-
-    def __getitem__(self, key: str) -> HeatfluxCorrection_Species_Handler | HeatfluxCorrection_Diagnostic:
-        if key in self._simulation._species:
-            if key not in self._species_handler:
-                self._species_handler[key] = HeatfluxCorrection_Species_Handler(self._simulation[key], self._simulation)
-            return self._species_handler[key]
+    def _process(self, container: Any, key: str) -> HeatfluxCorrection_Diagnostic:
         if key not in OSIRIS_H:
             raise ValueError(f"Invalid heatflux component {key}. Supported: {OSIRIS_H}.")
-        if key not in self._heatflux_corrected:
+        if container is self._simulation:
             raise KeyError("Heat-flux diagnostics are species-dependent. Use sim['species']['Q112'] not sim['Q112'].")
-        return self._heatflux_corrected[key]
 
-    def delete_all(self) -> None:
-        self._heatflux_corrected = {}
+        i, j, k = (int(c) for c in key[-3:])  # Q_ijk
 
-    def delete(self, key: str) -> None:
-        if key in self._heatflux_corrected:
-            del self._heatflux_corrected[key]
-        else:
-            print(f"Heatflux {key} not found in simulation")
+        # The pressure tensor is symmetric and OSIRIS only dumps the upper
+        # triangle (P11, P12, P13, P22, P23, P33). Order the index pair, or
+        # mixed components ask for P21/P31/P32 and fail.
+        def P(a: int, b: int) -> Diagnostic:
+            return container[f"P{min(a, b)}{max(a, b)}"]
+
+        vfl = [container[f"vfl{a}"] for a in (i, j, k)]
+        return HeatfluxCorrection_Diagnostic(container[key], [P(i, j), P(j, k), P(k, i)], vfl, container["n"])
 
 
 class HeatfluxCorrection_Diagnostic(Diagnostic):
@@ -117,53 +113,3 @@ class HeatfluxCorrection_Diagnostic(Diagnostic):
         Pki = self._P_list[2]._frame(index, data_slice=data_slice)
 
         return self._compute(Q, vfl_i, vfl_j, vfl_k, Pij, Pjk, Pki, self._n._frame(index, data_slice=data_slice))
-
-
-class HeatfluxCorrection_Species_Handler:
-    """
-    Class to handle heatflux correction for a species.
-    Acts as a wrapper for the HeatfluxCorrection_Diagnostic class.
-
-    Not intended to be used directly, but through the HeatfluxCorrection_Simulation class.
-
-    Parameters
-    ----------
-    species_handler : Species_Handler
-        The species handler object.
-    simulation : Simulation
-        The simulation object.
-    """
-
-    def __init__(self, species_handler: Any, simulation: Simulation):
-        self._species_handler = species_handler
-        self._simulation = simulation
-        self._heatflux_corrected: dict[str, HeatfluxCorrection_Diagnostic] = {}
-
-    def __getitem__(self, key: str) -> HeatfluxCorrection_Diagnostic:
-        if key not in self._heatflux_corrected:
-            diag = self._species_handler[key]
-
-            # Velocities alwayes depend on the species so this can be done here
-
-            # Q_ijk
-
-            i = int(key[-3])  # Get i from 'Q111', 'Q222', etc.
-            j = int(key[-2])  # Get j from 'Q111', 'Q222', etc.
-            k = int(key[-1])  # Get k from 'Q111', 'Q222', etc.
-
-            vfl_i = self._species_handler[f"vfl{i}"]
-            vfl_j = self._species_handler[f"vfl{j}"]
-            vfl_k = self._species_handler[f"vfl{k}"]
-
-            # The pressure tensor is symmetric and OSIRIS only dumps the upper
-            # triangle (P11, P12, P13, P22, P23, P33). Order the index pair, or
-            # mixed components ask for P21/P31/P32 and fail.
-            def P(a: int, b: int) -> Diagnostic:
-                return self._species_handler[f"P{min(a, b)}{max(a, b)}"]
-
-            Pij, Pjk, Pki = P(i, j), P(j, k), P(k, i)
-
-            n = self._species_handler["n"]
-
-            self._heatflux_corrected[key] = HeatfluxCorrection_Diagnostic(diag, [Pij, Pjk, Pki], [vfl_i, vfl_j, vfl_k], n)
-        return self._heatflux_corrected[key]

@@ -1,9 +1,14 @@
-"""Tests for osiris_utils.postprocessing.postprocess.PostProcess."""
+"""Tests for osiris_utils.postprocessing.postprocess.PostProcess.
+
+A view implements one hook, ``_process(container, key)``; the base class owns
+species dispatch, the cache and user-registered diagnostics.
+"""
 
 from unittest.mock import MagicMock
 
 import pytest
 
+from osiris_utils.data.diagnostic import Diagnostic
 from osiris_utils.postprocessing.postprocess import PostProcess
 
 # ---------------------------------------------------------------------------
@@ -11,133 +16,165 @@ from osiris_utils.postprocessing.postprocess import PostProcess
 # ---------------------------------------------------------------------------
 
 
-class MinimalSim:
-    """Minimal simulation-like object with _species and __getitem__."""
+class Handler:
+    """Species-handler stand-in: quantity -> "<species>/<quantity>"."""
 
-    def __init__(self, species=None):
-        self._species = species or ["electrons"]
-        self.species = self._species  # required: getattr evaluates default eagerly
+    def __init__(self, name):
+        self.species = name
 
     def __getitem__(self, key):
-        return MagicMock()
+        return f"{self.species}/{key}"
+
+
+class MinimalSim:
+    """Simulation stand-in: quantity -> its name, species -> a Handler."""
+
+    def __init__(self, species=("electrons",)):
+        self.species = list(species)
+
+    def __getitem__(self, key):
+        return Handler(key) if key in self.species else key
+
+
+class Tagging(PostProcess):
+    """A view whose processing is visible: it tags the input and counts calls."""
+
+    def __init__(self, simulation, **kwargs):
+        super().__init__("tag", simulation, **kwargs)
+        self.calls = []
+
+    def _process(self, container, key):
+        self.calls.append((container, key))
+        return ("tagged", container[key])
 
 
 class NoGetItemSim:
-    """Has species attribute but no __getitem__."""
-
-    _species = ["electrons"]
+    species = ["electrons"]
 
 
 class NoSpeciesSim:
-    """Has __getitem__ but neither _species nor species."""
-
     def __getitem__(self, key):
-        return MagicMock()
+        return key
 
 
 # ---------------------------------------------------------------------------
-# Initialisation
+# Construction
 # ---------------------------------------------------------------------------
 
 
-class TestPostProcessInit:
-    def test_init_with_underscore_species(self):
-        sim = MinimalSim(["electrons", "ions"])
-        pp = PostProcess("test", sim)
-        assert pp.species == ["electrons", "ions"]
+def test_species_come_from_the_wrapped_simulation():
+    assert Tagging(MinimalSim(["electrons", "ions"])).species == ["electrons", "ions"]
 
-    def test_init_prefers_underscore_species_over_dot_species(self):
-        sim = MinimalSim(["electrons"])
-        sim.species = ["ions"]  # dot-species differs on purpose
-        pp = PostProcess("test", sim)
-        # _species takes priority
-        assert pp.species == ["electrons"]
 
-    def test_init_falls_back_to_dot_species(self):
-        sim = MagicMock()
-        del sim._species  # remove _species
-        sim.species = ["protons"]
-        pp = PostProcess("test", sim)
-        assert pp.species == ["protons"]
+def test_explicit_species_override_the_simulation():
+    """species=() (e.g. field centering): a species name is processed like any key."""
+    view = Tagging(MinimalSim(["electrons"]), species=())
+    assert view.species == []
+    tag, handler = view["electrons"]
+    assert tag == "tagged" and isinstance(handler, Handler)
 
-    def test_init_no_getitem_raises_type_error(self):
-        with pytest.raises(TypeError, match="__getitem__"):
-            PostProcess("test", NoGetItemSim())
 
-    def test_init_no_species_raises_type_error(self):
-        with pytest.raises(TypeError, match="_species or species"):
-            PostProcess("test", NoSpeciesSim())
+def test_wrapped_object_needs_getitem():
+    with pytest.raises(TypeError, match="__getitem__"):
+        PostProcess("test", NoGetItemSim())
+
+
+def test_wrapped_object_needs_species():
+    with pytest.raises(TypeError, match="species attribute"):
+        PostProcess("test", NoSpeciesSim())
+
+
+def test_base_class_has_no_processing():
+    with pytest.raises(NotImplementedError):
+        PostProcess("test", MinimalSim())["e1"]
 
 
 # ---------------------------------------------------------------------------
-# Properties
+# Processing and species views
 # ---------------------------------------------------------------------------
 
 
-class TestPostProcessProperties:
-    def test_loaded_diagnostics_delegates(self):
-        sim = MinimalSim()
-        sentinel = {"diag1": object()}
-        sim.loaded_diagnostics = sentinel
-        pp = PostProcess("test", sim)
-        assert pp.loaded_diagnostics is sentinel
+def test_quantity_is_processed_once_and_cached():
+    sim = MinimalSim()
+    view = Tagging(sim)
 
-    def test_loaded_diagnostics_returns_empty_when_absent(self):
-        sim = MinimalSim()  # no loaded_diagnostics attribute
-        pp = PostProcess("test", sim)
-        assert pp.loaded_diagnostics == {}
+    first = view["e1"]
+    assert first == ("tagged", "e1")
+    assert view["e1"] is first
+    assert view.calls == [(sim, "e1")]
 
 
-# ---------------------------------------------------------------------------
-# add_diagnostic
-# ---------------------------------------------------------------------------
+def test_species_view_processes_that_species_quantities():
+    sim = MinimalSim()
+    view = Tagging(sim)
+
+    electrons = view["electrons"]
+    assert electrons is view["electrons"]  # one view per species
+    assert electrons["vfl1"] == ("tagged", "electrons/vfl1")
+    assert electrons["vfl1"] is electrons["vfl1"]
+    # the parent's hook ran once, with the species handler as the container
+    (container, key), = view.calls
+    assert isinstance(container, Handler) and container.species == "electrons" and key == "vfl1"
+    assert electrons.species == "electrons"
 
 
-class TestPostProcessAddDiagnostic:
-    def test_add_diagnostic_delegates_to_simulation(self):
-        sim = MinimalSim()
-        sim.add_diagnostic = MagicMock(return_value="added_name")
-        pp = PostProcess("test", sim)
-
-        mock_diag = MagicMock()
-        result = pp.add_diagnostic(mock_diag, "mydiag")
-
-        sim.add_diagnostic.assert_called_once_with(mock_diag, name="mydiag")
-        assert result == "added_name"
-
-    def test_add_diagnostic_raises_when_not_supported(self):
-        sim = MinimalSim()  # no add_diagnostic method
-        pp = PostProcess("test", sim)
-        with pytest.raises(AttributeError, match="add_diagnostic"):
-            pp.add_diagnostic(MagicMock(), "x")
+def test_views_chain():
+    inner = Tagging(MinimalSim())
+    outer = Tagging(inner)
+    assert outer["e1"] == ("tagged", ("tagged", "e1"))
+    assert outer["electrons"]["n"] == ("tagged", ("tagged", "electrons/n"))
 
 
 # ---------------------------------------------------------------------------
-# delete_all_diagnostics / delete_diagnostic
+# add_diagnostic / delete / loaded_diagnostics
 # ---------------------------------------------------------------------------
 
 
-class TestPostProcessDelete:
-    def test_delete_all_diagnostics_delegates(self):
-        sim = MinimalSim()
-        sim.delete_all_diagnostics = MagicMock()
-        pp = PostProcess("test", sim)
-        pp.delete_all_diagnostics()
-        sim.delete_all_diagnostics.assert_called_once()
+def test_added_diagnostic_is_handed_back_unprocessed_and_stays_on_the_view():
+    sim = MinimalSim()
+    sim.add_diagnostic = MagicMock()
+    view = Tagging(sim)
+    diag = MagicMock(spec=Diagnostic)
 
-    def test_delete_all_diagnostics_is_noop_when_absent(self):
-        sim = MinimalSim()
-        pp = PostProcess("test", sim)
-        pp.delete_all_diagnostics()  # must not raise
+    assert view.add_diagnostic(diag, "mine") == "mine"
+    assert view["mine"] is diag
+    assert view.calls == []
+    sim.add_diagnostic.assert_not_called()
 
-    def test_delete_diagnostic_delegates(self):
-        sim = MinimalSim()
-        sim.delete_diagnostic = MagicMock()
-        pp = PostProcess("test", sim)
-        pp.delete_diagnostic("key1")
-        sim.delete_diagnostic.assert_called_once_with("key1")
 
-    def test_delete_diagnostic_is_noop_when_absent(self):
-        sim = MinimalSim()
-        pp = PostProcess("test", sim)
-        pp.delete_diagnostic("key1")  # must not raise
+def test_added_diagnostic_gets_a_free_name():
+    view = Tagging(MinimalSim())
+    assert view.add_diagnostic(MagicMock(spec=Diagnostic)) == "custom_diag_1"
+    assert view.add_diagnostic(MagicMock(spec=Diagnostic)) == "custom_diag_2"
+
+
+def test_only_diagnostics_can_be_added():
+    with pytest.raises(ValueError, match="Only Diagnostic"):
+        Tagging(MinimalSim()).add_diagnostic("not a diagnostic", "x")
+
+
+def test_loaded_diagnostics_lists_built_and_added():
+    view = Tagging(MinimalSim())
+    built = view["e1"]
+    diag = MagicMock(spec=Diagnostic)
+    view.add_diagnostic(diag, "mine")
+    assert view.loaded_diagnostics == {"e1": built, "mine": diag}
+
+
+def test_delete_diagnostic_rebuilds_on_next_access(caplog):
+    view = Tagging(MinimalSim())
+    view["e1"]
+    view.delete_diagnostic("e1")
+    view["e1"]
+    assert len(view.calls) == 2
+
+    view.delete_diagnostic("never-built")
+    assert "not found" in caplog.text
+
+
+def test_delete_all_diagnostics_clears_the_view():
+    view = Tagging(MinimalSim())
+    view["e1"]
+    view.add_diagnostic(MagicMock(spec=Diagnostic), "mine")
+    view.delete_all_diagnostics()
+    assert view.loaded_diagnostics == {}

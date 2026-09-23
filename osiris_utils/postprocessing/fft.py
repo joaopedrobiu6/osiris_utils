@@ -6,10 +6,9 @@ from typing import Any
 import numpy as np
 
 from ..data.diagnostic import Diagnostic
-from ..data.simulation import Simulation
 from .postprocess import PostProcess
 
-__all__ = ["FFT_Simulation", "FFT_Diagnostic", "FFT_Species_Handler"]
+__all__ = ["FFT_Simulation", "FFT_Diagnostic"]
 
 
 class FFT_Simulation(PostProcess):
@@ -25,37 +24,16 @@ class FFT_Simulation(PostProcess):
         The axis or axes to compute the FFT.
     """
 
-    def __init__(self, simulation: Simulation, fft_axis: int | list[int]) -> None:
+    def __init__(self, simulation: Any, fft_axis: int | list[int]) -> None:
         super().__init__("FFT", simulation)
-        if not isinstance(simulation, Simulation):
-            raise ValueError("simulation must be a Simulation-compatible object.")
-        self._simulation = simulation
         self._fft_axis = fft_axis
-        self._fft_computed: dict[Any, FFT_Diagnostic] = {}
-        self._species_handler: dict[Any, FFT_Species_Handler] = {}
-
-    def __getitem__(self, key: Any) -> FFT_Species_Handler | FFT_Diagnostic:
-        if key in self._simulation._species:
-            if key not in self._species_handler:
-                self._species_handler[key] = FFT_Species_Handler(self._simulation[key], self._fft_axis)
-            return self._species_handler[key]
-
-        if key not in self._fft_computed:
-            self._fft_computed[key] = FFT_Diagnostic(self._simulation[key], self._fft_axis)
-        return self._fft_computed[key]
-
-    def delete_all(self) -> None:
-        self._fft_computed = {}
-
-    def delete(self, key: Any) -> None:
-        if key in self._fft_computed:
-            del self._fft_computed[key]
-        else:
-            print(f"FFT {key} not found in simulation")
 
     def process(self, diagnostic: Diagnostic) -> FFT_Diagnostic:
         """Apply FFT to a diagnostic"""
         return FFT_Diagnostic(diagnostic, self._fft_axis)
+
+    def _process(self, container: Any, key: str) -> FFT_Diagnostic:
+        return self.process(container[key])
 
 
 class FFT_Diagnostic(Diagnostic):
@@ -432,16 +410,3 @@ class FFT_Diagnostic(Diagnostic):
     def omega_max(self):
         """Nyquist angular frequency (rad/s). Upper limit of representable ω."""
         return np.pi / (self._dt * self._ndump)
-
-
-class FFT_Species_Handler:
-    def __init__(self, species_handler: Any, fft_axis: int | list[int]) -> None:
-        self._species_handler = species_handler
-        self._fft_axis = fft_axis
-        self._fft_computed: dict[Any, FFT_Diagnostic] = {}
-
-    def __getitem__(self, key: Any) -> FFT_Diagnostic:
-        if key not in self._fft_computed:
-            diag = self._species_handler[key]
-            self._fft_computed[key] = FFT_Diagnostic(diag, self._fft_axis)
-        return self._fft_computed[key]

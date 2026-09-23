@@ -163,7 +163,7 @@ except ImportError:
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
-__all__ = ["Derivative_Diagnostic", "Derivative_Simulation", "Derivative_Species_Handler"]
+__all__ = ["Derivative_Diagnostic", "Derivative_Simulation"]
 
 
 class Derivative_Simulation(PostProcess):
@@ -213,90 +213,19 @@ class Derivative_Simulation(PostProcess):
         filter: SpatialFilter | Sequence[SpatialFilter] | None = None,  # noqa: A002
     ):
         super().__init__(f"Derivative({deriv_type})", simulation)
+        # Derivative_Diagnostic's arguments, the same for every quantity
+        self._derivative_args = dict(
+            deriv_type=deriv_type,
+            axis=axis,
+            order=order,
+            stencil=stencil,
+            deriv_order=deriv_order,
+            periodic=periodic,
+            filter=filter,
+        )
 
-        # Capability checks (supports chaining)
-        if not hasattr(simulation, "__getitem__"):
-            raise TypeError("simulation must be Simulation-like: supports __getitem__.")
-        if not (hasattr(simulation, "_species") or hasattr(simulation, "species")):
-            raise TypeError("simulation must be Simulation-like: has _species or species.")
-
-        self._deriv_type = deriv_type
-        self._op_axis = axis
-        self._order = int(order)
-
-        # NEW (general FD options)
-        self._stencil = None if stencil is None else tuple(int(s) for s in stencil)
-        self._deriv_order = int(deriv_order)
-        self._periodic = periodic
-        self._filter = None if filter is None else as_filter(filter)
-
-        self._derivatives_computed: dict[Any, Derivative_Diagnostic] = {}
-        self._species_handler: dict[Any, Derivative_Species_Handler] = {}
-
-        self._species = getattr(simulation, "_species", getattr(simulation, "species", []))
-
-    def __getitem__(self, key: Any):
-        if key in self._species:
-            if key not in self._species_handler:
-                self._species_handler[key] = Derivative_Species_Handler(
-                    self._simulation[key],
-                    self._deriv_type,
-                    self._op_axis,
-                    self._order,
-                    stencil=self._stencil,
-                    deriv_order=self._deriv_order,
-                    periodic=self._periodic,
-                    filter=self._filter,
-                )
-            return self._species_handler[key]
-
-        if key not in self._derivatives_computed:
-            self._derivatives_computed[key] = Derivative_Diagnostic(
-                diagnostic=self._simulation[key],
-                deriv_type=self._deriv_type,
-                axis=self._op_axis,
-                order=self._order,
-                stencil=self._stencil,
-                deriv_order=self._deriv_order,
-                periodic=self._periodic,
-                filter=self._filter,
-            )
-        return self._derivatives_computed[key]
-
-    def delete_all(self) -> None:
-        self._derivatives_computed = {}
-        self._species_handler = {}
-
-    def delete(self, key: Any) -> None:
-        if key in self._derivatives_computed:
-            del self._derivatives_computed[key]
-        elif key in self._species_handler:
-            del self._species_handler[key]
-        else:
-            print(f"Derivative {key} not found")
-
-    @property
-    def species(self) -> list:
-        """Return list of species, making this compatible with Simulation interface"""
-        return self._species
-
-    @property
-    def loaded_diagnostics(self) -> dict:
-        """Return loaded diagnostics, making this compatible with Simulation interface"""
-        return self._derivatives_computed
-
-    def add_diagnostic(self, diagnostic: Diagnostic, name: str | None = None) -> str:
-        """Add a custom diagnostic to the derivative simulation."""
-        if name is None:
-            i = 1
-            while f"custom_diag_{i}" in self._derivatives_computed:
-                i += 1
-            name = f"custom_diag_{i}"
-
-        if isinstance(diagnostic, Diagnostic):
-            self._derivatives_computed[name] = diagnostic
-            return name
-        raise ValueError("Only Diagnostic objects are supported")
+    def _process(self, container: Any, key: str) -> Derivative_Diagnostic:
+        return Derivative_Diagnostic(container[key], **self._derivative_args)
 
 
 class Derivative_Diagnostic(Diagnostic):
@@ -956,57 +885,3 @@ class Derivative_Diagnostic(Diagnostic):
         if cached is not None:
             return cached
         return self._cache_put(key, self._diag._frame(idx, data_slice=data_slice))
-
-
-class Derivative_Species_Handler:
-    """Class to handle derivatives for a species.
-    Acts as a wrapper for the Derivative_Diagnostic class.
-
-    Not intended to be used directly, but through the Derivative_Simulation class.
-
-    Parameters
-    ----------
-    species_handler : Species_Handler
-        The species handler object.
-    type : str
-        The type of derivative to compute. Options are: 't', 'x1', 'x2', 'x3', 'xx', 'xt' and 'tx'.
-    axis : int or tuple
-        The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
-
-    """
-
-    def __init__(
-        self,
-        species_handler: Any,
-        deriv_type: str,
-        axis: int | tuple[int, int] | None = None,
-        order: int = 4,
-        stencil: Iterable[int] | None = None,
-        deriv_order: int = 1,
-        periodic: bool = False,
-        filter: SpatialFilter | Sequence[SpatialFilter] | None = None,  # noqa: A002
-    ) -> None:
-        self._species_handler = species_handler
-        self._deriv_type = deriv_type
-        self._axis = axis
-        self._order = int(order)
-        self._stencil = None if stencil is None else tuple(int(s) for s in stencil)
-        self._deriv_order = int(deriv_order)
-        self._periodic = periodic
-        self._filter = None if filter is None else as_filter(filter)
-        self._derivatives_computed: dict[Any, Derivative_Diagnostic] = {}
-
-    def __getitem__(self, key: Any) -> Derivative_Diagnostic:
-        if key not in self._derivatives_computed:
-            diag = self._species_handler[key]
-            self._derivatives_computed[key] = Derivative_Diagnostic(
-                diagnostic=diag,
-                deriv_type=self._deriv_type,
-                axis=self._axis,
-                order=self._order,
-                stencil=self._stencil,
-                deriv_order=self._deriv_order,
-                periodic=self._periodic,
-                filter=self._filter,
-            )
-        return self._derivatives_computed[key]

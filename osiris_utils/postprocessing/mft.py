@@ -13,7 +13,6 @@ if TYPE_CHECKING:
 __all__ = [
     "MFT_Simulation",
     "MFT_Diagnostic",
-    "MFT_Species_Handler",
 ]
 
 
@@ -34,26 +33,9 @@ class MFT_Simulation(PostProcess):
     def __init__(self, simulation: Simulation, mft_axis: int | None = None):
         super().__init__(f"MeanFieldTheory({mft_axis})", simulation)
         self._mft_axis = mft_axis
-        self._mft_computed = {}
-        self._species_handler = {}
 
-    def __getitem__(self, key):
-        if key in self._simulation._species:
-            if key not in self._species_handler:
-                self._species_handler[key] = MFT_Species_Handler(self._simulation[key], self._mft_axis)
-            return self._species_handler[key]
-        if key not in self._mft_computed:
-            self._mft_computed[key] = MFT_Diagnostic(self._simulation[key], self._mft_axis)
-        return self._mft_computed[key]
-
-    def delete_all(self):
-        self._mft_computed = {}
-
-    def delete(self, key):
-        if key in self._mft_computed:
-            del self._mft_computed[key]
-        else:
-            print(f"MeanFieldTheory {key} not found in simulation")
+    def _process(self, container, key: str) -> MFT_Diagnostic:
+        return MFT_Diagnostic(container[key], self._mft_axis)
 
 
 class MFT_Diagnostic(Diagnostic):
@@ -145,30 +127,3 @@ class MFT_Diagnostic_Fluctuations(Diagnostic):
         f = self._diag._frame(index, data_slice=data_slice)
         avg = f.mean(axis=ax, keepdims=True)
         return f - avg
-
-
-class MFT_Species_Handler:
-    """
-    Class to handle mean field theory for a species.
-    Acts as a wrapper for the MFT_Diagnostic class.
-
-    Not intended to be used directly, but through the MFT_Simulation class.
-
-    Parameters
-    ----------
-    species_handler : Species_Handler
-        The species handler object.
-    mft_axis : int
-        The axis to compute the mean field theory.
-    """
-
-    def __init__(self, species_handler, mft_axis):
-        self._species_handler = species_handler
-        self._mft_axis = mft_axis
-        self._mft_computed = {}
-
-    def __getitem__(self, key):
-        if key not in self._mft_computed:
-            diag = self._species_handler[key]
-            self._mft_computed[key] = MFT_Diagnostic(diag, self._mft_axis)
-        return self._mft_computed[key]

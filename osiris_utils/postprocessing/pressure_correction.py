@@ -16,45 +16,48 @@ OSIRIS_P = ["P11", "P12", "P13", "P22", "P23", "P33"]
 __all__ = [
     "PressureCorrection_Simulation",
     "PressureCorrection_Diagnostic",
-    "PressureCorrection_Species_Handler",
 ]
 
 
 class PressureCorrection_Simulation(PostProcess):
+    """
+    Pressure tensor with the Reynolds stress subtracted: ``P_jk - n u_j v_k``.
+
+    Pressure is species-dependent, so only ``sim["species"]["P12"]`` exists.
+
+    Parameters
+    ----------
+    simulation : Simulation
+        The simulation object.
+    """
+
     def __init__(self, simulation: Simulation):
         super().__init__("PressureCorrection Simulation", simulation)
-        """
-        Class to correct pressure tensor components by subtracting Reynolds stress.
 
-        Parameters
-        ----------
-        sim : Simulation
-            The simulation object.
-        pressure : str
-            The pressure component to center.
-        """
-        self._pressure_corrected: dict[str, PressureCorrection_Diagnostic] = {}
-        self._species_handler: dict[str, PressureCorrection_Species_Handler] = {}
-
-    def __getitem__(self, key: str) -> PressureCorrection_Species_Handler | PressureCorrection_Diagnostic:
-        if key in self._simulation._species:
-            if key not in self._species_handler:
-                self._species_handler[key] = PressureCorrection_Species_Handler(self._simulation[key])
-            return self._species_handler[key]
+    def _process(self, container: Any, key: str) -> PressureCorrection_Diagnostic:
         if key not in OSIRIS_P:
             raise ValueError(f"Invalid pressure component {key}. Supported: {OSIRIS_P}.")
-        if key not in self._pressure_corrected:
+        if container is self._simulation:
             raise KeyError("Pressure diagnostics are species-dependent. Use sim['species']['P12'] not sim['P12'].")
-        return self._pressure_corrected[key]
 
-    def delete_all(self) -> None:
-        self._pressure_corrected = {}
-
-    def delete(self, key: str) -> None:
-        if key in self._pressure_corrected:
-            del self._pressure_corrected[key]
-        else:
-            print(f"Pressure {key} not found in simulation")
+        n = container["n"]
+        j, k = key[-2], key[-1]
+        try:
+            ufl = container[f"ufl{j}"]
+        except (FileNotFoundError, ValueError, KeyError):
+            # ufl is the proper velocity (gamma*v), vfl the fluid velocity —
+            # different quantities, so substituting changes the physics of
+            # P_jk - n*u_j*v_k. Keep the fallback for runs that only dumped
+            # vfl, but never let it happen quietly.
+            warnings.warn(
+                f"ufl{j} is not available for species '{getattr(container, '_species_name', '?')}'; "
+                f"falling back to vfl{j} when correcting {key}. ufl is the proper velocity (gamma*v) and vfl the "
+                f"fluid velocity, so the correction P_{j}{k} - n*u_{j}*v_{k} will differ from the intended one. "
+                f"Dump ufl{j} to avoid this.",
+                stacklevel=2,
+            )
+            ufl = container[f"vfl{j}"]
+        return PressureCorrection_Diagnostic(container[key], n, ufl, container[f"vfl{k}"])
 
 
 class PressureCorrection_Diagnostic(Diagnostic):
@@ -87,52 +90,3 @@ class PressureCorrection_Diagnostic(Diagnostic):
         u = self._ufl_j._frame(index, data_slice=data_slice)
         v = self._vfl_k._frame(index, data_slice=data_slice)
         return P - n * u * v
-
-
-class PressureCorrection_Species_Handler:
-    """
-    Class to handle pressure correction for a species.
-    Acts as a wrapper for the PressureCorrection_Diagnostic class.
-
-    Not intended to be used directly, but through the PressureCorrection_Simulation class.
-
-    Parameters
-    ----------
-    species_handler : Species_Handler
-        The species handler object.
-    type : str
-        The type of derivative to compute. Options are: 't', 'x1', 'x2', 'x3', 'xx', 'xt' and 'tx'.
-    axis : int or tuple
-        The axis to compute the derivative. Only used for 'xx', 'xt' and 'tx' types.
-    """
-
-    def __init__(self, species_handler: Any):
-        self._species_handler = species_handler
-        self._pressure_corrected: dict[str, PressureCorrection_Diagnostic] = {}
-
-    def __getitem__(self, key: str) -> PressureCorrection_Diagnostic:
-        if key not in self._pressure_corrected:
-            diag = self._species_handler[key]
-
-            # Density and velocities alwayes depend on the species so this can be done here
-
-            n = self._species_handler["n"]
-            j, k = key[-2], key[-1]
-            try:
-                ufl = self._species_handler[f"ufl{j}"]
-            except (FileNotFoundError, ValueError, KeyError):
-                # ufl is the proper velocity (gamma*v), vfl the fluid velocity —
-                # different quantities, so substituting changes the physics of
-                # P_jk - n*u_j*v_k. Keep the fallback for runs that only dumped
-                # vfl, but never let it happen quietly.
-                warnings.warn(
-                    f"ufl{j} is not available for species '{getattr(self._species_handler, '_species_name', '?')}'; "
-                    f"falling back to vfl{j} when correcting {key}. ufl is the proper velocity (gamma*v) and vfl the "
-                    f"fluid velocity, so the correction P_{j}{k} - n*u_{j}*v_{k} will differ from the intended one. "
-                    f"Dump ufl{j} to avoid this.",
-                    stacklevel=2,
-                )
-                ufl = self._species_handler[f"vfl{j}"]
-            vfl = self._species_handler[f"vfl{k}"]
-            self._pressure_corrected[key] = PressureCorrection_Diagnostic(diag, n, ufl, vfl)
-        return self._pressure_corrected[key]

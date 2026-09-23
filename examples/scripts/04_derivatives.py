@@ -52,8 +52,8 @@ def main() -> None:
 
     # Results are cached per key, so asking twice does not rebuild the wrapper.
     show("cached", d_dx1["e1"] is d_dx1["e1"])
-    d_dx1.delete("e1")
-    d_dx1.delete_all()
+    d_dx1.delete_diagnostic("e1")
+    d_dx1.delete_all_diagnostics()
 
     # ------------------------------------------------------------------
     section("2. Every deriv_type")

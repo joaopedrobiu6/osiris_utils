@@ -78,8 +78,8 @@ def main() -> None:
     direct["avg"].load_all()
     show("<n>(x1, t)", direct["avg"].data.shape)
 
-    mft.delete("b3")
-    mft.delete_all()
+    mft.delete_diagnostic("b3")
+    mft.delete_all_diagnostics()
 
     # ==================================================================
     section("2. The filters themselves (plain arrays)")

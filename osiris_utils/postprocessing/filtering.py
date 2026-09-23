@@ -56,7 +56,6 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "Filtered_Diagnostic",
     "Filtered_Simulation",
-    "Filtered_Species_Handler",
 ]
 
 
@@ -127,50 +126,6 @@ class Filtered_Diagnostic(Diagnostic):
         return self._cache_put(key, self._smooth(self._diag._frame(index, data_slice=data_slice)))
 
 
-class Filtered_Species_Handler:
-    """Species-level filtered view. Built by :class:`Filtered_Simulation`."""
-
-    def __init__(self, species_handler: Any, filter: SpatialFilter, periodic_axes: Sequence[int]) -> None:  # noqa: A002
-        self._species_handler = species_handler
-        self._filter = filter
-        self._periodic_axes = tuple(periodic_axes)
-        self._filtered: dict[str, Filtered_Diagnostic] = {}
-        self._custom: dict[str, Diagnostic] = {}
-
-    def __getitem__(self, key: str) -> Diagnostic:
-        if key in self._custom:
-            return self._custom[key]
-        if key not in self._filtered:
-            self._filtered[key] = Filtered_Diagnostic(
-                _raw_quantity(self._species_handler, key),
-                self._filter,
-                self._periodic_axes,
-            )
-        return self._filtered[key]
-
-    def add_diagnostic(self, diagnostic: Diagnostic, name: str | None = None) -> str:
-        """Register a diagnostic on this view, exempt from smoothing.
-
-        Use it for anything built *from* this view (products, derivatives,
-        e_vlasov): the smoothing already happened in its leaves.  Stored
-        here rather than on the wrapped species handler, so two views with
-        different filters cannot pick up each other's composites.
-        """
-        return _add_custom(self._custom, diagnostic, name)
-
-    def delete_all_diagnostics(self) -> None:
-        self._filtered = {}
-        self._custom = {}
-
-    @property
-    def species(self) -> Any:
-        return getattr(self._species_handler, "species", None)
-
-    @property
-    def loaded_diagnostics(self) -> dict[str, Diagnostic]:
-        return {**self._filtered, **self._custom}
-
-
 class Filtered_Simulation(PostProcess):
     """Simulation-like view whose raw quantities come out smoothed.
 
@@ -212,51 +167,9 @@ class Filtered_Simulation(PostProcess):
         if isinstance(filt, NoFilter):
             logger.debug("Filtered_Simulation built with NoFilter: frames pass through unchanged.")
 
-        self._filtered: dict[str, Filtered_Diagnostic] = {}
-        self._custom: dict[str, Diagnostic] = {}
-        self._species_handler: dict[str, Filtered_Species_Handler] = {}
 
-    def __getitem__(self, key: str) -> Any:
-        if key in self._species:
-            if key not in self._species_handler:
-                self._species_handler[key] = Filtered_Species_Handler(
-                    self._simulation[key],
-                    self._filter,
-                    self._periodic_axes,
-                )
-            return self._species_handler[key]
-
-        if key in self._custom:
-            return self._custom[key]
-        if key not in self._filtered:
-            self._filtered[key] = Filtered_Diagnostic(
-                _raw_quantity(self._simulation, key),
-                self._filter,
-                self._periodic_axes,
-            )
-        return self._filtered[key]
-
-    def add_diagnostic(self, diagnostic: Diagnostic, name: str | None = None) -> str:
-        """Register a diagnostic on this view, exempt from smoothing.
-
-        Stored on the view, **not** delegated to the wrapped simulation:
-        the value of a derived diagnostic depends on the filter it was
-        built with, so it belongs to this view alone.  Register it on the
-        underlying simulation as well if other code should see it.
-        """
-        return _add_custom(self._custom, diagnostic, name)
-
-    def delete_all_diagnostics(self) -> None:
-        self._filtered = {}
-        self._custom = {}
-        self._species_handler = {}
-
-    def delete_diagnostic(self, key: str) -> None:
-        for store in (self._filtered, self._custom, self._species_handler):
-            if key in store:
-                del store[key]
-                return
-        logger.warning("Diagnostic '%s' not found in %s.", key, self._name)
+    def _process(self, container: Any, key: str) -> Filtered_Diagnostic:
+        return Filtered_Diagnostic(_raw_quantity(container, key), self._filter, self._periodic_axes)
 
     @property
     def filter(self) -> SpatialFilter:
@@ -265,22 +178,6 @@ class Filtered_Simulation(PostProcess):
     @property
     def periodic_axes(self) -> tuple[int, ...]:
         return self._periodic_axes
-
-    @property
-    def loaded_diagnostics(self) -> dict[str, Diagnostic]:
-        return {**self._filtered, **self._custom}
-
-
-def _add_custom(store: dict[str, Diagnostic], diagnostic: Diagnostic, name: str | None) -> str:
-    if not isinstance(diagnostic, Diagnostic):
-        raise ValueError("Only Diagnostic objects are supported")
-    if name is None:
-        i = 1
-        while f"custom_diag_{i}" in store:
-            i += 1
-        name = f"custom_diag_{i}"
-    store[name] = diagnostic
-    return name
 
 
 def _raw_quantity(container: Any, key: str) -> Diagnostic:

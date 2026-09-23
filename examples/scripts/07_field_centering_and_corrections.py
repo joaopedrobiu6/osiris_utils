@@ -68,8 +68,8 @@ def main() -> None:
     show("load_all", e1_c.data.shape)
     e1_c.unload()
 
-    centered_sim.delete("b3")
-    centered_sim.delete_all()
+    centered_sim.delete_diagnostic("b3")
+    centered_sim.delete_all_diagnostics()
 
     # ==================================================================
     section("2. Pressure correction")

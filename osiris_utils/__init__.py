@@ -49,7 +49,6 @@ from .postprocessing.field_centering import (
 from .postprocessing.filtering import (
     Filtered_Diagnostic,
     Filtered_Simulation,
-    Filtered_Species_Handler,
 )
 from .postprocessing.heatflux_correction import (
     HeatfluxCorrection_Diagnostic,
@@ -127,7 +126,6 @@ __all__ = [
     "FieldCentering_Diagnostic",
     "Filtered_Simulation",
     "Filtered_Diagnostic",
-    "Filtered_Species_Handler",
     "PressureCorrection_Simulation",
     "PressureCorrection_Diagnostic",
     "HeatfluxCorrection_Simulation",

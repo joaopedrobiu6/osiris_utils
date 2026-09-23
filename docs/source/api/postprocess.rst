@@ -34,11 +34,14 @@ A post-processor should behave like a ``Simulation``:
 - ``pp["electrons"]["n"]`` returns a species diagnostic
 - it caches created wrappers so repeated access is cheap
 
-Most post-processors follow the same pattern:
+Every post-processor follows the same pattern:
 
-1. A simulation wrapper (``Something_Simulation``) inheriting from ``PostProcess``
-2. A diagnostic wrapper (``Something_Diagnostic``) inheriting from ``Diagnostic``
-3. An optional species handler (``Something_Species_Handler``) for species-dependent quantities
+1. A simulation wrapper (``Something_Simulation``) inheriting from ``PostProcess``.
+   It implements one method, ``_process(container, key)``, returning the processed
+   diagnostic for ``container[key]``; ``PostProcess`` handles species (``pp["electrons"]``
+   is the same view over that species), caching, and ``add_diagnostic`` /
+   ``delete_diagnostic``.
+2. A diagnostic wrapper (``Something_Diagnostic``) inheriting from ``Diagnostic``.
 
 
 Integration with OSIRIS Diagnostics
@@ -63,10 +66,11 @@ The base ``Diagnostic.__getitem__`` already implements:
 - tuple indexing (time + spatial slices)
 - fast path for in-memory data
 
-So post-processed diagnostics should generally implement:
-
-- ``load_all()`` to build ``self._data`` (shape includes time)
-- ``_frame(index, data_slice=None)`` to return a single timestep lazily (shape excludes time)
+So a post-processed diagnostic implements one method,
+``_frame(index, data_slice=None)``, returning a single timestep (shape excludes
+time).  ``load_all()`` is inherited: it fills a preallocated array frame by frame.
+Call ``self._derive_from(source)`` in ``__init__`` to take the source's grid and
+time axis.
 
 You usually **do not** need to override ``__getitem__`` in post-processed diagnostics.
 
@@ -157,7 +161,7 @@ Derivative_Diagnostic Class
    :show-inheritance:
    :noindex:
 
-A derivative diagnostic is a ``Diagnostic`` wrapper that computes derivatives lazily using ``_frame`` and can compute eagerly using ``load_all``.
+A derivative diagnostic is a ``Diagnostic`` wrapper that computes derivatives lazily, frame by frame, in ``_frame``.
 It preserves metadata (grid spacing, dimensions, etc.) from the original diagnostic and remains compatible with diagnostic arithmetic.
 
 

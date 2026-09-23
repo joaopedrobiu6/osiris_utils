@@ -39,25 +39,13 @@ class FieldCentering_Simulation(PostProcess):
         periodic : bool, optional
             Boundary treatment along the centered axes. Defaults to True.
         """
-        super().__init__("FieldCentering Simulation", simulation)
-        self._field_centered = {}
+        super().__init__("FieldCentering Simulation", simulation, species=())  # fields only
         self._periodic = periodic
 
-    def __getitem__(self, key: str) -> FieldCentering_Diagnostic:
+    def _process(self, container, key: str) -> FieldCentering_Diagnostic:
         if key not in OSIRIS_FLD:
             raise ValueError(f"Does it make sense to center {key} field? Only {OSIRIS_FLD} are supported.")
-        if key not in self._field_centered:
-            self._field_centered[key] = FieldCentering_Diagnostic(self._simulation[key], periodic=self._periodic)
-        return self._field_centered[key]
-
-    def delete_all(self) -> None:
-        self._field_centered = {}
-
-    def delete(self, key: str) -> None:
-        if key in self._field_centered:
-            del self._field_centered[key]
-        else:
-            print(f"Field {key} not found in simulation")
+        return FieldCentering_Diagnostic(container[key], periodic=self._periodic)
 
 
 class FieldCentering_Diagnostic(Diagnostic):

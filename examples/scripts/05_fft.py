@@ -132,8 +132,8 @@ def main() -> None:
     # `process` applies the wrapper's settings to a Diagnostic you built
     # yourself — e.g. a product of two quantities.
     show("process(n * vfl1)", fft_sim.process(sim[species]["n"] * sim[species]["vfl1"])[3].shape)
-    fft_sim.delete("e1")
-    fft_sim.delete_all()
+    fft_sim.delete_diagnostic("e1")
+    fft_sim.delete_all_diagnostics()
 
     # ------------------------------------------------------------------
     section("6. A plot")
