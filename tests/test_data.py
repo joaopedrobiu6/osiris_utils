@@ -49,16 +49,16 @@ def test_osiris_grid_file_metadata_and_axis(sim_dir: Path) -> None:
     grid_file = OsirisGridFile(str(sim_dir / "MS" / "FLD" / "e3" / "e3-000002.h5"))
 
     assert grid_file.label == "E_3"
-    assert grid_file.units == "m_e c \\omega_p / e"
+    assert grid_file.units == "m_e c \\omega_{pe} / e"
     assert grid_file.dt == pytest.approx(DT)
     assert grid_file.iter == 2 * NDUMP
     assert grid_file.time[0] == pytest.approx(2 * DT * NDUMP)
-    assert grid_file.time[1] == "1 / \\omega_p"
+    assert grid_file.time[1] == "1 / \\omega_{pe}"
 
     assert len(grid_file.axis) == 1
     assert grid_file.axis[0]["name"] == "x1"
     assert grid_file.axis[0]["long_name"] == "x_1"
-    assert grid_file.axis[0]["units"] == "c / \\omega_p"
+    assert grid_file.axis[0]["units"] == "c / \\omega_{pe}"
     assert grid_file.axis[0]["type"] == "linear"
 
 
@@ -172,7 +172,7 @@ def test_density_is_positive_for_a_physical_charge_dump(tmp_path, rqm, q_real, s
         name="charge",
         prefix=f"charge-{SPECIES}",
         data_fn=lambda i, nx: (sign_of_rho * q_real * (2.0 + grid_values(i, nx))).astype(np.float32),
-        units="e \\omega_p^2 / c",
+        units="e \\omega_{pe}^2 / c",
         label="\\rho",
     )
 

@@ -154,7 +154,7 @@ def main() -> None:
     # label and units of a product are not deducible.
     flux.name = "nvfl1"
     flux.label = r"n v_1"
-    flux.units = r"c \omega_p^2 / c"
+    flux.units = r"c \omega_{pe}^2 / c"
     show("relabelled", f"{flux.name}: ${flux.label}$ [{flux.units}]")
 
     sim.delete_diagnostic("nvfl1")

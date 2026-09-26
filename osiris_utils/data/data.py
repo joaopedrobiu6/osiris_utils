@@ -380,7 +380,7 @@ class OsirisRawFile(OsirisData):
     axis : dict[str, dict[str, str]]
         Dictionary where each key is a dataset name, and each value is another dictionary containing:
             - 'name' (str): Short name of the quantity (e.g., 'x1', 'ene')
-            - 'units' (str): Units (LaTeX formatted, e.g., 'c/\\omega_p', 'm_e c^2')
+            - 'units' (str): Units (LaTeX formatted, e.g., 'c/\\omega_{pe}', 'm_e c^2')
             - 'long_name' (str): Descriptive name (LaTeX formatted, e.g., 'x_1', 'En2')
     data : dict[str, np.ndarray]
         Dataset values indexed by dataset name (quants).
@@ -395,7 +395,7 @@ class OsirisRawFile(OsirisData):
     name : str
         Name of the species.
     time : list[float, str]
-        Simulation time and its units (e.g., [12.5, '1/\\omega_p']).
+        Simulation time and its units (e.g., [12.5, '1/\\omega_{pe}']).
     type : str
         Type of data (e.g., 'particles' for raw files).
     labels : list[str]
@@ -403,7 +403,7 @@ class OsirisRawFile(OsirisData):
     quants : list[str]
         field names of the data
     units : list[str]
-        Units of each field of the data (LaTeX formatted, e.g., 'c/\\omega_p')
+        Units of each field of the data (LaTeX formatted, e.g., 'c/\\omega_{pe}')
 
     Example
     -------
@@ -609,7 +609,7 @@ class OsirisTrackFile(OsirisData):
     quants : list[str]
         field names of the data
     units : list[str]
-        Units of each field of the data (LaTeX formatted, e.g., 'c/\\omega_p')
+        Units of each field of the data (LaTeX formatted, e.g., 'c/\\omega_{pe}')
 
     Example
     -------

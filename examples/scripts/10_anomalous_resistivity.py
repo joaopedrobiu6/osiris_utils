@@ -195,7 +195,7 @@ def main() -> None:
     for key in thesis_terms:
         ax2.plot(x, ar[key][t].ravel(), lw=0.9, label=key)
     ax2.plot(x, ar["eta"][t].ravel(), "k", lw=1.8, label=r"$\eta$ (their sum)")
-    ax2.set_xlabel(r"$x_1\ [c/\omega_p]$")
+    ax2.set_xlabel(r"$x_1\ [c/\omega_{pe}]$")
     ax2.set_ylabel(r"$\eta$ contributions")
     ax2.legend(fontsize=6, ncol=2)
     savefig(fig, "10_anomalous_resistivity.png", args)

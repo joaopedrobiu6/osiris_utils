@@ -161,9 +161,9 @@ def main() -> None:
         for i in range(min(6, tracks.num_particles)):
             ax1.plot(tracks.time, x1[i], lw=1)
             ax2.plot(tracks.time, ene[i], lw=1)
-        ax1.set_xlabel(r"$t\ [1/\omega_p]$")
+        ax1.set_xlabel(r"$t\ [1/\omega_{pe}]$")
         ax1.set_ylabel(rf"${tracks.labels['x1']}$")
-        ax2.set_xlabel(r"$t\ [1/\omega_p]$")
+        ax2.set_xlabel(r"$t\ [1/\omega_{pe}]$")
         ax2.set_ylabel(rf"${tracks.labels['ene']}$")
         fig.suptitle("tracked particles")
         savefig(fig, "08_tracks.png", args)

@@ -114,16 +114,16 @@ FIELDS = ("e1", "e2", "e3", "b1", "b2", "b3")
 
 # LaTeX units/labels, so the examples can show ``diag.units`` doing its job.
 UNITS = {
-    "e": "m_e c \\omega_p e^{-1}",
-    "b": "m_e \\omega_p e^{-1}",
-    "charge": "e \\omega_p^2 c^{-1}",
+    "e": "m_e c \\omega_{pe}",
+    "b": "m_e \\omega_{pe}",
+    "charge": "e \\omega_{pe}^2 c^{-1}",
     "vfl": "c",
     "ufl": "c",
     "T": "m_e c^2",
-    "P": "m_e c^2 \\omega_p^2 c^{-3}",
-    "Q": "m_e c^3 \\omega_p^2 c^{-3}",
+    "P": "m_e c^2 \\omega_{pe}^2 c^{-3}",
+    "Q": "m_e c^3 \\omega_{pe}^2 c^{-3}",
 }
-TIME_UNITS = "1 / \\omega_p"
+TIME_UNITS = "1 / \\omega_{pe}"
 
 
 def _units_for(name: str) -> str:
@@ -254,7 +254,7 @@ def write_grid_file(path: Path, *, name: str, data: np.ndarray, iteration: int, 
         for i in range(data.ndim):
             ax = axis_group.create_dataset(f"AXIS{i + 1}", data=np.asarray(grid[i], dtype=float))
             _bytes_attr(ax, "NAME", f"x{i + 1}")
-            _bytes_attr(ax, "UNITS", "c / \\omega_p")
+            _bytes_attr(ax, "UNITS", "c / \\omega_{pe}")
             _bytes_attr(ax, "LONG_NAME", f"x_{i + 1}")
             _bytes_attr(ax, "TYPE", "linear")
 
@@ -285,8 +285,8 @@ def _write_raw(path: Path, species: str, iteration: int, n_particles: int = 512)
     rng = np.random.default_rng(abs(hash(species)) % 2**32)
     quants = ["x1", "x2", "p1", "p2", "p3", "q", "ene", "tag"]
     units = {
-        "x1": "c/\\omega_p",
-        "x2": "c/\\omega_p",
+        "x1": "c/\\omega_{pe}",
+        "x2": "c/\\omega_{pe}",
         "p1": "m_e c",
         "p2": "m_e c",
         "p3": "m_e c",
@@ -343,11 +343,11 @@ def _write_tracks(path: Path, species: str, n_particles: int = 12, n_iters: int 
     quants = ["n", "t", "q", "ene", "x1", "x2", "p1", "p2", "p3"]
     data_quants = quants[1:]
     units = {
-        "t": "1/\\omega_p",
+        "t": "1/\\omega_{pe}",
         "q": "e",
         "ene": "m_e c^2",
-        "x1": "c/\\omega_p",
-        "x2": "c/\\omega_p",
+        "x1": "c/\\omega_{pe}",
+        "x2": "c/\\omega_{pe}",
         "p1": "m_e c",
         "p2": "m_e c",
         "p3": "m_e c",

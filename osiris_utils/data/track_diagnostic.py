@@ -32,7 +32,7 @@ class Track_Diagnostic:
     grid : np.ndarray
         The grid boundaries for the simulation.
     units : dict
-        Units of each field of the data (LaTeX formatted, e.g., 'c/\\omega_p')
+        Units of each field of the data (LaTeX formatted, e.g., 'c/\\omega_{pe}')
     name : str
         The name of the diagnostic.
     labels : list of str

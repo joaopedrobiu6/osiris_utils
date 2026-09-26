@@ -38,14 +38,14 @@ NDIMS = 1
 N_TIMESTEPS = 6  # number of dumps written per grid diagnostic
 SPECIES = "electrons"
 RQM = -1.0
-TIME_UNITS = "1 / \\omega_p"
+TIME_UNITS = "1 / \\omega_{pe}"
 
 # RAW diagnostic
 RAW_ITER = 50
 RAW_N_PARTICLES = 64
 RAW_QUANTS = ["x1", "p1", "p2", "p3", "q", "ene", "tag"]
 RAW_UNITS = {
-    "x1": "c/\\omega_p",
+    "x1": "c/\\omega_{pe}",
     "p1": "m_e c",
     "p2": "m_e c",
     "p3": "m_e c",
@@ -71,10 +71,10 @@ TRACK_NITER = 1
 # QUANTS[0] is the iteration counter 'n'; the 'data' dataset holds QUANTS[1:]
 TRACK_QUANTS = ["n", "t", "q", "ene", "x1", "p1", "p2", "p3"]
 TRACK_UNITS = {
-    "t": "1/\\omega_p",
+    "t": "1/\\omega_{pe}",
     "q": "e",
     "ene": "m_e c^2",
-    "x1": "c/\\omega_p",
+    "x1": "c/\\omega_{pe}",
     "p1": "m_e c",
     "p2": "m_e c",
     "p3": "m_e c",
@@ -160,7 +160,7 @@ def write_grid_file(
     name: str,
     data: np.ndarray,
     iteration: int,
-    units: str = "e \\omega_p^2 / c",
+    units: str = "e \\omega_{pe}^2 / c",
     label: str = "\\rho",
     dt: float = DT,
     ndump: int = NDUMP,
@@ -194,7 +194,7 @@ def write_grid_file(
         for i in range(ndims):
             ax = axis_group.create_dataset(f"AXIS{i + 1}", data=np.asarray(grid[i], dtype=float))
             _bytes_attr(ax, "NAME", f"x{i + 1}")
-            _bytes_attr(ax, "UNITS", "c / \\omega_p")
+            _bytes_attr(ax, "UNITS", "c / \\omega_{pe}")
             _bytes_attr(ax, "LONG_NAME", f"x_{i + 1}")
             _bytes_attr(ax, "TYPE", "linear")
     return path
@@ -371,12 +371,12 @@ def build_simulation_tree(root: Path) -> Path:
     shutil.copyfile(DECK_PATH, root / "thermal.1d")
 
     ms = root / "MS"
-    write_grid_series(ms / "FLD" / "e3", name="e3", prefix="e3", units="m_e c \\omega_p / e", label="E_3")
+    write_grid_series(ms / "FLD" / "e3", name="e3", prefix="e3", units="m_e c \\omega_{pe} / e", label="E_3")
     write_grid_series(
         ms / "DENSITY" / SPECIES / "charge",
         name="charge",
         prefix=f"charge-{SPECIES}",
-        units="e \\omega_p^2 / c",
+        units="e \\omega_{pe}^2 / c",
         label="\\rho",
     )
     write_grid_series(

@@ -147,7 +147,7 @@ def main() -> None:
 
     fig, ax = plt.subplots(figsize=(7, 3.2))
     ax.semilogy(k1[positive], spectrum[positive])
-    ax.set_xlabel(r"$k_1\ [\omega_p/c]$")
+    ax.set_xlabel(r"$k_1\ [\omega_{pe}/c]$")
     ax.set_ylabel(rf"$|\widehat{{{b3.label}}}(k_1)|^2$")
     ax.set_title("longitudinal power spectrum")
     savefig(fig, "05_spectrum.png", args)

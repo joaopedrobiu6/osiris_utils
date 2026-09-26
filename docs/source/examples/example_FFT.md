@@ -117,7 +117,7 @@ plt.imshow(
 # Plotting the dispersion relation
 k = np.linspace(-e3_fft.kmax, e3_fft.kmax, num=512)
 w = np.sqrt(1 + k**2)
-plt.plot(k, w, label=r"$\omega^2 = \omega_p^2 + k^2c^2$", color='r', ls='-.')
+plt.plot(k, w, label=r"$\omega^2 = \omega_{pe}^2 + k^2c^2$", color='r', ls='-.')
 plt.xlim(0, e3_fft.kmax)
 plt.ylim(0, e3_fft.omega_max)
 
@@ -141,7 +141,7 @@ plt.imshow(
 # Plotting the dispersion relation
 k = np.linspace(-e3_fft.kmax, e3_fft.kmax, num=512)
 w = np.sqrt(1 + k**2)
-plt.plot(k, w, label=r"$\omega^2 = \omega_p^2 + k^2c^2$", color='r', ls='-.')
+plt.plot(k, w, label=r"$\omega^2 = \omega_{pe}^2 + k^2c^2$", color='r', ls='-.')
 plt.xlim(0, e3_fft.kmax)
 plt.ylim(0, e3_fft.omega_max)
 

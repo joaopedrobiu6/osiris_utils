@@ -33,8 +33,8 @@ def test_info_file(mock_grid_file, capsys):
     # `axis` holding the per-axis metadata dicts.
     mock_obj.grid = np.array([[0.0, 10.0], [0.0, 10.0]])
     mock_obj.axis = [
-        {"name": "x1", "units": "c / \\omega_p", "long_name": "x_1", "type": "linear"},
-        {"name": "x2", "units": "c / \\omega_p", "long_name": "x_2", "type": "linear"},
+        {"name": "x1", "units": "c / \\omega_{pe}", "long_name": "x_1", "type": "linear"},
+        {"name": "x2", "units": "c / \\omega_{pe}", "long_name": "x_2", "type": "linear"},
     ]
     mock_grid_file.return_value = mock_obj
 

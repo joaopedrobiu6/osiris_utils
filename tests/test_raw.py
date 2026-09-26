@@ -40,7 +40,7 @@ def test_osiris_raw_file_reads_particle_data(raw_path: Path) -> None:
     assert raw.dim == 1
     assert raw.dt == pytest.approx(DT)
     assert raw.iter == RAW_ITER
-    assert raw.time == [pytest.approx(RAW_ITER * DT), "1 / \\omega_p"]
+    assert raw.time == [pytest.approx(RAW_ITER * DT), "1 / \\omega_{pe}"]
     np.testing.assert_allclose(raw.grid, [[XMIN, XMAX]])
 
     assert raw.quants == RAW_QUANTS
