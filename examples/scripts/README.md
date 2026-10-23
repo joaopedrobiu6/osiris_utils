@@ -50,7 +50,7 @@ python examples/scripts/synthetic_run.py --root /tmp/demo_run   # write it yours
 | [`07_field_centering_and_corrections.py`](07_field_centering_and_corrections.py) | Yee-mesh centering, pressure correction (`P - n u v`), heat-flux correction |
 | [`08_raw_and_tracks.py`](08_raw_and_tracks.py) | RAW dumps, particle selection, writing `file_tags`, `Track_Diagnostic`, `convert_tracks` |
 | [`09_export_and_io.py`](09_export_and_io.py) | `export_to_npy` (reductions, time averaging, workers, checkpointing), `export_simulation_to_npy`, HDF5 round-trips, text I/O |
-| [`10_anomalous_resistivity.py`](10_anomalous_resistivity.py) | `AnomalousResistivity`: `e_vlasov`, `LHS`, `eta` / `eta_new`, every term and its coefficient, physics flags, other species, per-frame filtering |
+| [`10_anomalous_resistivity.py`](10_anomalous_resistivity.py) | `AnomalousResistivity`: `e_vlasov`, `LHS`, `eta` (per `method`), every term and its coefficient, physics flags, other species, per-frame filtering |
 | [`11_databases.py`](11_databases.py) | `DatabaseCreator` (all tensor types and build options), burst dumps + `BurstAxis`, `LorentzDatabaseCreator` |
 | [`12_utils_profiling_vis.py`](12_utils_profiling_vis.py) | run planning (`courant2D`, `time_estimation`, `filesize_estimation`), `integrate`, `transverse_average`, profiling, `plot_3d`, frame-cache tuning |
 | [`13_cli.py`](13_cli.py) | the `utils` command: `info`, `validate`, `export`, `plot` |

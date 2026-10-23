@@ -62,6 +62,13 @@ class AnomalousResistivityConfig:
         :class:`AnomalousResistivity`, which is what selects the momentum
         equation; a disagreement raises instead of silently computing the
         other species.  None (default) leaves the choice to that argument.
+    method :
+        Which mean-field pressure ``LHS`` removes, and therefore which
+        fluctuation terms make up ``eta``.  ``"nT"`` (default): ``<n><T11>``,
+        and ``eta`` is the thesis decomposition (7 pressure cross-terms).
+        ``"P"``: ``<P11> = <n T11>``, and ``eta`` has the two pressure terms
+        ``<(d1 P11 / n)(dn/<n>)>`` and ``<(d2 P12 / n)(dn/<n>)>``.  Either way
+        ``LHS == eta``.
     filters :
         Spatial filters applied to every raw 2-D frame *before* any physics,
         and whose own derivative scheme then replaces finite differences —
@@ -75,12 +82,17 @@ class AnomalousResistivityConfig:
 
     species: str | None = None
     mft_axis: int = 2
+    method: str = "nT"
     include_time_derivative: bool = False
     include_convection: bool = True
     include_transverse_advection: bool = False
     include_pressure: bool = True
     include_magnetic_force: bool = True
     filters: Sequence[SpatialFilter] | SpatialFilter | None = ()
+
+    def __post_init__(self):
+        if self.method not in ("nT", "P"):
+            raise ValueError(f"AnomalousResistivityConfig.method must be 'nT' or 'P', got {self.method!r}.")
 
     def checked_for(self, species: str) -> AnomalousResistivityConfig:
         """This config, after checking that its ``species`` (if set) is *species*."""
@@ -99,10 +111,10 @@ class AnomalousResistivity:
     Notes:
     - Adds diagnostics into the provided simulation (idempotently where possible).
     - Respects config flags for which terms are included.
-    - `eta` uses the thesis pressure decomposition (7 cross-terms).
-    - `eta_new` uses the simplified formulation (4 terms) from the research code.
+    - `config.method` picks the mean-field pressure: "nT" (<n><T11>, thesis
+      7-term pressure decomposition in eta) or "P" (<P11>, 2 pressure terms).
     - `include_transverse_advection` adds the `rqm * vfl2 * dvfl1_dx2` term to
-      e_vlasov and the corresponding fluctuation term to eta / eta_new.
+      e_vlasov and the corresponding fluctuation term to eta.
 
     Terms
     -----
@@ -112,7 +124,7 @@ class AnomalousResistivity:
     - ``lhs_*``: the individual contributions to ``LHS``, so ``LHS`` is exactly
       their sum;
     - the fluctuation cross-terms (``conv_*``, ``mag_*``, ``press_*``), so
-      ``eta`` / ``eta_new`` are exactly the sums of their respective terms.
+      ``eta`` is exactly their sum.
 
     Every term of the last two groups is **already multiplied by its
     coefficient** — plotting them stacked reproduces ``LHS`` / ``eta`` with no
@@ -381,15 +393,14 @@ class AnomalousResistivity:
 
         lhs_terms, lhs_coeffs = self._compute_lhs_terms(dnT11_dx_avg)
         mft_terms = self._compute_mft_terms(dnT11_dx_avg)
-        thesis_coeffs, new_coeffs = self._eta_coefficients()
-        weighted_terms, mft_coeffs = self._weighted_mft_terms(mft_terms, (thesis_coeffs, new_coeffs))
-        eta_values = self._compute_eta_values(weighted_terms, thesis_coeffs, new_coeffs)
+        mft_coeffs = self._eta_coefficients()
+        weighted_terms = {name: mft_coeffs[name] * diag["avg"] for name, diag in mft_terms.items()}
 
         terms_dict = {
             **self._get_average_quantities(dnT11_dx_avg),
             **lhs_terms,
             "LHS": sum(lhs_terms.values()),
-            **eta_values,
+            "eta": sum(weighted_terms.values()),
             **weighted_terms,
         }
 
@@ -436,8 +447,13 @@ class AnomalousResistivity:
         # does not depend on x2.
 
         if self._config.include_pressure:
-            terms["lhs_press_dnT11_dx1"] = mag * (1 / sm[sp]["n"]["avg"]) * dnT11_dx_avg
-            coeffs["lhs_press_dnT11_dx1"] = mag
+            if self._config.method == "nT":
+                terms["lhs_press_dnT11_dx1"] = mag * (1 / sm[sp]["n"]["avg"]) * dnT11_dx_avg
+                coeffs["lhs_press_dnT11_dx1"] = mag
+            elif self._config.method == "P":
+                # d/dx1 <P11>, with <P11> = <n T11> = <n><T11> + <dn dT11>.
+                terms["lhs_press_dP_dx1"] = mag * (1 / sm[sp]["n"]["avg"]) * self._d_dx1(sm[sp]["nT11"]["avg"])
+                coeffs["lhs_press_dP_dx1"] = mag
 
         if self._config.include_magnetic_force:
             terms["lhs_mag_v2_b3"] = -sign * (sm[sp]["vfl2"]["avg"] * sm["b3"]["avg"])
@@ -452,7 +468,7 @@ class AnomalousResistivity:
         Compute mean-field-theory RHS terms.
 
         These are gated by config flags so disabling a physics contribution
-        also removes its MFT terms from eta / eta_new.
+        also removes its MFT terms from eta.
         """
         sm = self.sim_mft
         sp = self.species
@@ -470,8 +486,10 @@ class AnomalousResistivity:
             terms["mag_v2_b3"] = sm[sp]["vfl2"]["delta"] * sm["b3"]["delta"]
             terms["mag_v3_b2"] = sm[sp]["vfl3"]["delta"] * sm["b2"]["delta"]
 
-        if self._config.include_pressure:
-            # Thesis decomposition: 7 cross-terms (avg×delta, delta×avg, delta×delta for xx and xy)
+        if self._config.include_pressure and self._config.method == "nT":
+            # Mean-field pressure <n><T11>: the 1/n fluctuation of the mean-field
+            # gradient, plus the avg x delta, delta x avg and delta x delta parts
+            # of n T, each divided by the full n.
             terms["press_density_fluct_corr"] = (dnT11_dx_avg / sim[sp]["n"]) * (sm[sp]["n"]["delta"] / sm[sp]["n"]["avg"])
 
             dnT11_dx_ad = self._d_dx1(sm[sp]["n"]["avg"] * sm[sp]["T11"]["delta"])
@@ -488,121 +506,52 @@ class AnomalousResistivity:
             terms["press_dnT12_dx_da_over_n"] = dnT12_dx_da / sim[sp]["n"]
             terms["press_dnT12_dx_dd_over_n"] = dnT12_dx_dd / sim[sp]["n"]
 
-            # New decomposition: 4 terms using full-sim pressure minus delta×delta correction
-            # d/dx1 (n * T11) / n * (n_delta / n_avg)  -  d/dx1 (n_delta * T11_delta) / n_avg
-            dnT11_full_dx1 = self._d_dx1(sim[sp]["n"] * sim[sp]["T11"])
-            dnT12_full_dx2 = self._d_dx2(sim[sp]["n"] * sim[sp]["T12"])
-            terms["press_new_xx_mixed"] = (dnT11_full_dx1 / sim[sp]["n"]) * (sm[sp]["n"]["delta"] / sm[sp]["n"]["avg"])
-            terms["press_new_xx_dd"] = dnT11_dx_dd / sm[sp]["n"]["avg"]
-            terms["press_new_xy_mixed"] = (dnT12_full_dx2 / sim[sp]["n"]) * (sm[sp]["n"]["delta"] / sm[sp]["n"]["avg"])
-            terms["press_new_xy_dd"] = dnT12_dx_dd / sm[sp]["n"]["avg"]
+        if self._config.include_pressure and self._config.method == "P":
+            # Mean-field pressure <P11> = <n T11>: only the 1/n fluctuation is left,
+            #   (1/<n>) d1<P11> - <(1/n) div P> = <(div P / n) (dn / <n>)>,
+            # using <d1 P11> = d1<P11> and <d2 P12> = 0 on the periodic x2.
+            dn_over_navg = sm[sp]["n"]["delta"] / sm[sp]["n"]["avg"]
+            terms["press_P_xx"] = (self._d_dx1(sim[sp]["nT11"]) / sim[sp]["n"]) * dn_over_navg
+            terms["press_P_xy"] = (self._d_dx2(sim[sp]["nT12"]) / sim[sp]["n"]) * dn_over_navg
 
         return {name: MFT_Diagnostic(expr, mft_axis=self._config.mft_axis) for name, expr in terms.items()}
 
-    def _eta_coefficients(self) -> tuple[dict[str, float], dict[str, float]]:
+    def _eta_coefficients(self) -> dict[str, float]:
+        """Coefficient each fluctuation term enters ``eta`` with.
+
+        Written for electrons (``rqm = -1``) and scaled for the actual species:
+        non-magnetic terms by ``|rqm|``, magnetic terms by ``-sign(rqm)``, i.e.
+        ``eta = -|rqm| * (inertial + pressure fluctuations) + sign(rqm) * (magnetic fluctuations)``,
+        the normalisation of :mod:`osiris_utils.database.database`.
+
+        Electron signs: -conv, -v2'b3', +v3'b2'; pressure "nT": +density_fluct_corr,
+        -(the six n T cross-terms)/n; pressure "P": +press_P_xx, +press_P_xy.
         """
-        Coefficients of eta (thesis 7-term pressure decomposition) and eta_new (simplified 4-term).
-
-        The coefficient tables below are written for electrons (``rqm = -1``) and
-        then scaled for the actual species: non-magnetic terms by ``|rqm|`` and
-        magnetic terms by ``-sign(rqm)``.  This is the same normalisation used by
-        :mod:`osiris_utils.database.database`, i.e.
-        ``eta = -|rqm| * (inertial + pressure fluctuations) + sign(rqm) * (magnetic fluctuations)``.
-
-        Electron sign conventions:
-          -conv fluct, -v2'b3', +v3'b2', +density_fluct_corr, -(all press cross-terms)/n
-        """
-        thesis_coeffs: dict[str, float] = {}
-        new_coeffs: dict[str, float] = {}
-
         rqm = self._rqm
         sign = 1.0 if rqm > 0 else -1.0
         mag = abs(rqm)
+        coeffs: dict[str, float] = {}
 
         if self._config.include_convection:
-            thesis_coeffs["conv_v1_dv1dx1"] = -mag
-            new_coeffs["conv_v1_dv1dx1"] = -mag
+            coeffs["conv_v1_dv1dx1"] = -mag
 
         if self._config.include_transverse_advection:
-            thesis_coeffs["conv_v2_dv1dx2"] = -mag
-            new_coeffs["conv_v2_dv1dx2"] = -mag
+            coeffs["conv_v2_dv1dx2"] = -mag
 
         if self._config.include_magnetic_force:
-            thesis_coeffs["mag_v2_b3"] = sign
-            thesis_coeffs["mag_v3_b2"] = -sign
-            new_coeffs["mag_v2_b3"] = sign
-            new_coeffs["mag_v3_b2"] = -sign
+            coeffs["mag_v2_b3"] = sign
+            coeffs["mag_v3_b2"] = -sign
 
-        if self._config.include_pressure:
-            # Thesis: density-fluctuation correction + 6 cross-term derivatives
-            thesis_coeffs["press_density_fluct_corr"] = mag
-            thesis_coeffs["press_dnT11_dx_ad_over_n"] = -mag
-            thesis_coeffs["press_dnT11_dx_da_over_n"] = -mag
-            thesis_coeffs["press_dnT11_dx_dd_over_n"] = -mag
-            thesis_coeffs["press_dnT12_dx_ad_over_n"] = -mag
-            thesis_coeffs["press_dnT12_dx_da_over_n"] = -mag
-            thesis_coeffs["press_dnT12_dx_dd_over_n"] = -mag
-            # New: 4-term formulation
-            new_coeffs["press_new_xx_mixed"] = +mag
-            new_coeffs["press_new_xx_dd"] = -mag
-            new_coeffs["press_new_xy_mixed"] = +mag
-            new_coeffs["press_new_xy_dd"] = -mag
+        if self._config.include_pressure and self._config.method == "nT":
+            coeffs["press_density_fluct_corr"] = mag
+            for name in ("dnT11_dx_ad", "dnT11_dx_da", "dnT11_dx_dd", "dnT12_dx_ad", "dnT12_dx_da", "dnT12_dx_dd"):
+                coeffs[f"press_{name}_over_n"] = -mag
 
-        return thesis_coeffs, new_coeffs
+        if self._config.include_pressure and self._config.method == "P":
+            coeffs["press_P_xx"] = mag
+            coeffs["press_P_xy"] = mag
 
-    @staticmethod
-    def _weighted_mft_terms(
-        mft_terms: dict[str, MFT_Diagnostic],
-        coeff_tables: tuple[dict[str, float], ...],
-    ) -> tuple[dict[str, Any], dict[str, float]]:
-        """Scale each MFT term's average by the coefficient it enters eta with.
-
-        The thesis and the simplified formulation share their inertial and
-        magnetic terms and use disjoint pressure terms, so every term has one
-        unambiguous coefficient; a term appearing in both tables with different
-        signs would make the stored value meaningless, hence the hard error.
-
-        Returns the weighted terms and the coefficients used.
-        """
-        coeffs: dict[str, float] = {}
-        for table in coeff_tables:
-            for name, c in table.items():
-                if coeffs.setdefault(name, c) != c:
-                    raise ValueError(f"MFT term '{name}' has conflicting eta coefficients ({coeffs[name]} vs {c}).")
-
-        weighted: dict[str, Any] = {}
-        used: dict[str, float] = {}
-        for name, diag in mft_terms.items():
-            if name in coeffs:
-                weighted[name] = coeffs[name] * diag["avg"]
-                used[name] = coeffs[name]
-            else:
-                # Should not happen: the same config flags gate both tables.
-                logger.warning("MFT term '%s' has no eta coefficient; storing its unweighted average.", name)
-                weighted[name] = diag["avg"]
-                used[name] = 1.0
-
-        return weighted, used
-
-    @staticmethod
-    def _compute_eta_values(
-        weighted_terms: dict[str, Any],
-        thesis_coeffs: dict[str, float],
-        new_coeffs: dict[str, float],
-    ) -> dict[str, Any]:
-        """Sum the already-weighted terms belonging to each formulation."""
-
-        def _sum(coeffs):
-            result = 0.0
-            for name in coeffs:
-                if name in weighted_terms:
-                    result = result + weighted_terms[name]
-            return result
-
-        return {
-            "eta": _sum(thesis_coeffs),
-            "eta_new": _sum(new_coeffs),
-        }
+        return coeffs
 
     def _get_average_quantities(self, dnT11_dx_avg) -> dict[str, Any]:
         out = {

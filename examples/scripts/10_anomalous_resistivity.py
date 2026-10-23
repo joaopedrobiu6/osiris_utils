@@ -19,8 +19,8 @@ produce.  Their sum is the anomalous resistivity ``eta``: the effective drag the
 turbulence exerts on the mean flow.
 
 ``AnomalousResistivity`` gives you all of it as lazy diagnostics — `LHS` and
-its individual contributions, `eta` (the 7-term thesis pressure decomposition),
-`eta_new` (the simplified 4-term form), and every cross-term separately,
+its individual contributions, `eta` (with `method="nT"` the 7-term thesis
+pressure decomposition, with `method="P"` the 2-term one), and every cross-term separately,
 **already multiplied by its coefficient**, so a stacked plot of the terms adds
 up to the total with no further sign or ``rqm`` bookkeeping.
 
@@ -80,20 +80,19 @@ def main() -> None:
     show("sum(lhs_*) == LHS", np.allclose(total, ar["LHS"][t]))
 
     # ==================================================================
-    section("3. eta and eta_new")
+    section("3. eta")
     # ==================================================================
     show("eta frame", ar["eta"][t].shape)
-    show("eta_new frame", ar["eta_new"][t].shape)
 
     # The fluctuation cross-terms, grouped by physical origin.
-    groups = {"convection": "conv_", "magnetic": "mag_", "pressure (thesis)": "press_dnT", "pressure (new)": "press_new"}
+    groups = {"convection": "conv_", "magnetic": "mag_", "pressure": "press_"}
     for label, prefix in groups.items():
         names = [k for k in ar.available_terms if k.startswith(prefix)]
         show(label, names)
 
     # Every term is pre-multiplied by its coefficient, so eta is their plain sum.
-    thesis_terms = [k for k in ar.available_terms if k.startswith(("conv_", "mag_", "press_")) and not k.startswith("press_new")]
-    show("sum of thesis terms == eta", np.allclose(sum(ar[k][t] for k in thesis_terms), ar["eta"][t]))
+    eta_terms = [k for k in ar.available_terms if k.startswith(("conv_", "mag_", "press_"))]
+    show("sum of fluctuation terms == eta", np.allclose(sum(ar[k][t] for k in eta_terms), ar["eta"][t]))
     show("some coefficients", dict(list(ar.term_coefficients.items())[:6]))
 
     # The unweighted MFT diagnostics, if you want the raw correlation instead.
@@ -192,7 +191,7 @@ def main() -> None:
     ax1.set_ylabel("field")
     ax1.legend(fontsize=8)
 
-    for key in thesis_terms:
+    for key in eta_terms:
         ax2.plot(x, ar[key][t].ravel(), lw=0.9, label=key)
     ax2.plot(x, ar["eta"][t].ravel(), "k", lw=1.8, label=r"$\eta$ (their sum)")
     ax2.set_xlabel(r"$x_1\ [c/\omega_{pe}]$")

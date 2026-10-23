@@ -474,21 +474,21 @@ def test_e_vlasov_is_linear_in_rqm(mixed_sim):
         np.testing.assert_allclose(ev(rqm), rqm * inertial_and_pressure - magnetic, rtol=1e-9, atol=1e-12)
 
 
-def test_eta_follows_the_species_normalisation(mixed_sim):
+@pytest.mark.parametrize("method", ["nT", "P"])
+def test_eta_follows_the_species_normalisation(mixed_sim, method):
     """eta = -|rqm| * non-magnetic fluctuations + sign(rqm) * magnetic ones."""
     import osiris_utils as ou
 
-    def eta(rqm, key):
-        cfg = ou.AnomalousResistivityConfig(species=SPECIES)
+    def eta(rqm):
+        cfg = ou.AnomalousResistivityConfig(species=SPECIES, method=method)
         ar = ou.AnomalousResistivity(mixed_sim, SPECIES, cfg, rqm=rqm)
-        return np.asarray(ar[key][1], dtype=np.float64).ravel()
+        return np.asarray(ar["eta"][1], dtype=np.float64).ravel()
 
-    for key in ("eta", "eta_new"):
-        plus, minus = eta(1.0, key), eta(-1.0, key)
-        magnetic, non_magnetic = (plus - minus) / 2, -(plus + minus) / 2
-        for rqm in (32.0, -32.0):
-            expected = -abs(rqm) * non_magnetic + np.sign(rqm) * magnetic
-            np.testing.assert_allclose(eta(rqm, key), expected, rtol=1e-9, atol=1e-12)
+    plus, minus = eta(1.0), eta(-1.0)
+    magnetic, non_magnetic = (plus - minus) / 2, -(plus + minus) / 2
+    for rqm in (32.0, -32.0):
+        expected = -abs(rqm) * non_magnetic + np.sign(rqm) * magnetic
+        np.testing.assert_allclose(eta(rqm), expected, rtol=1e-9, atol=1e-12)
 
 
 def test_e_vlasov_is_namespaced_per_species(mixed_sim):
@@ -508,12 +508,13 @@ def regular_sim(tmp_path):
     return Simulation(str(tmp_path / "sim" / "shock.2d"))
 
 
-def _ar(sim, *, time_derivative: bool):
+def _ar(sim, *, time_derivative: bool, method: str = "nT"):
     import osiris_utils as ou
 
     cfg = ou.AnomalousResistivityConfig(
         species=SPECIES,
         mft_axis=2,
+        method=method,
         include_time_derivative=time_derivative,
         include_convection=True,
         include_transverse_advection=True,
@@ -540,6 +541,25 @@ def _lhs_minus_eta(ar, t: int = 2) -> float:
 def test_lhs_equals_eta(regular_sim, time_derivative):
     """The two routes to the turbulent term agree, with or without ∂t v1."""
     assert _lhs_minus_eta(_ar(regular_sim, time_derivative=time_derivative)) < _LHS_ETA_RTOL
+
+
+@pytest.mark.parametrize("method", ["nT", "P"])
+def test_lhs_equals_eta_for_both_mean_field_pressures(regular_sim, method):
+    """Each mean-field pressure comes with its own fluctuation terms; both close."""
+    assert _lhs_minus_eta(_ar(regular_sim, time_derivative=False, method=method)) < _LHS_ETA_RTOL
+
+
+def test_P_method_has_only_the_two_pressure_fluctuations(regular_sim):
+    ar = _ar(regular_sim, time_derivative=False, method="P")
+    assert "lhs_press_dP_dx1" in ar.available_terms
+    assert sorted(k for k in ar.available_terms if k.startswith("press_")) == ["press_P_xx", "press_P_xy"]
+
+
+def test_unknown_method_is_rejected():
+    import osiris_utils as ou
+
+    with pytest.raises(ValueError, match="method"):
+        ou.AnomalousResistivityConfig(method="nt")
 
 
 def test_two_configs_on_one_simulation_do_not_share_e_vlasov(regular_sim):
