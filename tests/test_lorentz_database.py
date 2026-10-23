@@ -501,6 +501,26 @@ def _synthetic_triples(nx: int, ny: int) -> dict[str, np.ndarray]:
     return f
 
 
+def test_zero_boost_filtered_derivative_is_smoothed_once():
+    """At beta = 0 the boosted x-derivative of a Gaussian-filtered mode is d/dx of the filtered mode.
+
+    One exp(-(k dx s)^2 / 2): the triples are smoothed on load, so a second
+    derivative-of-Gaussian pass would square the attenuation.
+    """
+    from osiris_utils.database.lorentz_database import _boost_frame_quantities
+
+    nx1, nx2, dx, s = 256, 16, 0.1, 4.0
+    k = 2 * np.pi * 8 / (nx1 * dx)  # k dx s = 0.79
+    x = np.arange(nx1) * dx
+    raw = _synthetic_triples(nx1, nx2)
+    raw["b3"] = np.broadcast_to(np.sin(k * x)[None, :, None], (3, nx1, nx2)).astype(np.float32)
+
+    q = _boost_frame_quantities(**_frame_kwargs(raw, beta=0.0, filt=GaussianFilter(s), dx=dx))
+    inner = slice(40, -40)
+    once = np.exp(-0.5 * (k * dx * s) ** 2) * k * np.cos(k * x)
+    np.testing.assert_allclose(q["db3_dx1_avg"][inner], once[inner], rtol=0, atol=2e-3 * k)
+
+
 def test_boost_fields_consumes_its_input():
     """``_boost_fields`` pops as it goes, so the lab triples are freed early."""
     from osiris_utils.database.lorentz_database import _boost_fields

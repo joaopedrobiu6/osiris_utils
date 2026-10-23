@@ -183,12 +183,12 @@ class Derivative_Diagnostic(Diagnostic):
         scheme replaces finite differences on the **spatial** axes: one pass of
         the filter's analytic order-``deriv_order`` kernel
         (``savgol_filter(deriv=...)`` / ``gaussian_filter1d(order=...)``)
-        instead of the stencil, exactly as the database creators compute their
-        derivatives.  ``stencil`` and ``order`` are then unused.  This is the
-        derivative half of filtering; the smoothing half belongs to the input
-        diagnostic (:class:`~osiris_utils.postprocessing.filtering.Filtered_Diagnostic`),
-        and the database pipeline applies both — one smoothing pass on the
-        field, one kernel pass per derivative.
+        instead of the stencil.  ``stencil`` and ``order`` are then unused.
+        That is d/dx of the filtered field only for a **raw** input: on a
+        :class:`~osiris_utils.postprocessing.filtering.Filtered_Diagnostic`
+        (or anything built from one) it smooths a second time.  Derivatives
+        of already-smoothed fields, as in the database pipeline, take no
+        ``filter``.
 
         Time derivatives are never filtered: a spatial kernel has no meaning
         along the time axis, so ``deriv_type="t"`` with a filter is an error,

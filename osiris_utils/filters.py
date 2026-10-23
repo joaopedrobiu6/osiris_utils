@@ -31,9 +31,12 @@ Every filter implements the :class:`SpatialFilter` interface:
     periodic transverse axis), applied *order* times (repeated first
     derivatives; no smoothing kernel is involved so chaining is exact).
 
-    ``derivative`` does not assume *f* is raw: in the database pipeline
-    fields are smoothed once and derivatives are then taken of the
-    smoothed fields, each adding the single derivative-kernel pass.
+    A smoothing filter's ``derivative`` is d/dx of the *filtered* field
+    only when *f* is **raw**: applied to an already-smoothed field it
+    smooths a second time (a Gaussian derivative term ends up at
+    sqrt(2) sigma).  The pipelines therefore smooth each field once and
+    differentiate the smoothed fields with :func:`fd_derivative`; they
+    never call ``derivative`` on a smoothing filter.
 
 Boundary conventions follow the shock-simulation setup: the
 longitudinal axis (x1) is non-periodic, the transverse axis (x2) is

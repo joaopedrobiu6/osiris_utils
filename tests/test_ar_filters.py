@@ -1,9 +1,9 @@
 """Spatial filters applied lazily, per frame, instead of at database-build time.
 
-The database creators smooth every raw frame and then take derivatives with
-the filter's own kernel.  ``Filtered_Simulation`` +
-``Derivative_Diagnostic(filter=...)`` do the same two things inside the lazy
-pipeline, so ``AnomalousResistivity(config=...filters=...)`` reproduces the
+The database creators smooth every raw frame once and then take
+finite-difference derivatives of the smoothed frames.  ``Filtered_Simulation``
++ plain ``Derivative_Diagnostic`` do the same inside the lazy pipeline, so
+``AnomalousResistivity(config=...filters=...)`` reproduces the
 tensor the database would have written — one timestep at a time, with nothing
 precomputed.  The parity tests below are the real specification.
 """
@@ -236,6 +236,32 @@ def test_filtered_ar_reproduces_the_database_tensors(sim, tmp_path, filters):
             got = np.asarray(ar[key][t], dtype=np.float64).ravel()
             tol = _PARITY_FILTERED if filters else _raw_tolerance(expected[t])
             np.testing.assert_allclose(got, expected[t], err_msg=f"{key} at t={t}", **tol)
+
+
+def test_filtered_derivative_is_smoothed_once():
+    """d/dx1 of a Gaussian-filtered mode carries one exp(-(k dx s)^2 / 2), not two.
+
+    The frame is smoothed once on load; differentiating it with the filter's own
+    derivative-of-Gaussian kernel would square the attenuation (sqrt(2) s), while
+    the undifferentiated terms stay at s.  The lazy path is pinned to this one by
+    the parity test above.
+    """
+    from osiris_utils.ar import AnomalousResistivityConfig
+    from osiris_utils.database.database import _mean_field_frame_quantities
+
+    nx1, nx2, dx, s = 256, 8, 0.25, 4.0
+    k = 2 * np.pi * 8 / (nx1 * dx)  # k dx s = 0.79: one pass 0.73, two passes 0.54
+    x = np.arange(nx1) * dx
+    raw = {name: [np.zeros((nx1, nx2))] for name in ("T11", "T12", "vfl2", "vfl3", "b2", "b3")}
+    raw["n"] = [np.ones((nx1, nx2))]
+    raw["vfl1"] = [np.repeat(np.sin(k * x)[:, None], nx2, axis=1)]
+
+    q = _mean_field_frame_quantities(
+        raw, 0, ou.GaussianFilter(sigma=s), dx, dx, 1, AnomalousResistivityConfig(), compute_e_vlasov=False, compute_eta=False
+    )
+    inner = slice(40, -40)  # clear of the open x1 ends, where the filter's mode="nearest" bends the mode
+    once = np.exp(-0.5 * (k * dx * s) ** 2) * k * np.cos(k * x)
+    np.testing.assert_allclose(q["d1_vfl1_dx1_avg"][inner], once[inner], rtol=0, atol=2e-3 * k)
 
 
 def test_unfiltered_transverse_derivative_is_the_centred_stencil():

@@ -14,13 +14,12 @@ is smoothed.
     >>> smooth = Filtered_Simulation(sim, SavitzkyGolayFilter(9, 4))
     >>> smooth["electrons"]["vfl1"][12]  # frame 12, smoothed on the way out
 
-Derivatives are *not* handled here: a smoothing filter also carries its own
-single-pass derivative scheme, which
-:class:`~osiris_utils.postprocessing.derivative.Derivative_Diagnostic`
-applies when it is given ``filter=``.  The database pipeline smooths each
-field once and then takes derivatives of the smoothed field, so mirroring
-it means wrapping the leaves with :class:`Filtered_Diagnostic` *and*
-passing the same filter to every spatial derivative built on top.
+Derivatives are *not* handled here.  The database pipeline smooths each
+field once and then takes finite-difference derivatives of the smoothed
+field, so mirroring it means wrapping the leaves with
+:class:`Filtered_Diagnostic` and building plain
+:class:`~osiris_utils.postprocessing.derivative.Derivative_Diagnostic` on
+top -- *without* ``filter=``, which would smooth every derivative again.
 
 Boundaries follow the database convention: the averaging (transverse) axis
 is periodic, every other axis is not.  Pass ``periodic_axes`` to override.

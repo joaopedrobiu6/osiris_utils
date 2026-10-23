@@ -171,15 +171,13 @@ class AnomalousResistivity:
 
         self._validate_inputs()
 
-        # The filter enters in two places, mirroring the database frame pipeline:
-        # Filtered_Simulation smooths every raw frame, and each *spatial*
-        # derivative below is handed the same filter so it uses that filter's
-        # single-pass kernel.  as_filter(()) is a NoFilter, which has to stay a
-        # true no-op — wrapping and switching derivative schemes for it would
-        # perturb the historical (unfiltered) numbers.
+        # As in the database frame pipeline, the filter enters once:
+        # Filtered_Simulation smooths every raw frame, and the derivatives below
+        # are finite differences of those smoothed frames.  Handing the filter
+        # to the derivatives too would smooth every derivative term a second
+        # time.  as_filter(()) is a NoFilter and must stay a true no-op.
         self._filter = as_filter(self._config.filters)
-        self._deriv_filter: SpatialFilter | None = None if isinstance(self._filter, NoFilter) else self._filter
-        if self._deriv_filter is None:
+        if isinstance(self._filter, NoFilter):
             self._simulation = simulation
         else:
             self._simulation = Filtered_Simulation(simulation, self._filter, mft_axis=self._config.mft_axis)
@@ -235,16 +233,16 @@ class AnomalousResistivity:
             container.add_diagnostic(diagnostic, name)
 
     # ----------------------------
-    # Spatial derivatives (one place that knows about the filter)
+    # Spatial derivatives (of the smoothed frames)
     # ----------------------------
 
     def _d_dx1(self, diagnostic) -> Derivative_Diagnostic:
-        """∂/∂x1 — 5-point FD, or the filter's own kernel when one is configured."""
-        return Derivative_Diagnostic(diagnostic, "x1", stencil=_X1_STENCIL, deriv_order=1, filter=self._deriv_filter)
+        """∂/∂x1 — 5-point FD of the (already smoothed) field."""
+        return Derivative_Diagnostic(diagnostic, "x1", stencil=_X1_STENCIL, deriv_order=1)
 
     def _d_dx2(self, diagnostic) -> Derivative_Diagnostic:
         """∂/∂x2 — periodic, the transverse direction of the shock setup."""
-        return Derivative_Diagnostic(diagnostic, "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True, filter=self._deriv_filter)
+        return Derivative_Diagnostic(diagnostic, "x2", stencil=_X2_STENCIL, deriv_order=1, periodic=True)
 
     # ----------------------------
     # Vlasov electric field

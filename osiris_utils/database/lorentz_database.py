@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ..ar import AnomalousResistivityConfig
+from ..filters import NoFilter, fd_derivative
 from ..profiling import profile_block
 from .burst import BurstAxis, BurstConfig
 from .database import _VALID_ETA_FORMULAS, DatabaseCreator, _resolve_filter, _stack_rows
@@ -124,9 +125,8 @@ class LorentzDatabaseBuildConfig:
         loading — *before* the Lorentz boost and the transverse average.
         Empty (default) = no filtering and the finite differences of
         :func:`~osiris_utils.filters.fd_derivative` (4th order along x1,
-        ``[-1, 0, 1]`` along the periodic x2).  Filters like
-        :class:`~osiris_utils.filters.SavitzkyGolayFilter` also supply their own
-        analytic derivative scheme, used for every derivative in the pipeline.
+        ``[-1, 0, 1]`` along the periodic x2).  With a filter the derivatives
+        are the same finite differences, taken of the smoothed fields.
         As in ``DatabaseBuildConfig``, this and ``ar_config.filters`` may not
         disagree.
     eta_formula :
@@ -545,10 +545,10 @@ FRAME_BYTES_PER_CELL = 432
 def _x_halo(filt: SpatialFilter) -> int:
     """Longitudinal halo that makes a slab's interior identical to the whole frame.
 
-    The pipeline smooths each field once and then takes x1-derivatives of
-    orders 1 and 2 of the smoothed field, so the reaches add.
+    The pipeline smooths each field once and then takes finite-difference
+    x1-derivatives of orders 1 and 2 of the smoothed field, so the reaches add.
     """
-    return filt.stencil_radius(0) + max(filt.stencil_radius(1), filt.stencil_radius(2))
+    return filt.stencil_radius(0) + NoFilter().stencil_radius(2)
 
 
 def _boost_fields(f: dict[str, np.ndarray], beta: float, gamma: float) -> dict[str, np.ndarray]:
@@ -729,9 +729,9 @@ def _boost_frame_quantities(
     :math:`(g_{hi}-g_{lo})/h`, :math:`\partial_t^2` is
     :math:`4(g_{hi}-2g_{mid}+g_{lo})/h^2` (the half-width is :math:`h/2`), and
     :math:`\partial_t\partial_x` differences the spatial derivative across the
-    same triple.  Spatial derivatives come from ``filt.derivative`` (the finite
-    differences of :func:`~osiris_utils.filters.fd_derivative` for
-    :class:`~osiris_utils.filters.NoFilter`).
+    same triple.  Spatial derivatives are the finite differences of
+    :func:`~osiris_utils.filters.fd_derivative`, taken of the already-smoothed
+    fields, so the filter is applied exactly once.
 
     e_vlasov and eta
     ----------------
@@ -764,8 +764,8 @@ def _boost_frame_quantities(
     periodic = tuple(ax == avg_axis for ax in range(2))
 
     # ── Longitudinal slab, if one was asked for ───────────────────────
-    # The slab carries a halo so the x1-derivative stencils (and the filter's
-    # own kernel) see real neighbours instead of this slab's edges; the halo is
+    # The slab carries a halo so the smoothing kernel and the x1-derivative
+    # stencils see real neighbours instead of this slab's edges; the halo is
     # discarded from the 1-D rows on the way out.  At the global edges the halo
     # is clipped, which is what leaves the one-sided stencils in place there.
     if x_range is None:
@@ -802,12 +802,14 @@ def _boost_frame_quantities(
         # Half-width of the centered stencil is h/2, hence the factor 4.
         return 4.0 * (g[2] - 2.0 * g[1] + g[0]) / (h * h)
 
+    # g is already smoothed (_load3): plain finite differences, not the filter's
+    # own derivative kernel, or every derivative would be smoothed twice.
     def d_x(g: np.ndarray, axis: int, order: int = 1) -> np.ndarray:
-        return filt.derivative(g[1], dx, axis=axis, order=order, periodic=False)
+        return fd_derivative(g[1], dx, axis=axis, order=order, periodic=False)
 
     def d_tx(g: np.ndarray, axis: int) -> np.ndarray:
-        lo = filt.derivative(g[0], dx, axis=axis, order=1, periodic=False)
-        hi = filt.derivative(g[2], dx, axis=axis, order=1, periodic=False)
+        lo = fd_derivative(g[0], dx, axis=axis, order=1, periodic=False)
+        hi = fd_derivative(g[2], dx, axis=axis, order=1, periodic=False)
         return (hi - lo) / h
 
     # ── Boosted derivatives (note Eqs. 35-38) ─────────────────────────
@@ -822,7 +824,7 @@ def _boost_frame_quantities(
 
     def dy_p(g: np.ndarray) -> np.ndarray:
         # $\partial_{y'} = \partial_y$ (37); periodic wrap for shock-sim BCs.
-        return filt.derivative(g[1], dx2, axis=avg_axis, order=1, periodic=True)
+        return fd_derivative(g[1], dx2, axis=avg_axis, order=1, periodic=True)
 
     def avg(g2d: np.ndarray) -> np.ndarray:
         return g2d.mean(axis=avg_axis)

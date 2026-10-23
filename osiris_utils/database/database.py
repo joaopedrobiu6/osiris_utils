@@ -11,7 +11,7 @@ import numpy as np
 import tqdm as tqdm
 
 from ..ar import AnomalousResistivityConfig
-from ..filters import NoFilter, SpatialFilter, as_filter
+from ..filters import NoFilter, SpatialFilter, as_filter, fd_derivative
 from ..profiling import profile_block
 from ..utils import resolve_rqm
 from .burst import BurstAxis, BurstConfig, BurstStencil
@@ -164,12 +164,9 @@ class DatabaseBuildConfig:
         Empty (default) = no filtering and the finite differences of
         :func:`~osiris_utils.filters.fd_derivative`: 4th order along x1, the
         centred ``[-1, 0, 1]`` stencil along the periodic x2 (the scheme
-        ``AnomalousResistivity`` uses, so the two agree).  Filters like
-        :class:`~osiris_utils.filters.SavitzkyGolayFilter` also
-        supply their own analytic derivative scheme, used for every
-        derivative in the pipeline in a single pass per order.  The frame
-        pipeline computes 4th derivatives, so Savitzky-Golay filters need
-        ``polyorder >= 4``.
+        ``AnomalousResistivity`` uses, so the two agree).  With a filter the
+        derivatives are the same finite differences, taken of the smoothed
+        fields: every term then carries exactly one smoothing pass.
         ``AnomalousResistivityConfig.filters`` sets the same thing for the
         lazy per-frame path; leave this empty to take the filter from
         ``ar_config``, or set both to the same filter.  Two different
@@ -362,12 +359,15 @@ def _mean_field_frame_quantities(
     vfl1, vfl2, vfl3 = f["vfl1"], f["vfl2"], f["vfl3"]
     b2, b3 = f["b2"], f["b3"]
 
-    # Recursive derivative helpers (2-D, before the transverse average)
+    # Derivative helpers (2-D, before the transverse average).  The fields are
+    # already smoothed, so these are plain finite differences: the filter's own
+    # derivative kernel would smooth a second time, leaving every derivative
+    # term at sqrt(2) sigma while the undifferentiated terms sit at sigma.
     def d_x1(g: np.ndarray, order: int = 1) -> np.ndarray:
-        return filt.derivative(g, dx, axis=x_axis, order=order, periodic=False)
+        return fd_derivative(g, dx, axis=x_axis, order=order, periodic=False)
 
     def d_x2(g: np.ndarray, order: int = 1) -> np.ndarray:
-        return filt.derivative(g, dx2, axis=avg_axis, order=order, periodic=True)
+        return fd_derivative(g, dx2, axis=avg_axis, order=order, periodic=True)
 
     def avg(g: np.ndarray) -> np.ndarray:
         return g.mean(axis=avg_axis)
@@ -376,10 +376,9 @@ def _mean_field_frame_quantities(
     q: dict[str, np.ndarray] = {f"{name}_avg": avg(arr) for name, arr in f.items()}
 
     # ── x1-derivatives in 2-D (before the transverse average), orders 1-4 ──
-    # Each order is taken directly from the once-smoothed field with the
-    # filter's native order-th derivative (a single kernel pass), so every
-    # order carries the same effective smoothing — no chained first
-    # derivatives.  Each result is averaged and dropped immediately; only the
+    # Each order is a finite difference of the once-smoothed field, so every
+    # order carries the same single smoothing pass.  Each result is averaged
+    # and dropped immediately; only the
     # order-1 vfl1 derivative is needed downstream in 2-D.  Retaining all
     # orders for all fields (~32 extra 2-D arrays per frame) OOMs
     # multi-worker builds on large grids.
@@ -398,10 +397,10 @@ def _mean_field_frame_quantities(
     nT11_mf = q["n_avg"] * q["T11_avg"]
     nvfl1_mf = q["n_avg"] * q["vfl1_avg"]
     q["nvfl1_avg"] = nvfl1_mf
-    q["d1_nT11_dx1_avg"] = filt.derivative(nT11_mf, dx, axis=0, order=1, periodic=False)
-    q["d2_nT11_dx1_avg"] = filt.derivative(nT11_mf, dx, axis=0, order=2, periodic=False)
-    q["d1_nvfl1_dx1_avg"] = filt.derivative(nvfl1_mf, dx, axis=0, order=1, periodic=False)
-    q["d2_nvfl1_dx1_avg"] = filt.derivative(nvfl1_mf, dx, axis=0, order=2, periodic=False)
+    q["d1_nT11_dx1_avg"] = fd_derivative(nT11_mf, dx, axis=0, order=1, periodic=False)
+    q["d2_nT11_dx1_avg"] = fd_derivative(nT11_mf, dx, axis=0, order=2, periodic=False)
+    q["d1_nvfl1_dx1_avg"] = fd_derivative(nvfl1_mf, dx, axis=0, order=1, periodic=False)
+    q["d2_nvfl1_dx1_avg"] = fd_derivative(nvfl1_mf, dx, axis=0, order=2, periodic=False)
     q["dnT11_dx1_over_n_avg"] = q["d1_nT11_dx1_avg"] / q["n_avg"]
 
     # ── Time derivative at the burst midpoint ─────────────────────────
@@ -524,10 +523,9 @@ def _vnT_frame_quantities(
 
     Transverse-averaged base quantities (:data:`VNT_BASE_QUANTITIES`) plus
     their x1-derivatives of orders :data:`VNT_DERIV_ORDERS`.  Derivatives are
-    taken on the filtered 2-D data **before** the transverse average, each
-    order in a single pass of the filter's native order-th derivative along
-    the longitudinal axis (for :class:`NoFilter` this is repeated 4th-order
-    FD — identical to the historical chained first derivatives).
+    taken on the filtered 2-D data **before** the transverse average, as
+    repeated 4th-order finite differences along the longitudinal axis (the
+    unfiltered scheme), so the filter is applied exactly once.
     """
     x_axis = 1 - avg_axis  # longitudinal axis in 2-D arrays (avg_axis=1 → x_axis=0)
     f = _load_filtered_fields(raw, ("n", "T11", "vfl1"), t_idx, filt, avg_axis)
@@ -544,11 +542,11 @@ def _vnT_frame_quantities(
 
     q: dict[str, np.ndarray] = {}
     # Computes the transverse average of the base quantities and their x1-derivatives up to order 4.
-    # Each order is taken directly from the base field (single kernel pass), not chained.
+    # Finite differences of the already-smoothed base field: one smoothing pass per term.
     for name in VNT_BASE_QUANTITIES:
         q[f"{name}_avg"] = base_2d[name].mean(axis=avg_axis)
         for order in VNT_DERIV_ORDERS:
-            d_2d = filt.derivative(base_2d[name], dx, axis=x_axis, order=order, periodic=False)
+            d_2d = fd_derivative(base_2d[name], dx, axis=x_axis, order=order, periodic=False)
             prefix = "d_" if order == 1 else f"d{order}_"
             q[f"{prefix}{name}_dx1_avg"] = d_2d.mean(axis=avg_axis)
     return q
