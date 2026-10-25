@@ -205,3 +205,41 @@ def test_track_metadata_is_read_without_the_data(track_path: Path) -> None:
     assert (meta.num_particles, meta.num_time_iters) == (TRACK_N_PARTICLES, TRACK_N_ITERS)
     assert meta.quants == TRACK_QUANTS[1:]
 
+
+def test_track_indexes_with_uneven_interleaved_chunks() -> None:
+    """Chunks of different sizes, interleaved between particles in any order, each particle's chunks in time order."""
+    num_particles, num_iters = 3, 7
+    chunks = {1: [3, 4], 2: [1, 2, 4], 3: [7]}  # points per chunk, in time order
+    write_order = [2, 1, 3, 2, 1, 2]  # which particle writes its next chunk
+    itermap, codes, done = [], [], dict.fromkeys(chunks, 0)
+    for p in write_order:
+        n = chunks[p].pop(0)
+        itermap.append([p, n, done[p]])
+        codes += [100 * p + k for k in range(done[p], done[p] + n)]  # row value encodes (particle, time)
+        done[p] += n
+
+    indexes = get_track_indexes(np.array(itermap), num_particles)
+
+    expected = 100 * np.arange(1, num_particles + 1)[:, None] + np.arange(num_iters)[None, :]
+    np.testing.assert_array_equal(np.array(codes)[indexes], expected)
+
+
+def test_osiris_track_file_reads_only_the_requested_quantities(track_path: Path) -> None:
+    track = OsirisTrackFile(str(track_path), quants=["p1", "x1"])
+
+    assert track.data.dtype.names == ("x1", "p1")  # file order
+    assert track.data.shape == (TRACK_N_PARTICLES, TRACK_N_ITERS)
+    for quant in ["x1", "p1"]:
+        np.testing.assert_allclose(track.data[quant], _expected(quant), rtol=1e-9)
+    assert track.quants == TRACK_QUANTS[1:]
+    assert track.time is None  # 't' was not read
+
+    with pytest.raises(ValueError, match="not in"):
+        OsirisTrackFile(str(track_path), quants=["x9"])
+
+
+def test_reorder_refuses_data_that_does_not_match_the_itermap() -> None:
+    """A truncated data dataset must not be silently gathered from (np.take runs with mode='clip')."""
+    indexes = get_track_indexes(np.array([[1, 2, 0], [2, 2, 0]]), num_particles=2)
+    with pytest.raises(ValueError, match="rows"):
+        reorder_track_data(np.zeros((3, 1)), indexes, ["t"])

@@ -142,3 +142,24 @@ def test_raw_to_file_tags_validates_mask_and_selection(raw_path: Path, tmp_path:
 
     with pytest.raises(TypeError, match="Invalid type"):
         raw.raw_to_file_tags(str(tmp_path / "bad_type.tags"), type="first")
+
+
+def test_osiris_raw_file_reads_only_the_requested_quantities(raw_path: Path) -> None:
+    raw = OsirisRawFile(str(raw_path), quants=["x1", "tag"])
+
+    assert set(raw.data) == {"x1", "tag"}
+    np.testing.assert_allclose(raw.data["x1"], raw_values("x1"), rtol=1e-6)
+    np.testing.assert_array_equal(raw.data["tag"], raw_values("tag"))
+    # metadata still describes the whole file
+    assert raw.quants == RAW_QUANTS
+    assert set(raw.axis) == set(RAW_QUANTS)
+    assert raw.units == RAW_UNITS
+
+
+def test_osiris_raw_file_refuses_unknown_quantities_without_leaking(raw_path: Path) -> None:
+    import h5py
+
+    before = h5py.h5f.get_obj_count(h5py.h5f.OBJ_ALL, h5py.h5f.OBJ_FILE)
+    with pytest.raises(ValueError, match="not in"):
+        OsirisRawFile(str(raw_path), quants=["x1", "x9"])
+    assert h5py.h5f.get_obj_count(h5py.h5f.OBJ_ALL, h5py.h5f.OBJ_FILE) == before

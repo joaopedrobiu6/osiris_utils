@@ -6,7 +6,6 @@ from typing import Literal
 import h5py
 import numpy as np
 import pandas as pd
-from numpy.lib import recfunctions as rfn
 
 from osiris_utils.utils import create_file_tags
 
@@ -373,7 +372,10 @@ class OsirisRawFile(OsirisData):
     Parameters
     ----------
     filename : str
-        Path to OSIRIS HDF5 track file (.h5 extension)
+        Path to OSIRIS HDF5 RAW file (.h5 extension)
+    quants : list[str], optional
+        Datasets to read, e.g. ``["x1", "p1"]``. Default None reads every dataset.
+        The metadata (``quants``, ``units``, ``labels``, ``axis``) always covers the whole file.
 
     Attributes:
     -----------
@@ -412,11 +414,13 @@ class OsirisRawFile(OsirisData):
         >>> print(raw.data.keys())
         >>> # Access x1 position of first 10 particles
         >>> print(raw.data[\"x1\"][0:10])
+        >>> # Read only the positions and longitudinal momenta
+        >>> raw = ou.OsirisRawFile("path/to/raw/file.h5", quants=["x1", "p1"])
         >>> # Write beautiful labels and units
         >>> print("${} = $".format(raw.labels[\"x1\"]) + "$[{}]$".format(track.units[\"x1\"]))
     """
 
-    def __init__(self, filename):
+    def __init__(self, filename, quants: list[str] | None = None):
         super().__init__(filename)
 
         self._grid = np.array([
@@ -430,21 +434,16 @@ class OsirisRawFile(OsirisData):
         self._units = dict(zip(self._quants, units_list, strict=False))
         self._labels = dict(zip(self._quants, labels_list, strict=False))
 
-        self._data = {}
-        self._axis = {}
-        for key in self._file.keys():
-            if key == "SIMULATION":
-                continue
+        self._axis = {q: {"name": q, "units": self._units[q], "long_name": self._labels[q]} for q in self._quants}
 
-            self.data[key] = np.array(self._file[key][()])
-
-            idx = np.where(self._file.attrs["QUANTS"] == str(key).encode("utf-8"))
-            axis_data = {
-                "name": self._file.attrs["QUANTS"][idx][0].decode("utf-8"),
-                "units": self._file.attrs["UNITS"][idx][0].decode("utf-8"),
-                "long_name": self._file.attrs["LABELS"][idx][0].decode("utf-8"),
-            }
-            self._axis[key] = axis_data
+        # Each quantity is its own contiguous dataset, so reading a subset cuts the bytes read from disk.
+        if quants is None:
+            quants = [key for key in self._file.keys() if key != "SIMULATION"]
+        missing = [q for q in quants if q not in self._file]
+        if missing:
+            self._close_file()
+            raise ValueError(f"Quantities {missing} not in {self._filename}. Options are {self._quants}.")
+        self._data = {q: self._file[q][()] for q in quants}
 
         # Every dataset above is materialised into self._data, so the handle is
         # no longer needed. Without this, looping over many RAW dumps leaks one
@@ -618,10 +617,12 @@ class OsirisTrackFile(OsirisData):
         >>> print(track.data[0:10, :]["x1"]) # Access x1 position of first 10 particles over all time steps
 
     Pass ``load_data=False`` to read only the metadata (quantities, units,
-    particle and iteration counts) without the data itself.
+    particle and iteration counts) without the data itself, or
+    ``quants=["x1", "p1"]`` to read only those columns: ``data`` then has just
+    those fields, while ``quants``/``units``/``labels`` still describe the whole file.
     """
 
-    def __init__(self, filename, load_data: bool = True):
+    def __init__(self, filename, load_data: bool = True, quants: list[str] | None = None):
         super().__init__(filename)
 
         self._grid = np.array([
@@ -639,11 +640,21 @@ class OsirisTrackFile(OsirisData):
 
         indexes = get_track_indexes(self._file["itermap"][:], self._num_particles)
         self._num_time_iters = indexes.shape[1]
+        self._data = None
         if load_data:
-            self._data = reorder_track_data(self._file["data"][:], indexes, self._quants)
-            self._time = self._data[0]["t"]
-        else:
-            self._data = None
+            dset = self._file["data"]
+            if quants is None:
+                self._data = reorder_track_data(dset[()], indexes, self._quants)
+            else:
+                missing = [q for q in quants if q not in self._quants]
+                if missing:
+                    self._close_file()
+                    raise ValueError(f"Quantities {missing} not in {self._filename}. Options are {self._quants}.")
+                # h5py column selection needs increasing indices, so fields come out in file order
+                cols = sorted({self._quants.index(q) for q in quants})
+                self._data = reorder_track_data(dset[:, cols], indexes, [self._quants[c] for c in cols])
+            if "t" in self._data.dtype.names:
+                self._time = self._data[0]["t"]
         self._close_file()
 
     def _load_basic_attributes(self, f: h5py.File) -> None:
@@ -722,24 +733,41 @@ def reorder_track_data(unordered_data: np.ndarray, indexes: np.ndarray, field_na
     unordered_data = np.asarray(unordered_data, dtype=float)
     if unordered_data.shape[1] != len(field_names):
         raise ValueError(f"Track data has {unordered_data.shape[1]} columns, but {len(field_names)} names were given.")
-    # unstructured_to_structured views the last axis as named fields
-    return rfn.unstructured_to_structured(unordered_data[indexes], dtype=np.dtype([(name, float) for name in field_names]))
+    if unordered_data.shape[0] != indexes.size:
+        raise ValueError(f"Track data has {unordered_data.shape[0]} rows, but the itermap describes {indexes.size}.")
+    out = np.empty(indexes.shape, dtype=np.dtype([(name, float) for name in field_names]))
+    # All fields are float64 and packed, so the structured array is also a plain (rows, columns) float array:
+    # gather straight into it. indexes is a permutation of the rows, so mode="clip" never clips; it only
+    # skips the bounds-check buffer that the default mode="raise" allocates when out= is given.
+    rows = out.reshape(-1).view(float).reshape(indexes.size, len(field_names))  # (num_particles * num_time_iters, nq)
+    np.take(unordered_data, indexes.reshape(-1), axis=0, out=rows, mode="clip")
+    return out
 
 
 def get_track_indexes(itermap: np.ndarray, num_particles: int) -> np.ndarray:
     """Data row of every (particle, time) point of a track file, shape (num_particles, num_time_iters).
 
     OSIRIS writes each particle's points in chunks, one ``itermap`` row
-    ``(particle, npoints, nstart)`` per chunk, interleaved between particles.
-    Labelling every data row with its particle and sorting by that label with a
-    *stable* sort groups the rows by particle and keeps each particle's rows in
-    time order.
+    ``(particle, npoints, nstart)`` per chunk, interleaved between particles,
+    each particle's chunks in time order. Sorting only the M chunks by particle
+    (stable, so time order is kept) lists the output slots in order: with every
+    track the same length, the running total of chunk lengths in that order is
+    each chunk's first slot, and inside a chunk slot and data row advance
+    together. O(N + M log M) for N data rows, against O(N log N) for sorting
+    the rows themselves.
 
     TODO: take nstart into account (particles that are not initialised at t=0).
     """
     itermap = np.asarray(itermap, dtype=np.int64)
-    owner = np.repeat(itermap[:, 0], itermap[:, 1])  # particle of every data row
-    counts = np.bincount(owner, minlength=num_particles + 1)[1:]
+    particle, npoints = itermap[:, 0], itermap[:, 1]  # (M,)
+    counts = np.bincount(particle - 1, weights=npoints, minlength=num_particles)  # (num_particles,) points per particle
     if counts.min() != counts.max():
-        raise ValueError(f"Tracks of different lengths ({counts.min()} to {counts.max()} points) cannot be stacked.")
-    return np.argsort(owner, kind="stable").reshape(num_particles, -1)
+        raise ValueError(f"Tracks of different lengths ({counts.min():.0f} to {counts.max():.0f} points) cannot be stacked.")
+
+    first_row = np.cumsum(npoints) - npoints  # (M,) first data row of each chunk
+    order = np.argsort(particle, kind="stable")
+    first_slot = np.cumsum(npoints[order]) - npoints[order]  # (M,) first output slot, particle-sorted
+    # row - slot is constant inside a chunk: expand it per slot and add the slot number
+    indexes = np.repeat(first_row[order] - first_slot, npoints[order])  # (N,)
+    indexes += np.arange(indexes.size)
+    return indexes.reshape(num_particles, -1)

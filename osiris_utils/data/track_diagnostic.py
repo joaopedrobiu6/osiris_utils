@@ -200,7 +200,7 @@ class Track_Diagnostic:
         if isinstance(index, str):
             if index not in self._quants:
                 raise ValueError(f"Quantity {index} is invalid, Options are {self._quants}.")
-            return OsirisTrackFile(self._path).data[index]
+            return OsirisTrackFile(self._path, quants=[index]).data[index]
         raise ValueError(f"Cannot retrieve data for this diagnostic at index {index}: load_all() first, or index by quantity name.")
 
     # Getters
