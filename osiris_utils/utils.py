@@ -283,6 +283,10 @@ def create_file_tags(filename: str, tags_array: np.ndarray) -> str:
     The first element of the tag of a particle that is already being tracked is negative,
         so we apply the absolute function when generating the file
 
+    OSIRIS reads the count with the Fortran format (I12) and each tag with (I12,I12),
+    ignoring blanks, so every integer must sit right-aligned in its own 12-character
+    field: anything that spills across column 12 is glued onto the other number.
+
     """
 
     # Copy before touching: the caller's array must not be modified in place.
@@ -296,9 +300,9 @@ def create_file_tags(filename: str, tags_array: np.ndarray) -> str:
         file.write("! particle tag list\n")
         file.write(f"! generated on {datetime.now().strftime('%a %b %d %H:%M:%S %Y')}\n")
         file.write("! number of tags\n")
-        file.write(f"       {num_tags}\n")
+        file.write(f"{num_tags:12d}\n")
         file.write("! particle tag list\n")
 
         for i in range(num_tags):
-            file.write(f"         {tags_array[i, 0]:<6}{tags_array[i, 1]:>6}\n")
+            file.write(f"{tags_array[i, 0]:12d}{tags_array[i, 1]:12d}\n")
     return filename

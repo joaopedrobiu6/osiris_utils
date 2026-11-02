@@ -191,6 +191,19 @@ def test_create_file_tags_still_writes_absolute_sorted_tags(tmp_path):
     assert rows == [["2", "5"], ["3", "1"]]
 
 
+def test_create_file_tags_fixed_width_for_large_tags(tmp_path):
+    """OSIRIS reads (I12,I12) ignoring blanks: 4+ digit node ids must not spill into the counter."""
+    out = tmp_path / "tags.txt"
+    tags = np.array([[5376, 1234567], [73, 10400]])
+
+    create_file_tags(str(out), tags)
+
+    lines = [line for line in out.read_text().splitlines() if not line.startswith("!")]
+    assert int(lines[0][:12]) == 2
+    as_fortran = [(int(line[:12].replace(" ", "")), int(line[12:24].replace(" ", ""))) for line in lines[1:]]
+    assert as_fortran == [(73, 10400), (5376, 1234567)]
+
+
 def test_create_file_tags_accepts_a_list(tmp_path):
     """A plain nested list must work — it has no .copy()/fancy indexing of its own."""
     out = tmp_path / "tags.txt"
