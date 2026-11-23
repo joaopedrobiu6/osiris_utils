@@ -8,6 +8,8 @@ from ..data.diagnostic import OSIRIS_FLD, Diagnostic
 from .postprocess import PostProcess
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from ..data.simulation import Simulation
 
 __all__ = ["FieldCentering_Simulation", "FieldCentering_Diagnostic"]
@@ -33,12 +35,18 @@ class FieldCentering_Simulation(PostProcess):
     ----------
     simulation : Simulation
         The simulation object.
-    periodic : bool, optional
+    periodic : bool or sequence of int, optional
         Boundary treatment along the centered axes; see FieldCentering_Diagnostic.
         Defaults to True (wrap), matching OSIRIS runs with periodic boundaries.
+    pass_through : bool, optional
+        False (default): a fields-only view, and any other key is an error.
+        True: a drop-in replacement for *simulation* — the fields come out
+        centred, while species quantities and every other key are handed back
+        from *simulation* unchanged.  This is how a whole analysis (e.g.
+        :class:`~osiris_utils.ar.AnomalousResistivity`) runs on centred fields.
     """
 
-    def __init__(self, simulation: Simulation, periodic: bool = True):
+    def __init__(self, simulation: Simulation, periodic: bool | Sequence[int] = True, pass_through: bool = False):
         """
         Class to center the field in the simulation.
 
@@ -46,20 +54,26 @@ class FieldCentering_Simulation(PostProcess):
         ----------
         simulation : Simulation
             The simulation object.
-        periodic : bool, optional
+        periodic : bool or sequence of int, optional
             Boundary treatment along the centered axes. Defaults to True.
+        pass_through : bool, optional
+            Hand back non-field keys (and the species) unchanged. Defaults to False.
         """
-        super().__init__("FieldCentering Simulation", simulation, species=())  # fields only
+        # fields only, unless the view stands in for the whole simulation
+        super().__init__("FieldCentering Simulation", simulation, species=None if pass_through else ())
         self._periodic = periodic
+        self._pass_through = pass_through
 
     def _process(self, container, key: str) -> FieldCentering_Diagnostic:
         if key not in OSIRIS_FLD:
+            if self._pass_through:
+                return container[key]
             raise ValueError(f"Does it make sense to center {key} field? Only {OSIRIS_FLD} are supported.")
         return FieldCentering_Diagnostic(container[key], periodic=self._periodic)
 
 
 class FieldCentering_Diagnostic(Diagnostic):
-    def __init__(self, diagnostic: Diagnostic, periodic: bool = True):
+    def __init__(self, diagnostic: Diagnostic, periodic: bool | Sequence[int] = True):
         """
         Class to center the field in the simulation. It converts fields from the Osiris yee mesh to the center of the cells.
 
@@ -67,12 +81,14 @@ class FieldCentering_Diagnostic(Diagnostic):
         ----------
         diagnostic : Diagnostic
             The diagnostic object.
-        periodic : bool, optional
+        periodic : bool or sequence of int, optional
             Boundary treatment along the axes being centered. ``True`` (default)
             wraps, pairing the first cell with the last — correct for periodic
             runs. Set ``False`` for open/conducting boundaries, where the first
             cell along a centered axis keeps its own value instead of borrowing
-            from the opposite edge.
+            from the opposite edge.  A sequence names the OSIRIS axes
+            (1-indexed) that wrap; every other axis is treated as open — e.g.
+            ``(2,)`` for a shock run with x1 open and x2 periodic.
         """
         super().__init__()
         self._derive_from(diagnostic)
@@ -91,6 +107,12 @@ class FieldCentering_Diagnostic(Diagnostic):
             raise ValueError(f"Unknown dimension {self._dim}.")
         component = self._original_name.lower().removeprefix("part_").removeprefix("ext_")
         self._center_axes_cached = _YEE_STAGGER[self._dim].get(component, ())
+
+    def _wraps(self, ax_osiris: int) -> bool:
+        """Whether OSIRIS axis *ax_osiris* (1-indexed) is periodic for this diagnostic."""
+        if isinstance(self._periodic, bool):
+            return self._periodic
+        return ax_osiris in self._periodic
 
     @staticmethod
     def _center_along_axis(data: np.ndarray, axis: int, periodic: bool = True) -> np.ndarray:
@@ -145,6 +167,6 @@ class FieldCentering_Diagnostic(Diagnostic):
         result = f
         for ax_osiris in axes_to_center:
             np_axis = ax_osiris - 1
-            result = self._center_along_axis(result, axis=np_axis, periodic=self._periodic)
+            result = self._center_along_axis(result, axis=np_axis, periodic=self._wraps(ax_osiris))
 
         return result

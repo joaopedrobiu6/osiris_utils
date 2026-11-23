@@ -9,6 +9,7 @@ from weakref import WeakKeyDictionary
 
 from ..filters import NoFilter, SpatialFilter, as_filter
 from ..postprocessing.derivative import Derivative_Diagnostic
+from ..postprocessing.field_centering import FieldCentering_Simulation
 from ..postprocessing.filtering import Filtered_Simulation
 from ..postprocessing.mft import MFT_Diagnostic, MFT_Simulation
 from ..utils import resolve_rqm
@@ -78,6 +79,25 @@ class AnomalousResistivityConfig:
         differences along x1 and the centred ``[-1, 0, 1]`` stencil along the
         periodic x2, the same as the unfiltered database.  See
         :mod:`osiris_utils.filters`.
+    center_fields :
+        False (default): the fields are used where OSIRIS stores them, on the
+        staggered Yee mesh, while the moments sit on the cell nodes — so every
+        product of a field and a moment (``v2 B3``, ``v3 B2``) pairs values half
+        a cell apart, along x1 and, for ``B3``, along x2 too.  For filaments a
+        few cells wide this weakens ``<dv2 dB3>`` by several per cent.
+        True: every field is first averaged onto the nodes
+        (:class:`~osiris_utils.postprocessing.field_centering.FieldCentering_Simulation`),
+        wrapping along ``mft_axis`` only.  Applied after ``filters``.
+    inertia :
+        The quantity the inertial terms (time derivative, convection,
+        transverse advection) differentiate.  ``"vfl"`` (default): the mean
+        velocity ``vfl1``, the non-relativistic fluid equation.  ``"ufl"``: the
+        mean proper velocity ``ufl1 = <gamma v1>``, which is what the momentum
+        moment of the relativistic Vlasov equation advances
+        (``n (dt + <v>.grad) <u1> + div(n T) = q n (E + <v> x B) / m``, with
+        OSIRIS's ``T1j = <u1 vj> - <u1><vj>``); it needs ``ufl1`` in the dumps.
+        The advecting velocity stays ``vfl``.  Term names do not change: e.g.
+        ``conv_v1_dv1dx1`` is ``<dv1 d(d1 u1)>`` under ``"ufl"``.
     """
 
     species: str | None = None
@@ -89,10 +109,14 @@ class AnomalousResistivityConfig:
     include_pressure: bool = True
     include_magnetic_force: bool = True
     filters: Sequence[SpatialFilter] | SpatialFilter | None = ()
+    center_fields: bool = False
+    inertia: str = "vfl"
 
     def __post_init__(self):
         if self.method not in ("nT", "P"):
             raise ValueError(f"AnomalousResistivityConfig.method must be 'nT' or 'P', got {self.method!r}.")
+        if self.inertia not in ("vfl", "ufl"):
+            raise ValueError(f"AnomalousResistivityConfig.inertia must be 'vfl' or 'ufl', got {self.inertia!r}.")
 
     def checked_for(self, species: str) -> AnomalousResistivityConfig:
         """This config, after checking that its ``species`` (if set) is *species*."""
@@ -182,7 +206,14 @@ class AnomalousResistivity:
         else:
             self._simulation = Filtered_Simulation(simulation, self._filter, mft_axis=self._config.mft_axis)
             logger.info("Anomalous resistivity filtered per frame with %r.", self._filter)
+        # Centring after filtering: both are linear, per-axis averages, so they
+        # commute in the interior, and the filtered view only accepts raw quantities.
+        if self._config.center_fields:
+            self._simulation = FieldCentering_Simulation(self._simulation, periodic=(self._config.mft_axis,), pass_through=True)
+            logger.info("Anomalous resistivity uses fields centred on the cell nodes.")
 
+        # what the inertial terms differentiate: vfl1 or ufl1
+        self._u1 = f"{self._config.inertia}1"
         self._e_vlasov_key = f"e_vlasov_{species}"
         self._rqm = resolve_rqm(simulation, species, rqm)
         logger.info("Momentum equation for species '%s': rqm = m/q = %g.", species, self._rqm)
@@ -210,6 +241,8 @@ class AnomalousResistivity:
             raise ValueError(f"Species '{sp}' not found in simulation.")
 
         required_quantities = ["n", "T11", "T12", "vfl1", "vfl2", "vfl3"]
+        if self._config.inertia == "ufl":
+            required_quantities.append("ufl1")
         for q in required_quantities:
             try:
                 _ = sim[sp][q]
@@ -261,17 +294,18 @@ class AnomalousResistivity:
             self._ensure_diagnostic(sp, self._d_dx1(sp["nT11"]), "dnT11_dx1")
             self._ensure_diagnostic(sp, self._d_dx2(sp["nT12"]), "dnT12_dx2")
 
+        u1 = self._u1
         if self._config.include_time_derivative:
             # No filter on d/dt: a spatial kernel means nothing along time.  The
             # frames it differences are already smoothed, exactly as the database's
             # _time_derivative_frame differences two smoothed frames.
-            self._ensure_diagnostic(sp, Derivative_Diagnostic(sp["vfl1"], "t", stencil=_T_STENCIL, deriv_order=1), "dvfl1_dt")
+            self._ensure_diagnostic(sp, Derivative_Diagnostic(sp[u1], "t", stencil=_T_STENCIL, deriv_order=1), f"d{u1}_dt")
 
         if self._config.include_convection:
-            self._ensure_diagnostic(sp, self._d_dx1(sp["vfl1"]), "dvfl1_dx1")
+            self._ensure_diagnostic(sp, self._d_dx1(sp[u1]), f"d{u1}_dx1")
 
         if self._config.include_transverse_advection:
-            self._ensure_diagnostic(sp, self._d_dx2(sp["vfl1"]), "dvfl1_dx2")
+            self._ensure_diagnostic(sp, self._d_dx2(sp[u1]), f"d{u1}_dx2")
 
         E_vlasov = self._compute_vlasov_field_terms()
         # Namespaced per species *and* per momentum equation: e_vlasov is stored on
@@ -283,7 +317,7 @@ class AnomalousResistivity:
         logger.info("Vlasov electric field computed.")
 
     def _e_vlasov_signature(self) -> tuple:
-        """Everything e_vlasov is built from: the enabled terms, rqm and the filter."""
+        """Everything e_vlasov is built from: the enabled terms, rqm, the filter, field centring and inertia."""
         c = self._config
         return (
             c.include_time_derivative,
@@ -293,6 +327,8 @@ class AnomalousResistivity:
             c.include_magnetic_force,
             float(self._rqm),
             repr(self._filter),
+            c.center_fields,
+            c.inertia,
         )
 
     def _e_vlasov_suffix(self) -> str:
@@ -309,7 +345,8 @@ class AnomalousResistivity:
             )
             if on
         ]
-        return f"{'-'.join(enabled) or 'empty'}_rqm{self._rqm:g}_{_filter_tag(self._filter)}"
+        extras = ("_ctr" if c.center_fields else "") + ("_ufl" if c.inertia == "ufl" else "")
+        return f"{'-'.join(enabled) or 'empty'}_rqm{self._rqm:g}_{_filter_tag(self._filter)}{extras}"
 
     def _register_e_vlasov(self, E_vlasov) -> str:
         """Store e_vlasov under a key unique to the terms it contains.
@@ -351,20 +388,22 @@ class AnomalousResistivity:
         terms = []
 
         # Momentum equation of the species solved for E1:
-        #   rqm [ dt v1 + v1 d1 v1 + v2 d2 v1 + (d1(n T11) + d2(n T12))/n ]
+        #   rqm [ dt u1 + v1 d1 u1 + v2 d2 u1 + (d1(n T11) + d2(n T12))/n ]
         #       = E1 + (v x B)_1
-        # so the inertial and pressure terms carry rqm and the magnetic one does
-        # not.  rqm = -1 reproduces the historical electron expression exactly.
+        # with u1 = vfl1 (inertia="vfl") or ufl1 (inertia="ufl"), so the inertial
+        # and pressure terms carry rqm and the magnetic one does not.  rqm = -1
+        # and inertia="vfl" reproduce the historical electron expression exactly.
         rqm = self._rqm
+        u1 = self._u1
 
         if self._config.include_time_derivative:
-            terms.append(rqm * sim[sp]["dvfl1_dt"])
+            terms.append(rqm * sim[sp][f"d{u1}_dt"])
 
         if self._config.include_convection:
-            terms.append(rqm * sim[sp]["vfl1"] * sim[sp]["dvfl1_dx1"])
+            terms.append(rqm * sim[sp]["vfl1"] * sim[sp][f"d{u1}_dx1"])
 
         if self._config.include_transverse_advection:
-            terms.append(rqm * sim[sp]["vfl2"] * sim[sp]["dvfl1_dx2"])
+            terms.append(rqm * sim[sp]["vfl2"] * sim[sp][f"d{u1}_dx2"])
 
         if self._config.include_pressure:
             pressure_term = (rqm / sim[sp]["n"]) * (sim[sp]["dnT11_dx1"] + sim[sp]["dnT12_dx2"])
@@ -429,16 +468,18 @@ class AnomalousResistivity:
 
         sm = self.sim_mft
         sp = self.species
+        u1 = self._u1
 
         terms: dict[str, Any] = {"lhs_e_vlasov": -sign * sm[self._e_vlasov_key]["avg"]}
         coeffs: dict[str, float] = {"lhs_e_vlasov": -sign}
 
+        # Under inertia="ufl" these keep their names but hold <dt u1> and <v1> d1 <u1>.
         if self._config.include_time_derivative:
-            terms["lhs_dvfl1_dt"] = mag * sm[sp]["dvfl1_dt"]["avg"]
+            terms["lhs_dvfl1_dt"] = mag * sm[sp][f"d{u1}_dt"]["avg"]
             coeffs["lhs_dvfl1_dt"] = mag
 
         if self._config.include_convection:
-            terms["lhs_conv_v1_dv1dx1"] = mag * sm[sp]["vfl1"]["avg"] * sm[sp]["dvfl1_dx1"]["avg"]
+            terms["lhs_conv_v1_dv1dx1"] = mag * sm[sp]["vfl1"]["avg"] * sm[sp][f"d{u1}_dx1"]["avg"]
             coeffs["lhs_conv_v1_dv1dx1"] = mag
 
         # No transverse-advection term: <v2> d/dx2 <v1> vanishes, since <v1>
@@ -473,12 +514,13 @@ class AnomalousResistivity:
         sim = self._simulation
 
         terms: dict[str, Any] = {}
+        u1 = self._u1
 
         if self._config.include_convection:
-            terms["conv_v1_dv1dx1"] = sm[sp]["vfl1"]["delta"] * sm[sp]["dvfl1_dx1"]["delta"]
+            terms["conv_v1_dv1dx1"] = sm[sp]["vfl1"]["delta"] * sm[sp][f"d{u1}_dx1"]["delta"]
 
         if self._config.include_transverse_advection:
-            terms["conv_v2_dv1dx2"] = sm[sp]["vfl2"]["delta"] * sm[sp]["dvfl1_dx2"]["delta"]
+            terms["conv_v2_dv1dx2"] = sm[sp]["vfl2"]["delta"] * sm[sp][f"d{u1}_dx2"]["delta"]
 
         if self._config.include_magnetic_force:
             terms["mag_v2_b3"] = sm[sp]["vfl2"]["delta"] * sm["b3"]["delta"]
@@ -563,14 +605,18 @@ class AnomalousResistivity:
             "dnT11_dx1_avg": dnT11_dx_avg,
         }
 
+        u1 = self._u1
+        if u1 != "vfl1":
+            out[f"{u1}_avg"] = self.sim_mft[self.species][u1]["avg"]
+
         if self._config.include_time_derivative:
-            out["dvfl1_dt_avg"] = self.sim_mft[self.species]["dvfl1_dt"]["avg"]
+            out[f"d{u1}_dt_avg"] = self.sim_mft[self.species][f"d{u1}_dt"]["avg"]
 
         if self._config.include_convection:
-            out["dvfl1_dx1_avg"] = self.sim_mft[self.species]["dvfl1_dx1"]["avg"]
+            out[f"d{u1}_dx1_avg"] = self.sim_mft[self.species][f"d{u1}_dx1"]["avg"]
 
         if self._config.include_transverse_advection:
-            out["dvfl1_dx2_avg"] = self.sim_mft[self.species]["dvfl1_dx2"]["avg"]
+            out[f"d{u1}_dx2_avg"] = self.sim_mft[self.species][f"d{u1}_dx2"]["avg"]
 
         return out
 
@@ -586,9 +632,9 @@ class AnomalousResistivity:
 
     @property
     def filtered_simulation(self):
-        """The per-frame filtered view the terms are built from.
+        """The view the terms are built from: per-frame filtered, then field-centred if configured.
 
-        The same object as :attr:`simulation` when no filter is configured.
+        The same object as :attr:`simulation` when neither is configured.
         """
         return self._simulation
 

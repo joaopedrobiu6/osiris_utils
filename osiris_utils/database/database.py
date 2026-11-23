@@ -264,6 +264,25 @@ def _resolve_filter(build_filters, ar_filters) -> SpatialFilter:
     return build
 
 
+def _refuse_lazy_only_options(flags: AnomalousResistivityConfig) -> None:
+    """Refuse AnomalousResistivityConfig options the batch pipeline does not implement.
+
+    ``center_fields`` and ``inertia="ufl"`` exist only in the lazy
+    :class:`~osiris_utils.ar.AnomalousResistivity` path.  Building a database
+    from such a config would silently write the uncentred, ``vfl1`` tensors.
+    """
+    unsupported = []
+    if flags.center_fields:
+        unsupported.append("center_fields=True")
+    if flags.inertia != "vfl":
+        unsupported.append(f"inertia={flags.inertia!r}")
+    if unsupported:
+        raise NotImplementedError(
+            f"The database builders do not implement {', '.join(unsupported)} of AnomalousResistivityConfig; "
+            "only AnomalousResistivity does. Leave them at their defaults for a database build."
+        )
+
+
 def _load_filtered_fields(
     raw: dict[str, Any],
     names: Sequence[str],
@@ -686,6 +705,7 @@ class DatabaseCreator:
         build_vnT = database in {"vnT", "all"}
         need_mean_field = build_input or build_output or build_vlasov
 
+        _refuse_lazy_only_options(flags)
         filt = _resolve_filter(cfg.filters, flags.filters)
         dx = float(self.simulation["e1"].dx[0])  # longitudinal grid spacing
         dx2 = float(self.simulation["e1"].dx[1])  # transverse grid spacing
