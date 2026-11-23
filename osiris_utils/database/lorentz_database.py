@@ -10,7 +10,7 @@ from ..ar import AnomalousResistivityConfig
 from ..filters import NoFilter, fd_derivative
 from ..profiling import profile_block
 from .burst import BurstAxis, BurstConfig
-from .database import _VALID_ETA_FORMULAS, DatabaseCreator, _resolve_filter, _stack_rows
+from .database import _VALID_ETA_FORMULAS, DatabaseCreator, _refuse_lazy_only_options, _resolve_filter, _stack_rows
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -302,6 +302,7 @@ class LorentzDatabaseCreator(DatabaseCreator):
         build_output = database in {"output", "InOut", "all"}
         build_vlasov = database in {"e_vlasov", "all"}
 
+        _refuse_lazy_only_options(flags)
         filt = _resolve_filter(cfg.filters, flags.filters)
         dx = float(self.simulation["e1"].dx[0])  # longitudinal grid spacing
         dx2 = float(self.simulation["e1"].dx[1])  # transverse grid spacing
