@@ -191,6 +191,18 @@ def test_create_file_tags_still_writes_absolute_sorted_tags(tmp_path):
     assert rows == [["2", "5"], ["3", "1"]]
 
 
+def test_create_file_tags_fixed_width_columns(tmp_path):
+    """OSIRIS reads (I12,I12): node ids >= 1000 must stay inside columns 1-12."""
+    out = tmp_path / "tags.txt"
+
+    create_file_tags(str(out), np.array([[5376, 1234], [12, 123456789]]))
+
+    lines = out.read_text().splitlines()
+    assert int(lines[3][:12]) == 2
+    rows = [(int(line[:12]), int(line[12:24])) for line in lines[5:]]
+    assert rows == [(12, 123456789), (5376, 1234)]
+
+
 def test_create_file_tags_accepts_a_list(tmp_path):
     """A plain nested list must work — it has no .copy()/fancy indexing of its own."""
     out = tmp_path / "tags.txt"

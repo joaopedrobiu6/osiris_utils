@@ -296,9 +296,8 @@ def create_file_tags(filename: str, tags_array: np.ndarray) -> str:
         file.write("! particle tag list\n")
         file.write(f"! generated on {datetime.now().strftime('%a %b %d %H:%M:%S %Y')}\n")
         file.write("! number of tags\n")
-        file.write(f"       {num_tags}\n")
+        file.write(f"{num_tags:12d}\n")
         file.write("! particle tag list\n")
-
-        for i in range(num_tags):
-            file.write(f"         {tags_array[i, 0]:<6}{tags_array[i, 1]:>6}\n")
+        # OSIRIS reads each line with the fixed-width format (I12,I12): columns 1-12 and 13-24.
+        np.savetxt(file, tags_array, fmt="%12d%12d")
     return filename
