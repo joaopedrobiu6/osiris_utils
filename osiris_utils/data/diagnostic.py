@@ -1183,6 +1183,16 @@ class Diagnostic:
             return np.arange(self._maxiter or 0, dtype=np.int64) * ndump
         return iterations
 
+    @property
+    def centers(self) -> np.ndarray | list[np.ndarray]:
+        """Return the coordinate array(s) of the cell centers.
+
+        For 1D data, returns a single array. For >1D data, returns a list of arrays.
+        """
+        iterations = self.iterations
+        ndump = self._ndump if self._ndump else 1
+        return np.where(iterations % ndump == 0)[0]
+
     def index_of_iteration(self, iteration: int) -> int:
         """Frame index holding OSIRIS iteration *iteration*.
 
